@@ -319,7 +319,7 @@ public final class DebugRadarBlockEntity extends BlockEntity {
                 : "[]";
         RadarDiagnostics.log("scan_completed", networkId, endpoint, epoch, tick,
                 "candidates=" + result.candidateCount()
-                        + " acceptedEntities=" + result.acceptedEntityCount()
+                        + " acceptedHitboxes=" + result.acceptedHitboxCount()
                         + " found=" + result.detections().size()
                         + " foundRefs=" + foundRefs
                         + " durationNanos=" + durationNanos);

@@ -8,7 +8,7 @@ import com.electroradar.radar.network.EndpointKey;
 import com.electroradar.radar.network.NetworkId;
 
 /**
- * Общий INFO-журнал сканера и сетевого ядра.
+ * Общий журнал сканера и сетевого ядра: подробные события на INFO, ошибки на ERROR.
  *
  * <p>Единая точка логирования удерживает один формат полей для событий, которые происходят
  * в разных слоях: по network, radar, epoch и tick можно восстановить путь одного отчёта.
@@ -22,6 +22,7 @@ public final class RadarDiagnostics {
     /**
      * Единственный переключатель подробной диагностики для всех серверных сетей.
      * Выключается без пересборки JVM-флагом {@code -Delectroradar.diagnostics=false}.
+     * Ошибки продолжают записываться независимо от этого флага.
      */
     private static final boolean ENABLED =
             Boolean.parseBoolean(System.getProperty("electroradar.diagnostics", "true"));
@@ -66,12 +67,14 @@ public final class RadarDiagnostics {
     }
 
     /**
-     * Записывает контекст события и само исключение на INFO с полным stack trace.
+     * Записывает контекст ошибки и само исключение на ERROR с полным stack trace.
      *
      * <p>Причину нельзя сводить к имени класса и тексту сообщения: строки стека показывают,
      * в каком именно вызове сломалась регистрация, сканирование или сдача отчёта. Последний
      * аргумент Throwable передаётся логгеру отдельно, поэтому SLF4J печатает stack trace.
-     * Дополнительные подробности нужны для параметров операции, например длительности скана.</p>
+     * Дополнительные подробности нужны для параметров операции, например длительности скана.
+     * Ошибки нельзя отключать вместе с подробными событиями: вызывающий код перехватывает
+     * исключения, и иначе причина остановки радара исчезнет из журнала.</p>
      */
     public static void logException(
             String event,
@@ -82,10 +85,7 @@ public final class RadarDiagnostics {
             String details,
             Throwable exception
     ) {
-        if (!ENABLED) {
-            return;
-        }
-        LOGGER.info("[ElectroRadar/RadarDebug] event={} network={} radar={} epoch={} tick={} {} exception={}",
+        LOGGER.error("[ElectroRadar/RadarDebug] event={} network={} radar={} epoch={} tick={} {} exception={}",
                 event,
                 network == null ? "-" : network.value(),
                 radar == null ? "-" : radar,

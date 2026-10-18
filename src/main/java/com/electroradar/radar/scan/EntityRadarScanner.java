@@ -113,13 +113,13 @@ public final class EntityRadarScanner {
     /**
      * Полный неизменяемый результат одного прохода.
      * {@code candidateCount} считает фрагменты hitbox (сущности и части), прошедшие грубый
-     * AABB-запрос и допуск их цели; {@code acceptedEntityCount} считает фрагменты, прошедшие ещё
+     * AABB-запрос и допуск их цели; {@code acceptedHitboxCount} считает фрагменты, прошедшие ещё
      * и точную форму, до дедупликации по цели; {@code detections} содержит уникальные цели
      * для сетевого API. Поэтому у дракона, задетого тремя частями, accepted=3, а обнаружение одно.
      */
-    public record ScanResult(int candidateCount, int acceptedEntityCount, List<RadarDetection> detections) {
+    public record ScanResult(int candidateCount, int acceptedHitboxCount, List<RadarDetection> detections) {
         public ScanResult {
-            if (candidateCount < 0 || acceptedEntityCount < 0 || acceptedEntityCount > candidateCount) {
+            if (candidateCount < 0 || acceptedHitboxCount < 0 || acceptedHitboxCount > candidateCount) {
                 throw new IllegalArgumentException("Scan counts are invalid");
             }
             detections = List.copyOf(detections);
