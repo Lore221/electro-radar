@@ -1,0 +1,10 @@
+* text=auto
+
+# Shell-скрипт wrapper должен иметь LF, иначе ./gradlew падает с "/bin/sh^M" в Git Bash/WSL/Linux.
+gradlew text eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+*.jar binary
+*.png binary
