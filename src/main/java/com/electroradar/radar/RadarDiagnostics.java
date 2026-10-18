@@ -19,11 +19,19 @@ import com.electroradar.radar.network.NetworkId;
 public final class RadarDiagnostics {
     private static final Logger LOGGER = LogUtils.getLogger();
 
-    /** Единственный переключатель подробной диагностики для всех серверных сетей. */
-    private static final boolean ENABLED = true;
+    /**
+     * Единственный переключатель подробной диагностики для всех серверных сетей.
+     * Выключается без пересборки JVM-флагом {@code -Delectroradar.diagnostics=false}.
+     */
+    private static final boolean ENABLED =
+            Boolean.parseBoolean(System.getProperty("electroradar.diagnostics", "true"));
 
-    /** Отдельный opt-in для частых чтений; по умолчанию запросы потребителей не засоряют INFO. */
-    private static final boolean QUERY_DIAGNOSTICS_ENABLED = false;
+    /**
+     * Отдельный opt-in для частых чтений; по умолчанию запросы потребителей не засоряют INFO.
+     * Включается флагом {@code -Delectroradar.diagnostics.queries=true}.
+     */
+    private static final boolean QUERY_DIAGNOSTICS_ENABLED =
+            Boolean.parseBoolean(System.getProperty("electroradar.diagnostics.queries", "false"));
 
     private RadarDiagnostics() {
     }
