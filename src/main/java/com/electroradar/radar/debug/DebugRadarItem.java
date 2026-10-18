@@ -1,15 +1,12 @@
 package com.electroradar.radar.debug;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.component.DataComponents;
-import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
@@ -19,6 +16,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import com.electroradar.radar.RadarDiagnostics;
 import com.electroradar.radar.network.EndpointKey;
 import com.electroradar.radar.network.NetworkId;
+import com.electroradar.radar.network.NetworkItemBinding;
 
 /**
  * Предмет временного радара: позволяет привязать стопку к сети и передать эту связь новым блокам.
@@ -26,9 +24,6 @@ import com.electroradar.radar.network.NetworkId;
  * остаются нетронутыми, а runtime-токены и состояние сети никогда не копируются.
  */
 public final class DebugRadarItem extends BlockItem {
-    /** Собственный namespaced-ключ не конфликтует с прочими данными компонента CUSTOM_DATA. */
-    private static final String NETWORK_ID_TAG = "electroradar:debug_radar_network_id";
-
     public DebugRadarItem(Block block, Properties properties) {
         super(block, properties);
     }
@@ -61,7 +56,7 @@ public final class DebugRadarItem extends BlockItem {
         }
 
         NetworkId networkId = radar.getOrCreateNetworkIdForBinding();
-        writeNetworkId(context.getItemInHand(), networkId);
+        NetworkItemBinding.write(context.getItemInHand(), networkId);
         RadarDiagnostics.log("radar_item_bound", networkId, endpoint, null,
                 radar.currentTickForDiagnostics(), "item=debug_radar action=bind_or_replace");
 
@@ -79,7 +74,7 @@ public final class DebugRadarItem extends BlockItem {
      */
     @Override
     public InteractionResult place(BlockPlaceContext context) {
-        NetworkId boundNetworkId = readNetworkId(context.getItemInHand());
+        NetworkId boundNetworkId = NetworkItemBinding.read(context.getItemInHand());
         BlockPos placementPosition = context.getClickedPos();
         InteractionResult result = super.place(context);
         Level level = context.getLevel();
@@ -99,15 +94,4 @@ public final class DebugRadarItem extends BlockItem {
         return result;
     }
 
-    /** Возвращает только корректный UUID из собственного ключа, не меняя данные предмета. */
-    private static NetworkId readNetworkId(ItemStack stack) {
-        CompoundTag customData = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).copyTag();
-        return customData.hasUUID(NETWORK_ID_TAG) ? new NetworkId(customData.getUUID(NETWORK_ID_TAG)) : null;
-    }
-
-    /** Обновляет только свой ключ; CustomData.update сохраняет все соседние пользовательские поля. */
-    private static void writeNetworkId(ItemStack stack, NetworkId networkId) {
-        CustomData.update(DataComponents.CUSTOM_DATA, stack,
-                customData -> customData.putUUID(NETWORK_ID_TAG, networkId.value()));
-    }
 }

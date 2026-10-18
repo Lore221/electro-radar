@@ -3,6 +3,11 @@ plugins {
     id 'net.neoforged.moddev' version '2.0.148'
 }
 
+repositories {
+    maven { url = 'https://maven.createmod.net' }
+    maven { url = 'https://mvn.devos.one/snapshots' }
+}
+
 version = project.mod_version
 group = project.mod_group_id
 
@@ -11,6 +16,18 @@ base {
 }
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+dependencies {
+    // Версии перенесены из Power-radar для Minecraft 1.21.1; slim-вариант Create
+    // не дублирует NeoForge и зависимости, которые подключены ниже отдельно.
+    implementation("com.simibubi.create:create-${project.minecraft_version}:6.0.10-280:slim") {
+        transitive = false
+    }
+    implementation "net.createmod.ponder:ponder-neoforge:1.0.82+mc${project.minecraft_version}"
+    compileOnly "dev.engine-room.flywheel:flywheel-neoforge-api-${project.minecraft_version}:1.0.6"
+    runtimeOnly "dev.engine-room.flywheel:flywheel-neoforge-${project.minecraft_version}:1.0.6"
+    implementation 'com.tterrag.registrate:Registrate:MC1.21-1.3.0+67'
+}
 
 neoForge {
     version = project.neo_version

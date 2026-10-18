@@ -1,0 +1,18 @@
+{
+  "block.electroradar.radar_display": "Панель монитора радара",
+  "item.electroradar.radar_display": "Панель монитора радара",
+  "screen.electroradar.monitor.title": "РАДАРНЫЙ МОНИТОР",
+  "message.electroradar.monitor.bound": "Монитор подключён к радарной сети",
+  "message.electroradar.monitor.network_mismatch": "Эта панель привязана к другой радарной сети",
+  "message.electroradar.monitor.inactive": "Эта панель монитора неактивна",
+  "message.electroradar.monitor.waiting": "Ожидание данных монитора",
+  "message.electroradar.monitor.no_binding": "Радарная сеть не привязана",
+  "message.electroradar.monitor.no_targets": "В сети нет видимых целей",
+  "message.electroradar.monitor.remembering": "Сеть помнит пропущенные цели",
+  "message.electroradar.monitor.targets_visible": "Обнаружены цели",
+  "message.electroradar.monitor.selection_unavailable": "Выбранная цель сейчас недоступна",
+  "gui.electroradar.monitor.north": "ВПЕРЁД",
+  "gui.electroradar.monitor.contacts": "Целей: %s",
+  "gui.electroradar.monitor.unknown_contact": "Неизвестная цель",
+  "gui.electroradar.monitor.controls": "Колесо: масштаб  |  Перетаскивание: сдвиг  |  ЛКМ: выбрать  |  ПКМ: снять выбор"
+}

@@ -153,7 +153,7 @@ public final class DebugRadarBlockEntity extends BlockEntity {
      * DebugRadarItem; если игрок успел нажать на блок до его первого тика, ID создаётся и блок
      * сразу помечается изменённым, чтобы значение сохранилось в NBT.
      */
-    NetworkId getOrCreateNetworkIdForBinding() {
+    public NetworkId getOrCreateNetworkIdForBinding() {
         if (!(level instanceof ServerLevel serverLevel)) {
             throw new IllegalStateException("A debug radar network can only be read on the server");
         }
