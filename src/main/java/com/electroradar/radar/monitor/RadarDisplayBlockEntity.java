@@ -69,9 +69,13 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
     /** Не повторяет stack trace проверки одного runtime-handle до следующей успешной проверки. */
     private boolean connectionCheckFailureLogged;
     private MonitorSnapshotData latestSnapshot;
-    private long lastSentEpoch = Long.MIN_VALUE;
-    private long lastSentRevision = Long.MIN_VALUE;
-    private long lastSentStructureVersion = Long.MIN_VALUE;
+    /**
+     * Номер последнего собранного снимка этой загрузки. Он только растёт, и по нему клиент
+     * упорядочивает снимки. Сбрасывать его безопасно лишь вместе со сменой loadId: снимки
+     * новой загрузки клиент хранит под другим ключом.
+     */
+    private long snapshotSequence;
+    private long lastSentSequence = -1L;
 
     public RadarDisplayBlockEntity(BlockPos position, BlockState state) {
         super(RadarDisplayContent.RADAR_DISPLAY_ENTITY.get(), position, state);
@@ -85,9 +89,7 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
         registrationFailureLogged = false;
         connectionCheckFailureLogged = false;
         latestSnapshot = null;
-        lastSentEpoch = Long.MIN_VALUE;
-        lastSentRevision = Long.MIN_VALUE;
-        lastSentStructureVersion = Long.MIN_VALUE;
+        lastSentSequence = -1L;
         assemblyDirty = true;
         if (level instanceof ServerLevel) {
             loadId = UUID.randomUUID();
@@ -500,7 +502,7 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
                 && latestSnapshot.linked() == linked;
         if (!sameVersion) {
             latestSnapshot = new MonitorSnapshotData(displayId, worldPosition,
-                    serverLevel.dimension().location(), loadId, structureVersion,
+                    serverLevel.dimension().location(), loadId, ++snapshotSequence, structureVersion,
                     targetSnapshot.publishedEpoch(), targetSnapshot.revision(), linked,
                     unavailable, chosen, targets);
             RadarMonitorDiagnostics.snapshotReceived(serverLevel, this, latestSnapshot);
@@ -540,15 +542,11 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
     }
 
     private boolean hasSnapshotChangedSinceBroadcast() {
-        return latestSnapshot != null && (latestSnapshot.publishedEpoch() != lastSentEpoch
-                || latestSnapshot.revision() != lastSentRevision
-                || latestSnapshot.structureVersion() != lastSentStructureVersion);
+        return latestSnapshot != null && latestSnapshot.sequence() != lastSentSequence;
     }
 
     private void rememberSentVersion() {
-        lastSentEpoch = latestSnapshot.publishedEpoch();
-        lastSentRevision = latestSnapshot.revision();
-        lastSentStructureVersion = latestSnapshot.structureVersion();
+        lastSentSequence = latestSnapshot.sequence();
     }
 
     private static MonitorTargetData projectTarget(TargetView view) {
@@ -695,9 +693,7 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
         latestSnapshot = null;
         // Новому владельцу нужно разослать первый снимок всем наблюдателям даже при совпавшей
         // версии сети с прежним корнем; история доставки принадлежит конкретной загрузке корня.
-        lastSentEpoch = Long.MIN_VALUE;
-        lastSentRevision = Long.MIN_VALUE;
-        lastSentStructureVersion = Long.MIN_VALUE;
+        lastSentSequence = -1L;
         registrationFailureLogged = false;
         connectionCheckFailureLogged = false;
         assemblyDirty = true;

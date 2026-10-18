@@ -40,7 +40,9 @@ public final class MonitorPayloads {
     /** Отправляет актуальные снимки корней, содержащихся в только что переданном клиенту чанке. */
     public static void onChunkWatched(ChunkWatchEvent.Sent event) {
         ServerPlayer player = event.getPlayer();
-        for (var blockEntity : event.getChunk().getBlockEntities().values()) {
+        // sendTo может пересобрать конструкцию и вызвать setBlock в этом же чанке, поэтому
+        // обходим копию, а не живую карту BlockEntity чанка.
+        for (var blockEntity : java.util.List.copyOf(event.getChunk().getBlockEntities().values())) {
             if (blockEntity instanceof RadarDisplayBlockEntity display && display.isRoot()) {
                 display.sendTo(player);
             }

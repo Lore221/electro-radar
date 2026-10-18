@@ -27,7 +27,7 @@ import com.electroradar.radar.network.TargetRef;
 public final class MonitorClientState {
     private static final Map<MonitorDisplayKey, View> VIEWS = new HashMap<>();
     private static final Map<PartKey, PendingParts> PENDING = new HashMap<>();
-    private static final Map<MonitorDisplayKey, SnapshotVersion> PENDING_VERSIONS = new HashMap<>();
+    private static final Map<MonitorDisplayKey, Long> PENDING_SEQUENCES = new HashMap<>();
     private static ClientLevel currentLevel;
 
     private MonitorClientState() {
@@ -62,22 +62,19 @@ public final class MonitorClientState {
         }
         MonitorDisplayKey key = new MonitorDisplayKey(part.dimension(), part.rootPosition(),
                 part.displayId(), part.loadId());
+        // Порядок задаёт только sequence корня (см. MonitorSnapshotData): epoch сети может
+        // начаться заново с нуля, и снимок с меньшим epoch бывает новее показанного.
         View current = VIEWS.get(key);
-        if (current != null && compare(part.structureVersion(), part.publishedEpoch(), part.revision(),
-                current.snapshot().structureVersion(), current.snapshot().publishedEpoch(),
-                current.snapshot().revision()) < 0) {
+        if (current != null && part.sequence() < current.snapshot().sequence()) {
             return;
         }
-        SnapshotVersion incomingVersion = new SnapshotVersion(
-                part.structureVersion(), part.publishedEpoch(), part.revision());
-        SnapshotVersion pendingVersion = PENDING_VERSIONS.get(key);
-        if (pendingVersion != null && incomingVersion.compareTo(pendingVersion) < 0) return;
-        if (pendingVersion == null || incomingVersion.compareTo(pendingVersion) > 0) {
+        Long pendingSequence = PENDING_SEQUENCES.get(key);
+        if (pendingSequence != null && part.sequence() < pendingSequence) return;
+        if (pendingSequence == null || part.sequence() > pendingSequence) {
             PENDING.keySet().removeIf(existing -> existing.display.equals(key));
-            PENDING_VERSIONS.put(key, incomingVersion);
+            PENDING_SEQUENCES.put(key, part.sequence());
         }
-        PartKey partKey = new PartKey(key, part.structureVersion(), part.publishedEpoch(),
-                part.revision(), part.partCount());
+        PartKey partKey = new PartKey(key, part.sequence(), part.partCount());
         PendingParts pending = PENDING.computeIfAbsent(partKey,
                 ignored -> new PendingParts(part.partCount(), level.getGameTime()));
         if (pending.parts[part.partIndex()] == null) {
@@ -98,7 +95,7 @@ public final class MonitorClientState {
         }
         PENDING.remove(partKey);
         apply(key, snapshot);
-        PENDING_VERSIONS.remove(key);
+        PENDING_SEQUENCES.remove(key);
     }
 
     /** Возвращает актуальный клиентский вид, если корень всё ещё загружен и совпадает по идентичности. */
@@ -120,7 +117,7 @@ public final class MonitorClientState {
     public static void clear() {
         VIEWS.clear();
         PENDING.clear();
-        PENDING_VERSIONS.clear();
+        PENDING_SEQUENCES.clear();
         currentLevel = null;
     }
 
@@ -134,7 +131,7 @@ public final class MonitorClientState {
                 || level.hasChunkAt(entry.getKey().display.rootPosition())
                 && !matchesLoadedRoot(level, entry.getKey().display.rootPosition(),
                 entry.getKey().display.displayId(), entry.getKey().display.loadId()));
-        PENDING_VERSIONS.keySet().removeIf(key -> PENDING.keySet().stream()
+        PENDING_SEQUENCES.keySet().removeIf(key -> PENDING.keySet().stream()
                 .noneMatch(part -> part.display.equals(key)));
     }
 
@@ -176,20 +173,12 @@ public final class MonitorClientState {
         VIEWS.put(key, new View(key, snapshot, displayTargets));
     }
 
-    private static int compare(long structureA, long epochA, long revisionA,
-                               long structureB, long epochB, long revisionB) {
-        int structure = Long.compare(structureA, structureB);
-        if (structure != 0) return structure;
-        int epoch = Long.compare(epochA, epochB);
-        return epoch != 0 ? epoch : Long.compare(revisionA, revisionB);
-    }
-
     private static ClientLevel currentLevel() {
         ClientLevel level = Minecraft.getInstance().level;
         if (level != currentLevel) {
             VIEWS.clear();
             PENDING.clear();
-            PENDING_VERSIONS.clear();
+            PENDING_SEQUENCES.clear();
             currentLevel = level;
         }
         return level;
@@ -205,17 +194,7 @@ public final class MonitorClientState {
                 && loadId.equals(root.loadId());
     }
 
-    private record PartKey(MonitorDisplayKey display, long structureVersion, long epoch,
-                           long revision, int partCount) {
-    }
-
-    private record SnapshotVersion(long structureVersion, long epoch, long revision)
-            implements Comparable<SnapshotVersion> {
-        @Override
-        public int compareTo(SnapshotVersion other) {
-            return compare(structureVersion, epoch, revision,
-                    other.structureVersion, other.epoch, other.revision);
-        }
+    private record PartKey(MonitorDisplayKey display, long sequence, int partCount) {
     }
 
     private static final class PendingParts {
