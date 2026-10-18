@@ -8,6 +8,7 @@ import java.util.function.Predicate;
 
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
+import net.neoforged.neoforge.entity.PartEntity;
 
 import com.electroradar.radar.network.RadarDetection;
 import com.electroradar.radar.network.TargetRef;
@@ -41,8 +42,10 @@ public final class EntityRadarScanner {
         Objects.requireNonNull(area, "area");
         Objects.requireNonNull(eligibility, "eligibility");
 
+        // NeoForge добавляет в выборку части составных сущностей (например, дракона). У части свой
+        // UUID, но ServerLevel.getEntity(UUID) её не находит, поэтому целью остаётся только родитель.
         List<Entity> candidates = level.getEntities((Entity) null, area.queryBounds(),
-                entity -> entity.isAlive() && eligibility.test(entity));
+                entity -> !(entity instanceof PartEntity<?>) && entity.isAlive() && eligibility.test(entity));
         Map<TargetRef, RadarDetection> found = new LinkedHashMap<>();
         int acceptedEntities = 0;
         for (Entity entity : candidates) {
