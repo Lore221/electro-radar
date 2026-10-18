@@ -17,7 +17,7 @@ import com.electroradar.radar.monitor.network.MonitorOpenPayload;
 import com.electroradar.radar.monitor.network.MonitorSnapshotPayload;
 
 /** Только клиентские регистрации: Create CT, корневой рендерер и обслуживание временного кэша. */
-@EventBusSubscriber(modid = ElectroRadar.MOD_ID, value = Dist.CLIENT, bus = EventBusSubscriber.Bus.MOD)
+@EventBusSubscriber(modid = ElectroRadar.MOD_ID, value = Dist.CLIENT)
 public final class MonitorClientEvents {
     private MonitorClientEvents() {
     }

@@ -28,6 +28,7 @@ public record MonitorSnapshotPayload(
         BlockPos rootPosition,
         ResourceLocation dimension,
         UUID loadId,
+        long sequence,
         long structureVersion,
         long publishedEpoch,
         long revision,
@@ -50,7 +51,7 @@ public record MonitorSnapshotPayload(
         Objects.requireNonNull(dimension, "dimension");
         Objects.requireNonNull(loadId, "loadId");
         targets = List.copyOf(targets);
-        if (structureVersion < 0 || publishedEpoch < 0 || revision < 0
+        if (sequence < 0 || structureVersion < 0 || publishedEpoch < 0 || revision < 0
                 || partCount < 1 || partCount > 65_536
                 || partIndex < 0 || partIndex >= partCount || targets.size() > TARGETS_PER_PART) {
             throw new IllegalArgumentException("Invalid monitor snapshot part bounds");
@@ -65,7 +66,7 @@ public record MonitorSnapshotPayload(
             int from = index * TARGETS_PER_PART;
             int to = Math.min(snapshot.targets().size(), from + TARGETS_PER_PART);
             parts.add(new MonitorSnapshotPayload(snapshot.displayId(), snapshot.rootPosition(),
-                    snapshot.dimension(), snapshot.loadId(), snapshot.structureVersion(),
+                    snapshot.dimension(), snapshot.loadId(), snapshot.sequence(), snapshot.structureVersion(),
                     snapshot.publishedEpoch(), snapshot.revision(), snapshot.linked(),
                     snapshot.selectedTargetUnavailable(), snapshot.selectedTarget(), index, count,
                     snapshot.targets().subList(from, to)));
@@ -76,7 +77,7 @@ public record MonitorSnapshotPayload(
     /** Собирает завершённую на клиенте серию частей обратно в неизменяемую запись. */
     public MonitorSnapshotData asSnapshot(List<MonitorTargetData> allTargets) {
         return new MonitorSnapshotData(displayId, rootPosition, dimension, loadId,
-                structureVersion, publishedEpoch, revision, linked,
+                sequence, structureVersion, publishedEpoch, revision, linked,
                 selectedTargetUnavailable, selectedTarget, allTargets);
     }
 
@@ -90,6 +91,7 @@ public record MonitorSnapshotPayload(
         buffer.writeBlockPos(payload.rootPosition);
         buffer.writeResourceLocation(payload.dimension);
         buffer.writeUUID(payload.loadId);
+        buffer.writeVarLong(payload.sequence);
         buffer.writeVarLong(payload.structureVersion);
         buffer.writeVarLong(payload.publishedEpoch);
         buffer.writeVarLong(payload.revision);
@@ -117,6 +119,7 @@ public record MonitorSnapshotPayload(
         BlockPos root = buffer.readBlockPos();
         ResourceLocation dimension = buffer.readResourceLocation();
         UUID loadId = buffer.readUUID();
+        long sequence = buffer.readVarLong();
         long structureVersion = buffer.readVarLong();
         long epoch = buffer.readVarLong();
         long revision = buffer.readVarLong();
@@ -147,7 +150,7 @@ public record MonitorSnapshotPayload(
             targets.add(new MonitorTargetData(ref, detected, hasPosition, x, y, z, typeId));
         }
         return new MonitorSnapshotPayload(displayId, root, dimension, loadId,
-                structureVersion, epoch, revision, linked, selectionUnavailable,
+                sequence, structureVersion, epoch, revision, linked, selectionUnavailable,
                 selected, index, count, targets);
     }
 
