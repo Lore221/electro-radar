@@ -1,0 +1,628 @@
+{
+  "multipart": [
+    {
+      "when": {
+        "facing": "north",
+        "frame_shape": "single"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/single"
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "frame_shape": "center"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/center"
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "frame_shape": "top"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/top"
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "frame_shape": "bottom"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/bottom"
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "frame_shape": "left"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/left"
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "frame_shape": "right"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/right"
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "frame_shape": "top_left"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/top_left"
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "frame_shape": "top_right"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/top_right"
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "frame_shape": "bottom_left"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/bottom_left"
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "frame_shape": "bottom_right"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/bottom_right"
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "frame_shape": "vertical"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/vertical"
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "frame_shape": "vertical_top"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/vertical_top"
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "frame_shape": "vertical_bottom"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/vertical_bottom"
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "frame_shape": "horizontal"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/horizontal"
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "frame_shape": "horizontal_left"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/horizontal_left"
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "frame_shape": "horizontal_right"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/horizontal_right"
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "frame_shape": "single"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/single",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "frame_shape": "center"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/center",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "frame_shape": "top"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/top",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "frame_shape": "bottom"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/bottom",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "frame_shape": "left"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/left",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "frame_shape": "right"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/right",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "frame_shape": "top_left"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/top_left",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "frame_shape": "top_right"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/top_right",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "frame_shape": "bottom_left"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/bottom_left",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "frame_shape": "bottom_right"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/bottom_right",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "frame_shape": "vertical"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/vertical",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "frame_shape": "vertical_top"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/vertical_top",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "frame_shape": "vertical_bottom"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/vertical_bottom",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "frame_shape": "horizontal"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/horizontal",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "frame_shape": "horizontal_left"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/horizontal_left",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "frame_shape": "horizontal_right"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/horizontal_right",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "frame_shape": "single"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/single",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "frame_shape": "center"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/center",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "frame_shape": "top"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/top",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "frame_shape": "bottom"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/bottom",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "frame_shape": "left"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/left",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "frame_shape": "right"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/right",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "frame_shape": "top_left"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/top_left",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "frame_shape": "top_right"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/top_right",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "frame_shape": "bottom_left"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/bottom_left",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "frame_shape": "bottom_right"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/bottom_right",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "frame_shape": "vertical"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/vertical",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "frame_shape": "vertical_top"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/vertical_top",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "frame_shape": "vertical_bottom"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/vertical_bottom",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "frame_shape": "horizontal"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/horizontal",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "frame_shape": "horizontal_left"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/horizontal_left",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "frame_shape": "horizontal_right"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/horizontal_right",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "frame_shape": "single"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/single",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "frame_shape": "center"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/center",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "frame_shape": "top"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/top",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "frame_shape": "bottom"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/bottom",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "frame_shape": "left"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/left",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "frame_shape": "right"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/right",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "frame_shape": "top_left"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/top_left",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "frame_shape": "top_right"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/top_right",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "frame_shape": "bottom_left"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/bottom_left",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "frame_shape": "bottom_right"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/bottom_right",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "frame_shape": "vertical"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/vertical",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "frame_shape": "vertical_top"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/vertical_top",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "frame_shape": "vertical_bottom"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/vertical_bottom",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "frame_shape": "horizontal"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/horizontal",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "frame_shape": "horizontal_left"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/horizontal_left",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "frame_shape": "horizontal_right"
+      },
+      "apply": {
+        "model": "electroradar:block/radar_display/horizontal_right",
+        "y": 270
+      }
+    }
+  ]
+}

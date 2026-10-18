@@ -1,0 +1,18 @@
+{
+  "block.electroradar.radar_display": "Radar Monitor Panel",
+  "item.electroradar.radar_display": "Radar Monitor Panel",
+  "screen.electroradar.monitor.title": "RADAR MONITOR",
+  "message.electroradar.monitor.bound": "Monitor connected to radar network",
+  "message.electroradar.monitor.network_mismatch": "This panel belongs to another radar network",
+  "message.electroradar.monitor.inactive": "This monitor panel is not active",
+  "message.electroradar.monitor.waiting": "Waiting for monitor data",
+  "message.electroradar.monitor.no_binding": "No radar network bound",
+  "message.electroradar.monitor.no_targets": "Network has no visible targets",
+  "message.electroradar.monitor.remembering": "Network is remembering missed targets",
+  "message.electroradar.monitor.targets_visible": "Targets detected",
+  "message.electroradar.monitor.selection_unavailable": "Selected target is currently unavailable",
+  "gui.electroradar.monitor.north": "FRONT",
+  "gui.electroradar.monitor.contacts": "Contacts: %s",
+  "gui.electroradar.monitor.unknown_contact": "Unknown contact",
+  "gui.electroradar.monitor.controls": "Wheel: zoom  |  Drag: pan  |  Left click: select  |  Right click: clear"
+}
