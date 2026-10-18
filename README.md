@@ -21,5 +21,5 @@
 Подробный журнал радаров (`[ElectroRadar/RadarDebug]`) включён по умолчанию. Его можно
 настроить JVM-флагами без пересборки:
 
-- `-Delectroradar.diagnostics=false` — выключить журнал полностью;
+- `-Delectroradar.diagnostics=false` — выключить подробные события; ошибки останутся в журнале;
 - `-Delectroradar.diagnostics.queries=true` — дополнительно писать запросы потребителей.
