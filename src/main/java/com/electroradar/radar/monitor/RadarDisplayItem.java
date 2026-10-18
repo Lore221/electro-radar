@@ -17,12 +17,13 @@ import com.electroradar.radar.debug.DebugRadarBlockEntity;
 import com.electroradar.radar.debug.DebugRadarContent;
 import com.electroradar.radar.network.NetworkId;
 import com.electroradar.radar.network.NetworkItemBinding;
+import com.electroradar.radar.network.NetworkOutlineActivatingItem;
 
 /**
  * Предмет монитора. Его ПКМ по тестовому радару записывает только NetworkId, а обычное размещение
  * переносит привязку на новую панель до первой серверной регистрации корневого потребителя.
  */
-public final class RadarDisplayItem extends BlockItem {
+public final class RadarDisplayItem extends BlockItem implements NetworkOutlineActivatingItem {
     public RadarDisplayItem(Block block, Properties properties) {
         super(block, properties);
     }

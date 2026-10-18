@@ -35,7 +35,7 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
             ElectroRadar.MOD_ID, "textures/gui/radar_monitor/radar_screen_back.png");
 
     /** Временный тестовый радар показывает диаметр карты 200 блоков; CEE тут нет. */
-    private static final double MAP_DIAMETER_BLOCKS = 200.0D;
+    static final double MAP_DIAMETER_BLOCKS = 200.0D;
     /** Опорный диапазон для размера метки; совпадает с фиксированным диапазоном тестового экрана. */
     private static final double REFERENCE_MAP_DIAMETER_BLOCKS = 200.0D;
     /** Физический внешний отступ: два пикселя 16-пиксельной панели с каждой стороны. */
@@ -106,7 +106,8 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
                 backgroundLeft, backgroundBottom, backgroundLeft + backgroundSide,
                 backgroundBottom + backgroundSide, packedOverlay);
         drawMapLayers(display, poseStack, buffers, facing, origin, width, height,
-                centerU, centerV, contentLeft, contentBottom, contentSide, mapRadius, packedOverlay);
+                centerU, centerV, contentLeft, contentBottom, contentSide, mapRadius,
+                packedOverlay, partialTick);
         poseStack.popPose();
     }
 
@@ -147,18 +148,18 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
                 255, 255, 255, 255, packedOverlay, BACKGROUND_FACE_OFFSET);
     }
 
-    /** Рисует слои в порядке: метки, серверные рамки, мировая сетка поверх карты. */
+    /** Рисует область обзора под метками, затем сами метки/рамки и прежнюю мировую сетку. */
     private static void drawMapLayers(RadarDisplayBlockEntity display, PoseStack poseStack,
                                       MultiBufferSource buffers, Direction facing, BlockPos origin,
                                       int width, int height, double centerU, double centerV,
                                       double contentLeft, double contentBottom, double contentSide,
-                                      double mapRadius, int packedOverlay) {
+                                      double mapRadius, int packedOverlay, float partialTick) {
         Minecraft minecraft = Minecraft.getInstance();
         MonitorClientState.View view = null;
         if (minecraft.level != null) {
             MonitorDisplayKey key = new MonitorDisplayKey(minecraft.level.dimension().location(),
                     display.rootPosition(), display.displayId(), display.loadId());
-            view = MonitorClientState.get(key);
+            view = MonitorClientState.get(key, partialTick);
         }
         MonitorSnapshotData snapshot = view == null ? null : view.snapshot();
         double centerX = display.rectangleOrigin().getX() + 0.5D;
@@ -169,12 +170,15 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
         centerZ += right.getStepZ() * ((width - 1) * 0.5D);
 
         if (view != null && snapshot != null) {
+            MonitorSectorWorldRenderer.draw(display, poseStack, buffers, facing, origin,
+                    view, snapshot, centerX, centerZ, centerU, centerV,
+                    contentLeft, contentBottom, contentSide, mapRadius, packedOverlay);
             drawTargetIcons(display, poseStack, buffers, facing, origin, view, snapshot,
                     centerX, centerZ, centerU, centerV, contentLeft, contentBottom, contentSide,
-                    mapRadius, squareSide, packedOverlay, minecraft);
+                    mapRadius, squareSide, packedOverlay, partialTick);
             drawSelectedFrames(display, poseStack, buffers, facing, origin, view, snapshot,
                     centerX, centerZ, centerU, centerV, contentLeft, contentBottom, contentSide,
-                    mapRadius, squareSide, packedOverlay, minecraft);
+                    mapRadius, squareSide, packedOverlay, partialTick);
         }
 
         // Линии не притворяются секторами или CEE: это только масштабная мировая координатная сетка.
@@ -189,9 +193,9 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
                                         double centerX, double centerZ, double centerU, double centerV,
                                         double contentLeft, double contentBottom, double contentSide,
                                         double mapRadius, double squareSide, int packedOverlay,
-                                        Minecraft minecraft) {
+                                        float partialTick) {
         int index = 0;
-        long gameTime = minecraft.level == null ? 0L : minecraft.level.getGameTime();
+        double renderTime = MonitorClientState.renderTime(partialTick);
         double markerHalf = markerCellHalfSize(squareSide);
         for (MonitorClientState.DisplayTarget target : view.targets()) {
             if (!target.hasPosition()) continue;
@@ -201,7 +205,8 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
 
             double x = centerU + point.x() * mapRadius;
             double y = centerV + point.y() * mapRadius;
-            float opacity = target.rememberedOpacity(gameTime);
+            float opacity = view.targetOpacity(target, renderTime);
+            if (opacity <= 0.0F) continue;
             int alpha = Math.clamp(Math.round(255.0F * opacity), 0, 255);
             int color = MonitorTargetPalette.entityRgb(target);
             float depth = MARKER_FACE_OFFSET + (index++ % MARKER_DEPTH_LAYER_COUNT) * MARKER_FACE_OFFSET_STEP;
@@ -223,9 +228,9 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
                                            double centerX, double centerZ, double centerU, double centerV,
                                            double contentLeft, double contentBottom, double contentSide,
                                            double mapRadius, double squareSide, int packedOverlay,
-                                           Minecraft minecraft) {
+                                           float partialTick) {
         if (snapshot.selectedTarget() == null) return;
-        long gameTime = minecraft.level == null ? 0L : minecraft.level.getGameTime();
+        double gameTime = MonitorClientState.renderTime(partialTick);
         double frameHalf = markerCellHalfSize(squareSide);
         for (MonitorClientState.DisplayTarget target : view.targets()) {
             if (!target.hasPosition() || !snapshot.selectedTarget().equals(target.target())) continue;
@@ -362,11 +367,11 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
      * Создаёт мировую вершину в плоскости панели. Положительный faceOffset всегда направлен
      * к игроку для N/E/S/W; полный lightmap исключает зависимость свечения экрана от освещения.
      */
-    private static void surfaceVertex(VertexConsumer consumer, PoseStack poseStack,
-                                      RadarDisplayBlockEntity display, BlockPos origin, Direction facing,
-                                      double u, double v, float textureU, float textureV,
-                                      int red, int green, int blue, int alpha,
-                                      int packedOverlay, float faceOffset) {
+    static void surfaceVertex(VertexConsumer consumer, PoseStack poseStack,
+                              RadarDisplayBlockEntity display, BlockPos origin, Direction facing,
+                              double u, double v, float textureU, float textureV,
+                              int red, int green, int blue, int alpha,
+                              int packedOverlay, float faceOffset) {
         Direction right = RadarDisplayStructureResolver.right(facing);
         Vec3 position = new Vec3(origin.getX() + 0.5D, origin.getY() + 0.5D, origin.getZ() + 0.5D)
                 .add(right.getStepX() * (u - 0.5D), v - 0.5D, right.getStepZ() * (u - 0.5D))

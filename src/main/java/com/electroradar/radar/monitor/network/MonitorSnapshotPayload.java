@@ -1,7 +1,9 @@
 package com.electroradar.radar.monitor.network;
 
 import java.util.List;
+import java.util.HashSet;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 import net.minecraft.core.BlockPos;
@@ -17,6 +19,8 @@ import com.electroradar.ElectroRadar;
 import com.electroradar.radar.monitor.MonitorSnapshotData;
 import com.electroradar.radar.monitor.MonitorTargetData;
 import com.electroradar.radar.network.TargetRef;
+import com.electroradar.radar.visual.RadarVisualProfile;
+import com.electroradar.radar.visual.RadarVisualGeometry;
 
 /**
  * Одна ограниченная часть экранного снимка, отправляемая только наблюдателям дисплея или
@@ -37,9 +41,14 @@ public record MonitorSnapshotPayload(
         TargetRef selectedTarget,
         int partIndex,
         int partCount,
-        List<MonitorTargetData> targets
+        List<MonitorTargetData> targets,
+        List<RadarVisualProfile> visualProfiles,
+        long visualWindowPeriodTicks,
+        long visualWindowRemainingTicks
 ) implements CustomPacketPayload {
     public static final int TARGETS_PER_PART = 192;
+    /** Геометрия разбивается между частями: одна большая сеть не создаёт гигантский пакет. */
+    public static final int VISUAL_PROFILES_PER_SNAPSHOT = 8;
     public static final Type<MonitorSnapshotPayload> TYPE = new Type<>(
             ResourceLocation.fromNamespaceAndPath(ElectroRadar.MOD_ID, "monitor_snapshot"));
     public static final StreamCodec<RegistryFriendlyByteBuf, MonitorSnapshotPayload> STREAM_CODEC =
@@ -51,34 +60,64 @@ public record MonitorSnapshotPayload(
         Objects.requireNonNull(dimension, "dimension");
         Objects.requireNonNull(loadId, "loadId");
         targets = List.copyOf(targets);
+        visualProfiles = List.copyOf(visualProfiles);
         if (sequence < 0 || structureVersion < 0 || publishedEpoch < 0 || revision < 0
                 || partCount < 1 || partCount > 65_536
-                || partIndex < 0 || partIndex >= partCount || targets.size() > TARGETS_PER_PART) {
+                || partIndex < 0 || partIndex >= partCount || targets.size() > TARGETS_PER_PART
+                || visualProfiles.size() > VISUAL_PROFILES_PER_SNAPSHOT
+                || visualWindowPeriodTicks < 0 || visualWindowRemainingTicks < 0
+                || visualWindowRemainingTicks > visualWindowPeriodTicks
+                || !visualProfiles.isEmpty() && (!linked
+                || partIndex == 0 && visualWindowPeriodTicks == 0)
+                || partIndex != 0 && (visualWindowPeriodTicks != 0
+                || visualWindowRemainingTicks != 0)) {
             throw new IllegalArgumentException("Invalid monitor snapshot part bounds");
+        }
+        if (visualProfiles.stream().anyMatch(profile -> !profile.dimension().equals(dimension))) {
+            throw new IllegalArgumentException("Visual profile belongs to another monitor dimension");
+        }
+        Set<RadarVisualProfile.Key> profileKeys = new HashSet<>();
+        for (RadarVisualProfile profile : visualProfiles) {
+            if (!profileKeys.add(profile.key())) {
+                throw new IllegalArgumentException("Duplicate radar visual profile in monitor part");
+            }
         }
     }
 
     /** Разбивает готовый снимок на части с общей версией и неизменным порядком целей. */
     public static List<MonitorSnapshotPayload> split(MonitorSnapshotData snapshot) {
-        int count = Math.max(1, (snapshot.targets().size() + TARGETS_PER_PART - 1) / TARGETS_PER_PART);
+        int targetParts = (snapshot.targets().size() + TARGETS_PER_PART - 1) / TARGETS_PER_PART;
+        int profileParts = (snapshot.visualProfiles().size() + VISUAL_PROFILES_PER_SNAPSHOT - 1)
+                / VISUAL_PROFILES_PER_SNAPSHOT;
+        int count = Math.max(1, Math.max(targetParts, profileParts));
         java.util.ArrayList<MonitorSnapshotPayload> parts = new java.util.ArrayList<>(count);
         for (int index = 0; index < count; index++) {
-            int from = index * TARGETS_PER_PART;
+            int from = Math.min(snapshot.targets().size(), index * TARGETS_PER_PART);
             int to = Math.min(snapshot.targets().size(), from + TARGETS_PER_PART);
+            int profileFrom = Math.min(snapshot.visualProfiles().size(),
+                    index * VISUAL_PROFILES_PER_SNAPSHOT);
+            int profileTo = Math.min(snapshot.visualProfiles().size(),
+                    profileFrom + VISUAL_PROFILES_PER_SNAPSHOT);
             parts.add(new MonitorSnapshotPayload(snapshot.displayId(), snapshot.rootPosition(),
                     snapshot.dimension(), snapshot.loadId(), snapshot.sequence(), snapshot.structureVersion(),
                     snapshot.publishedEpoch(), snapshot.revision(), snapshot.linked(),
                     snapshot.selectedTargetUnavailable(), snapshot.selectedTarget(), index, count,
-                    snapshot.targets().subList(from, to)));
+                    snapshot.targets().subList(from, to),
+                    snapshot.visualProfiles().subList(profileFrom, profileTo),
+                    index == 0 ? snapshot.visualWindowPeriodTicks() : 0L,
+                    index == 0 ? snapshot.visualWindowRemainingTicks() : 0L));
         }
         return List.copyOf(parts);
     }
 
     /** Собирает завершённую на клиенте серию частей обратно в неизменяемую запись. */
-    public MonitorSnapshotData asSnapshot(List<MonitorTargetData> allTargets) {
+    public MonitorSnapshotData asSnapshot(List<MonitorTargetData> allTargets,
+                                          List<RadarVisualProfile> profiles,
+                                          long windowPeriodTicks, long windowRemainingTicks) {
         return new MonitorSnapshotData(displayId, rootPosition, dimension, loadId,
                 sequence, structureVersion, publishedEpoch, revision, linked,
-                selectedTargetUnavailable, selectedTarget, allTargets);
+                selectedTargetUnavailable, selectedTarget, allTargets,
+                profiles, windowPeriodTicks, windowRemainingTicks);
     }
 
     @Override
@@ -100,6 +139,12 @@ public record MonitorSnapshotPayload(
         writeTargetRef(buffer, payload.selectedTarget);
         buffer.writeVarInt(payload.partIndex);
         buffer.writeVarInt(payload.partCount);
+        buffer.writeVarInt(payload.visualProfiles.size());
+        for (RadarVisualProfile profile : payload.visualProfiles) writeProfile(buffer, profile);
+        if (payload.partIndex == 0) {
+            buffer.writeVarLong(payload.visualWindowPeriodTicks);
+            buffer.writeVarLong(payload.visualWindowRemainingTicks);
+        }
         buffer.writeVarInt(payload.targets.size());
         for (MonitorTargetData target : payload.targets) {
             writeTargetRef(buffer, target.target());
@@ -128,6 +173,19 @@ public record MonitorSnapshotPayload(
         TargetRef selected = readTargetRef(buffer);
         int index = buffer.readVarInt();
         int count = buffer.readVarInt();
+        int profileCount = buffer.readVarInt();
+        if (profileCount < 0 || profileCount > VISUAL_PROFILES_PER_SNAPSHOT) {
+            throw new IllegalArgumentException("Monitor snapshot has too many visual profiles in part");
+        }
+        java.util.ArrayList<RadarVisualProfile> decodedProfiles = new java.util.ArrayList<>(profileCount);
+        for (int i = 0; i < profileCount; i++) decodedProfiles.add(readProfile(buffer));
+        List<RadarVisualProfile> profiles = List.copyOf(decodedProfiles);
+        long windowPeriod = 0L;
+        long windowRemaining = 0L;
+        if (index == 0) {
+            windowPeriod = buffer.readVarLong();
+            windowRemaining = buffer.readVarLong();
+        }
         int targetCount = buffer.readVarInt();
         if (targetCount < 0 || targetCount > TARGETS_PER_PART) {
             throw new IllegalArgumentException("Monitor snapshot part exceeds its target limit");
@@ -151,7 +209,100 @@ public record MonitorSnapshotPayload(
         }
         return new MonitorSnapshotPayload(displayId, root, dimension, loadId,
                 sequence, structureVersion, epoch, revision, linked, selectionUnavailable,
-                selected, index, count, targets);
+                selected, index, count, targets, profiles, windowPeriod, windowRemaining);
+    }
+
+    /** Универсальный формат примитивов: новый тип радара не меняет кодек или монитор. */
+    private static void writeProfile(RegistryFriendlyByteBuf buffer, RadarVisualProfile profile) {
+        buffer.writeResourceLocation(profile.dimension());
+        buffer.writeBlockPos(profile.radarPosition());
+        buffer.writeDouble(profile.centerX());
+        buffer.writeDouble(profile.centerY());
+        buffer.writeDouble(profile.centerZ());
+        RadarVisualGeometry.Coverage geometry = profile.coverage();
+        writeSegments(buffer, geometry.outline());
+        writeSegments(buffer, geometry.separators());
+        buffer.writeVarInt(geometry.sectors().size());
+        for (RadarVisualGeometry.Sector sector : geometry.sectors()) {
+            buffer.writeVarInt(sector.triangles().size());
+            for (RadarVisualGeometry.Triangle triangle : sector.triangles()) {
+                writePoint(buffer, triangle.a());
+                writePoint(buffer, triangle.b());
+                writePoint(buffer, triangle.c());
+            }
+            writeSegments(buffer, sector.boundary());
+        }
+    }
+
+    /** Проверяет размеры до выделения списков и до передачи геометрии клиентскому рендеру. */
+    private static RadarVisualProfile readProfile(RegistryFriendlyByteBuf buffer) {
+        ResourceLocation dimension = buffer.readResourceLocation();
+        BlockPos position = buffer.readBlockPos();
+        double centerX = buffer.readDouble();
+        double centerY = buffer.readDouble();
+        double centerZ = buffer.readDouble();
+        List<RadarVisualGeometry.Segment> outline = readSegments(buffer);
+        List<RadarVisualGeometry.Segment> separators = readSegments(buffer);
+        int sectorCount = readCount(buffer, RadarVisualProfile.MAX_SECTOR_COUNT);
+        if (sectorCount < RadarVisualProfile.MIN_SECTOR_COUNT) {
+            throw new IllegalArgumentException("Empty radar visual coverage");
+        }
+        java.util.ArrayList<RadarVisualGeometry.Sector> sectors = new java.util.ArrayList<>(sectorCount);
+        int triangleCount = 0;
+        int lineCount = outline.size() + separators.size();
+        for (int i = 0; i < sectorCount; i++) {
+            int count = readCount(buffer, RadarVisualGeometry.MAX_TRIANGLES - triangleCount);
+            if (count == 0) throw new IllegalArgumentException("Empty radar visual sector");
+            java.util.ArrayList<RadarVisualGeometry.Triangle> triangles = new java.util.ArrayList<>(count);
+            for (int j = 0; j < count; j++) {
+                triangles.add(new RadarVisualGeometry.Triangle(
+                        readPoint(buffer), readPoint(buffer), readPoint(buffer)));
+            }
+            triangleCount += count;
+            List<RadarVisualGeometry.Segment> boundary = readSegments(buffer);
+            lineCount += boundary.size();
+            if (lineCount > RadarVisualGeometry.MAX_LINES) {
+                throw new IllegalArgumentException("Radar visual geometry has too many lines");
+            }
+            sectors.add(new RadarVisualGeometry.Sector(i, triangles, boundary));
+        }
+        return new RadarVisualProfile(dimension, position, centerX, centerY, centerZ,
+                new RadarVisualGeometry.Coverage(outline, separators, sectors));
+    }
+
+    private static void writePoint(RegistryFriendlyByteBuf buffer, RadarVisualGeometry.Point point) {
+        buffer.writeDouble(point.x());
+        buffer.writeDouble(point.z());
+    }
+
+    private static RadarVisualGeometry.Point readPoint(RegistryFriendlyByteBuf buffer) {
+        return new RadarVisualGeometry.Point(buffer.readDouble(), buffer.readDouble());
+    }
+
+    private static void writeSegments(RegistryFriendlyByteBuf buffer,
+                                      List<RadarVisualGeometry.Segment> segments) {
+        buffer.writeVarInt(segments.size());
+        for (RadarVisualGeometry.Segment segment : segments) {
+            writePoint(buffer, segment.start());
+            writePoint(buffer, segment.end());
+        }
+    }
+
+    private static List<RadarVisualGeometry.Segment> readSegments(RegistryFriendlyByteBuf buffer) {
+        int count = readCount(buffer, RadarVisualGeometry.MAX_LINES);
+        java.util.ArrayList<RadarVisualGeometry.Segment> segments = new java.util.ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            segments.add(new RadarVisualGeometry.Segment(readPoint(buffer), readPoint(buffer)));
+        }
+        return List.copyOf(segments);
+    }
+
+    private static int readCount(RegistryFriendlyByteBuf buffer, int maximum) {
+        int count = buffer.readVarInt();
+        if (count < 0 || count > maximum) {
+            throw new IllegalArgumentException("Radar visual geometry exceeds packet bounds");
+        }
+        return count;
     }
 
     static void writeTargetRef(RegistryFriendlyByteBuf buffer, TargetRef target) {

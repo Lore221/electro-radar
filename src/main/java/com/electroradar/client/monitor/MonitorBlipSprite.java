@@ -40,14 +40,19 @@ public final class MonitorBlipSprite {
         int red = (argb >>> 16) & 0xFF;
         int green = (argb >>> 8) & 0xFF;
         int blue = argb & 0xFF;
-        RenderSystem.setShaderColor(red / 255.0F, green / 255.0F,
+        // GuiGraphics.blit использует шейдер без цвета вершин. Поэтому alpha метки должен
+        // попасть в цвет шейдера, а смешивание нужно включить явно: иначе GUI рисует
+        // полупрозрачные метки непрозрачными, хотя BER использует alpha каждой вершины.
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        graphics.setColor(red / 255.0F, green / 255.0F,
                 blue / 255.0F, alpha / 255.0F);
         try {
             graphics.blit(TEXTURE, centerX - width / 2, centerY - height / 2,
                     width, height, region.x, region.y, region.width, region.height,
                     ATLAS_SIZE, ATLAS_SIZE);
         } finally {
-            RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
+            graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
         }
     }
 

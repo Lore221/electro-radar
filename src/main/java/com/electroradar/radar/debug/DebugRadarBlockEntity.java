@@ -13,7 +13,6 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.phys.Vec3;
 
 import com.electroradar.radar.RadarDiagnostics;
 import com.electroradar.radar.network.EndpointKey;
@@ -24,6 +23,8 @@ import com.electroradar.radar.network.RegistrationToken;
 import com.electroradar.radar.network.ScanWindow;
 import com.electroradar.radar.scan.AabbRadarScanArea;
 import com.electroradar.radar.scan.EntityRadarScanner;
+import com.electroradar.radar.visual.RadarVisualProfile;
+import com.electroradar.radar.visual.RadarVisualProfileSource;
 
 /**
  * Серверное состояние одного установленного тестового радара.
@@ -34,21 +35,20 @@ import com.electroradar.radar.scan.EntityRadarScanner;
  * Все поиск сущностей и сетевые вызовы выполняются на серверном потоке; клиентский экземпляр
  * не создаёт ID и не отправляет отчёты.</p>
  */
-public final class DebugRadarBlockEntity extends BlockEntity {
+public final class DebugRadarBlockEntity extends BlockEntity implements RadarVisualProfileSource {
     private static final String NETWORK_ID_TAG = "NetworkId";
 
-    /** Настройки именно временного блока; общий EntityRadarScanner их не знает. */
-    private static final long PERIOD_TICKS = 5;
+    /** Полный проход временного радара: 8 визуальных секторов по 5 тиков, всего 2 секунды. */
+    private static final long PERIOD_TICKS = 40;
     private static final long FORGET_AFTER_MISSES = 3;
-    private static final double AREA_SIZE_X = 100.0;
-    private static final double AREA_SIZE_Y = 30.0;
-    private static final double AREA_SIZE_Z = 100.0;
     private static final NetworkPolicy POLICY = new NetworkPolicy(PERIOD_TICKS, FORGET_AFTER_MISSES);
     private static final Predicate<Entity> ELIGIBLE_ENTITY = entity -> !(entity instanceof ItemEntity);
     private static final EntityRadarScanner SCANNER = new EntityRadarScanner();
 
     /** Единственное сохраняемое значение идентичности этого экземпляра радара. */
     private NetworkId networkId;
+    /** Неизменяемая сеточная геометрия создаётся однажды для этого установленного блока. */
+    private RadarVisualProfile cachedVisualProfile;
 
     /** Остаток runtime-регистрации; не сериализуется и не переносится между загрузками чанка. */
     private RegistrationToken registrationToken;
@@ -257,6 +257,11 @@ public final class DebugRadarBlockEntity extends BlockEntity {
         if (!window.eligibleThisWindow() || (lastAttemptedEpoch != null && lastAttemptedEpoch == window.epoch())) {
             return;
         }
+        // Полный AABB-поиск короткий, поэтому выполняем его в последний допустимый тик.
+        // При длинном окне результат тогда не лежит в буфере почти две секунды до публикации.
+        if (tick < window.boundaryTick() - 1L) {
+            return;
+        }
         // При границе epoch отчёт уже опоздал; не запускаем тяжёлый поиск в закрытом окне.
         if (tick >= window.boundaryTick()) {
             lastAttemptedEpoch = window.epoch();
@@ -267,11 +272,10 @@ public final class DebugRadarBlockEntity extends BlockEntity {
 
         // Отмечаем попытку до выполнения. Ошибку логируем, но частичный результат в этом epoch не повторяем.
         lastAttemptedEpoch = window.epoch();
-        AabbRadarScanArea area = AabbRadarScanArea.centered(
-                Vec3.atCenterOf(worldPosition), AREA_SIZE_X, AREA_SIZE_Y, AREA_SIZE_Z);
+        AabbRadarScanArea area = DebugRadarVisualArea.scanArea(worldPosition);
         RadarDiagnostics.log("scan_started", networkId, endpoint, window.epoch(), tick,
-                "boundaryTick=" + window.boundaryTick() + " sizeX=" + AREA_SIZE_X
-                        + " sizeY=" + AREA_SIZE_Y + " sizeZ=" + AREA_SIZE_Z);
+                "boundaryTick=" + window.boundaryTick() + " sizeX=" + DebugRadarVisualArea.SIZE_X
+                        + " sizeY=" + DebugRadarVisualArea.SIZE_Y + " sizeZ=" + DebugRadarVisualArea.SIZE_Z);
         long startedAt = System.nanoTime();
         EntityRadarScanner.ScanResult result;
         try {
@@ -302,6 +306,25 @@ public final class DebugRadarBlockEntity extends BlockEntity {
             RadarDiagnostics.logException("report_submission_failed", networkId, endpoint, window.epoch(),
                     currentTick(), "found=" + result.detections().size(), exception);
         }
+    }
+
+    /** Сеть доступна монитору только после того, как блок получил постоянный NetworkId. */
+    @Override
+    public Optional<NetworkId> visualNetworkId() {
+        return Optional.ofNullable(networkId);
+    }
+
+    /**
+     * Профиль совпадает с прежней полной AABB-областью сканера по X/Z. Визуальное деление
+     * не меняет один проход {@link EntityRadarScanner} и не переносит проверку сущностей на клиент.
+     */
+    @Override
+    public Optional<RadarVisualProfile> radarVisualProfile() {
+        if (level == null || level.isClientSide) return Optional.empty();
+        if (cachedVisualProfile == null) {
+            cachedVisualProfile = DebugRadarVisualArea.profile(level.dimension().location(), worldPosition);
+        }
+        return Optional.of(cachedVisualProfile);
     }
 
     /** Пишет счётчики и полный набор TargetRef; форматирование UUID списка отключается вместе с диагностикой. */
