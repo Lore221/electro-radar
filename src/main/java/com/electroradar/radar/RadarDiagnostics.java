@@ -8,7 +8,7 @@ import com.electroradar.radar.network.EndpointKey;
 import com.electroradar.radar.network.NetworkId;
 
 /**
- * Общий журнал сканера и сетевого ядра: подробные события на INFO, ошибки на ERROR.
+ * Общий журнал сканера, сетевого ядра и визуального клиента: события на INFO, ошибки на ERROR.
  *
  * <p>Единая точка логирования удерживает один формат полей для событий, которые происходят
  * в разных слоях: по network, radar, epoch и tick можно восстановить путь одного отчёта.

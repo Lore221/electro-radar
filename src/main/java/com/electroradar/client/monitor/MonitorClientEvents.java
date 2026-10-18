@@ -52,6 +52,7 @@ public final class MonitorClientEvents {
 
         @SubscribeEvent
         public static void tick(ClientTickEvent.Post event) {
+            MonitorClientState.advanceClientClock();
             MonitorClientState.pruneLoadedRoots();
         }
     }

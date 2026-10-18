@@ -17,13 +17,14 @@ import com.electroradar.radar.RadarDiagnostics;
 import com.electroradar.radar.network.EndpointKey;
 import com.electroradar.radar.network.NetworkId;
 import com.electroradar.radar.network.NetworkItemBinding;
+import com.electroradar.radar.network.NetworkOutlineActivatingItem;
 
 /**
  * Предмет временного радара: позволяет привязать стопку к сети и передать эту связь новым блокам.
  * NetworkId хранится в CUSTOM_DATA самого предмета; данные других систем в этом компоненте
  * остаются нетронутыми, а runtime-токены и состояние сети никогда не копируются.
  */
-public final class DebugRadarItem extends BlockItem {
+public final class DebugRadarItem extends BlockItem implements NetworkOutlineActivatingItem {
     public DebugRadarItem(Block block, Properties properties) {
         super(block, properties);
     }

@@ -117,7 +117,7 @@ public final class RadarMonitorScreen extends Screen {
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         layout();
         super.render(graphics, mouseX, mouseY, partialTick);
-        drawMap(graphics, mouseX, mouseY);
+        drawMap(graphics, mouseX, mouseY, partialTick);
     }
 
     @Override
@@ -219,19 +219,24 @@ public final class RadarMonitorScreen extends Screen {
      * Собирает слои в порядке старого экрана: фон, служебная информация, метки, рамки,
      * мировая сетка и значок её шага. Внутренняя рамка обрезает и метки, и линии.
      */
-    private void drawMap(GuiGraphics graphics, int mouseX, int mouseY) {
+    private void drawMap(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         graphics.blit(SCREEN_BACK, mapX, mapY, mapSize, mapSize,
                 0, 0, SCREEN_TEXTURE_SIZE, SCREEN_TEXTURE_SIZE,
                 SCREEN_TEXTURE_SIZE, SCREEN_TEXTURE_SIZE);
 
-        MonitorClientState.View view = MonitorClientState.get(key);
+        MonitorClientState.View view = MonitorClientState.get(key, partialTick);
         MonitorSnapshotData snapshot = view == null ? null : view.snapshot();
         Optional<MonitorClientState.DisplayTarget> hovered = view == null
                 ? Optional.empty() : findTargetAt(view, mouseX, mouseY);
         graphics.enableScissor(contentX, contentY, contentX + contentSize, contentY + contentSize);
         if (view != null && snapshot != null) {
-            drawTargets(graphics, view, snapshot);
-            drawTargetFrames(graphics, view, snapshot, hovered);
+            Direction facing = facing();
+            MapCenter center = mapCenter(facing);
+            MonitorSectorGuiRenderer.draw(graphics, view, snapshot.dimension(),
+                    center.x(), center.z(), facing, centerOffsetX, centerOffsetZ,
+                    mapDiameterBlocks, contentX, contentY, contentSize);
+            drawTargets(graphics, view, snapshot, partialTick);
+            drawTargetFrames(graphics, view, snapshot, hovered, partialTick);
         }
         drawGrid(graphics);
         graphics.disableScissor();
@@ -241,13 +246,12 @@ public final class RadarMonitorScreen extends Screen {
 
     /** Выводит только те цели, для которых клиентский снимок содержит безопасную позицию. */
     private void drawTargets(GuiGraphics graphics, MonitorClientState.View view,
-                             MonitorSnapshotData snapshot) {
+                             MonitorSnapshotData snapshot, float partialTick) {
         Direction facing = facing();
         int centerX = contentX + contentSize / 2;
         int centerY = contentY + contentSize / 2;
         double radius = contentSize / 2.0D;
-        long gameTime = Minecraft.getInstance().level == null
-                ? 0L : Minecraft.getInstance().level.getGameTime();
+        double renderTime = MonitorClientState.renderTime(partialTick);
         int cellPixels = markerCellPixels();
 
         for (MonitorClientState.DisplayTarget target : view.targets()) {
@@ -256,7 +260,8 @@ public final class RadarMonitorScreen extends Screen {
             if (point == null || !point.insideSquare()) continue;
             int x = (int) Math.round(centerX + point.x() * radius);
             int y = (int) Math.round(centerY - point.y() * radius);
-            float opacity = target.rememberedOpacity(gameTime);
+            float opacity = view.targetOpacity(target, renderTime);
+            if (opacity <= 0.0F) continue;
             int alpha = Math.max(0, Math.min(255, Math.round(255.0F * opacity)));
             MonitorBlipSprite.drawGui(graphics, MonitorBlipSprite.ENTITY,
                     x, y, cellPixels, (alpha << 24) | MonitorTargetPalette.entityRgb(target));
@@ -266,13 +271,13 @@ public final class RadarMonitorScreen extends Screen {
     /** Рисует наведение и серверный выбор отдельными рамками поверх всех значков. */
     private void drawTargetFrames(GuiGraphics graphics, MonitorClientState.View view,
                                   MonitorSnapshotData snapshot,
-                                  Optional<MonitorClientState.DisplayTarget> hovered) {
+                                  Optional<MonitorClientState.DisplayTarget> hovered,
+                                  float partialTick) {
         Direction facing = facing();
         int centerX = contentX + contentSize / 2;
         int centerY = contentY + contentSize / 2;
         double radius = contentSize / 2.0D;
-        long gameTime = Minecraft.getInstance().level == null
-                ? 0L : Minecraft.getInstance().level.getGameTime();
+        double gameTime = MonitorClientState.renderTime(partialTick);
         int cellPixels = markerCellPixels();
 
         for (MonitorClientState.DisplayTarget target : view.targets()) {

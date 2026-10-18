@@ -1,13 +1,16 @@
 package com.electroradar.radar.monitor;
 
 import java.util.List;
+import java.util.HashSet;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 
 import com.electroradar.radar.network.TargetRef;
+import com.electroradar.radar.visual.RadarVisualProfile;
 
 /**
  * Неизменяемый снимок одного физического монитора, готовый к клиентской отрисовке.
@@ -34,7 +37,10 @@ public record MonitorSnapshotData(
         boolean linked,
         boolean selectedTargetUnavailable,
         TargetRef selectedTarget,
-        List<MonitorTargetData> targets
+        List<MonitorTargetData> targets,
+        List<RadarVisualProfile> visualProfiles,
+        long visualWindowPeriodTicks,
+        long visualWindowRemainingTicks
 ) {
     public MonitorSnapshotData {
         Objects.requireNonNull(displayId, "displayId");
@@ -45,11 +51,37 @@ public record MonitorSnapshotData(
             throw new IllegalArgumentException("Monitor snapshot versions must be non-negative");
         }
         targets = List.copyOf(targets);
+        visualProfiles = List.copyOf(visualProfiles);
+        if (visualWindowPeriodTicks < 0 || visualWindowRemainingTicks < 0
+                || visualWindowRemainingTicks > visualWindowPeriodTicks
+                || visualWindowPeriodTicks == 0 && visualWindowRemainingTicks != 0
+                || !visualProfiles.isEmpty() && (!linked || visualWindowPeriodTicks == 0)) {
+            throw new IllegalArgumentException("Invalid monitor visual window timing");
+        }
+        Set<RadarVisualProfile.Key> profileKeys = new HashSet<>();
+        if (visualProfiles.stream().anyMatch(profile -> !profile.dimension().equals(dimension))) {
+            throw new IllegalArgumentException("Radar visual profile belongs to another dimension");
+        }
+        for (RadarVisualProfile profile : visualProfiles) {
+            if (!profileKeys.add(profile.key())) {
+                throw new IllegalArgumentException("Monitor snapshot contains a duplicate radar profile");
+            }
+        }
         if (selectedTarget != null && targets.stream().noneMatch(target -> target.target().equals(selectedTarget))) {
             throw new IllegalArgumentException("A selected target must be present in this monitor snapshot");
         }
         if (selectedTarget != null && selectedTargetUnavailable) {
             throw new IllegalArgumentException("An available selected target cannot also be marked unavailable");
         }
+    }
+
+    /**
+     * Создаёт адресную копию с актуальным остатком окна. Sequence и publishedEpoch остаются
+     * прежними: получение GUI не запускает визуальный проход заново и не меняет снимок целей.
+     */
+    public MonitorSnapshotData withWindowTiming(long periodTicks, long remainingTicks) {
+        return new MonitorSnapshotData(displayId, rootPosition, dimension, loadId, sequence,
+                structureVersion, publishedEpoch, revision, linked, selectedTargetUnavailable,
+                selectedTarget, targets, visualProfiles, periodTicks, remainingTicks);
     }
 }

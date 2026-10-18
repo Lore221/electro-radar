@@ -43,6 +43,12 @@ public final class RadarNetworkManager {
     /** Публикация владеет согласованным изменением связей и LiveResult, но не расписанием окон. */
     private final RadarNetworkPublisher publisher;
     private final Map<EndpointKey, Registration> endpointIndex = new HashMap<>();
+    /**
+     * Обратный индекс содержит только ссылки на ключи endpoint. Registration остаётся единственным
+     * владельцем NetworkId, роли и токена, поэтому здесь нет дублируемого runtime-состояния.
+     * Обе карты меняются только на серверном потоке и только в одном переходе регистрации.
+     */
+    private final Map<NetworkId, Set<EndpointKey>> endpointsByNetwork = new HashMap<>();
     private final Map<NetworkId, NetworkRuntime> networks = new HashMap<>();
     private final NavigableMap<Long, Set<NetworkId>> scheduledBoundaries = new TreeMap<>();
     private long serverTick;
@@ -171,6 +177,7 @@ public final class RadarNetworkManager {
                 ? network.currentEpoch
                 : Math.incrementExact(network.currentEpoch);
         endpointIndex.put(endpoint, new Registration(networkId, EndpointRole.RADAR, token));
+        addNetworkEndpoint(networkId, endpoint);
         network.radars.put(endpoint, new RadarState(token, participatesFromEpoch));
         changedNetworks.add(networkId);
         markChanged(changedNetworks);
@@ -201,10 +208,28 @@ public final class RadarNetworkManager {
         removePreviousRegistration(endpoint, changedNetworks);
         RegistrationToken token = RegistrationToken.create();
         endpointIndex.put(endpoint, new Registration(networkId, role, token));
+        addNetworkEndpoint(networkId, endpoint);
         markChanged(changedNetworks);
         RadarDiagnostics.log("consumer_registered", networkId, null, null, serverTick,
                 "endpoint=" + endpoint + " role=" + role + " token=" + token.value());
         return token;
+    }
+
+    /**
+     * Возвращает неизменяемый снимок регистраций одной сети для серверной маршрутизации.
+     * Метод не обращается к NetworkRuntime: сеть только с потребителями остаётся видимой,
+     * даже если для неё нет расписания сканирования. Снимок безопасен для сортировки вызывающим
+     * кодом, но сама карта и её множества наружу не выдаются.
+     *
+     * @param networkId искомая сеть
+     * @return неизменяемый список ключей; пустой, если сейчас нет ни одной регистрации
+     * @throws IllegalStateException при вызове не с основного серверного потока или после остановки
+     */
+    public List<EndpointKey> registeredEndpoints(NetworkId networkId) {
+        checkActive();
+        Objects.requireNonNull(networkId, "networkId");
+        Set<EndpointKey> endpoints = endpointsByNetwork.get(networkId);
+        return endpoints == null ? List.of() : List.copyOf(endpoints);
     }
 
     /**
@@ -330,6 +355,7 @@ public final class RadarNetworkManager {
             return false;
         }
         endpointIndex.remove(endpoint);
+        removeNetworkEndpoint(registration.networkId, endpoint);
         Set<NetworkId> changedNetworks = new HashSet<>();
         removeRegistrationData(endpoint, registration, changedNetworks);
         markChanged(changedNetworks);
@@ -544,12 +570,30 @@ public final class RadarNetworkManager {
     private void removePreviousRegistration(EndpointKey endpoint, Set<NetworkId> changedNetworks) {
         Registration previous = endpointIndex.remove(endpoint);
         if (previous != null) {
+            removeNetworkEndpoint(previous.networkId, endpoint);
             RadarDiagnostics.log("registration_replaced", previous.networkId,
                     previous.role == EndpointRole.RADAR ? endpoint : null,
                     null, serverTick,
                     "endpoint=" + endpoint + " role=" + previous.role
                             + " previousToken=" + previous.token.value());
             removeRegistrationData(endpoint, previous, changedNetworks);
+        }
+    }
+
+    /** Добавляет endpoint в обратный индекс после записи основной регистрации. */
+    private void addNetworkEndpoint(NetworkId networkId, EndpointKey endpoint) {
+        endpointsByNetwork.computeIfAbsent(networkId, ignored -> new HashSet<>()).add(endpoint);
+    }
+
+    /** Удаляет только пустое множество; отказ старого token не вызывает этот переход. */
+    private void removeNetworkEndpoint(NetworkId networkId, EndpointKey endpoint) {
+        Set<EndpointKey> endpoints = endpointsByNetwork.get(networkId);
+        if (endpoints == null) {
+            return;
+        }
+        endpoints.remove(endpoint);
+        if (endpoints.isEmpty()) {
+            endpointsByNetwork.remove(networkId);
         }
     }
 
@@ -843,6 +887,7 @@ public final class RadarNetworkManager {
                             + " targets=" + network.targets.size());
         }
         endpointIndex.clear();
+        endpointsByNetwork.clear();
         networks.clear();
         scheduledBoundaries.clear();
         closed = true;

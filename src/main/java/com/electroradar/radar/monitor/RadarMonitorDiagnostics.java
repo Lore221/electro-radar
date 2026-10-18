@@ -10,6 +10,7 @@ import com.electroradar.radar.RadarDiagnostics;
 import com.electroradar.radar.network.EndpointKey;
 import com.electroradar.radar.network.NetworkId;
 import com.electroradar.radar.network.TargetRef;
+import com.electroradar.radar.visual.RadarVisualProfile;
 
 /**
  * Формирует события жизненного цикла монитора и передаёт их в общий журнал радара.
@@ -106,6 +107,17 @@ public final class RadarMonitorDiagnostics {
                         + " totalTargets=" + snapshot.targets().size()
                         + " structureVersion=" + snapshot.structureVersion()
                         + " linked=" + snapshot.linked());
+    }
+
+    /** Новая геометрия пишется один раз при изменении списка профилей, а не каждый опрос. */
+    static void visualGeometryChanged(ServerLevel level, RadarDisplayBlockEntity display,
+                                      java.util.List<RadarVisualProfile> profiles) {
+        int sectors = profiles.stream().mapToInt(RadarVisualProfile::sectorCount).sum();
+        int triangles = profiles.stream().mapToInt(profile -> profile.coverage().sectors().stream()
+                .mapToInt(sector -> sector.triangles().size()).sum()).sum();
+        event(level, display, "monitor_visual_geometry_changed", null,
+                "profiles=" + profiles.size() + " sectors=" + sectors
+                        + " triangles=" + triangles);
     }
 
     /** Фиксирует одну адресную серию частей, не отдельное сообщение на каждый фрагмент. */
