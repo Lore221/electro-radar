@@ -4,6 +4,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
 
 import com.electroradar.radar.scan.AabbRadarScanArea;
+import com.electroradar.radar.visual.RadarVisualAnimation;
 import com.electroradar.radar.visual.RadarVisualProfile;
 
 /**
@@ -26,11 +27,12 @@ public final class DebugRadarVisualArea {
         return AabbRadarScanArea.centered(Vec3.atCenterOf(position), SIZE_X, SIZE_Y, SIZE_Z);
     }
 
-    /** Создаёт её плоское прямоугольное представление с тем же центром и полуразмерами. */
+    /** Создаёт квадратный профиль прежней AABB-области и явно выбирает общую вспышку. */
     public static RadarVisualProfile profile(net.minecraft.resources.ResourceLocation dimension,
                                              BlockPos position) {
         Vec3 center = Vec3.atCenterOf(position);
         return RadarVisualProfile.rectangle(dimension, position, center.x, center.y, center.z,
-                SIZE_X * 0.5D, SIZE_Z * 0.5D, RadarVisualProfile.DEFAULT_SECTOR_COUNT);
+                SIZE_X * 0.5D, SIZE_Z * 0.5D, RadarVisualProfile.DEFAULT_SECTOR_COUNT,
+                RadarVisualAnimation.FULL_FLASH);
     }
 }

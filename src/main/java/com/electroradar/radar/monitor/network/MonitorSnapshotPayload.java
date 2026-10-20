@@ -21,6 +21,7 @@ import com.electroradar.radar.monitor.MonitorTargetData;
 import com.electroradar.radar.network.TargetRef;
 import com.electroradar.radar.visual.RadarVisualProfile;
 import com.electroradar.radar.visual.RadarVisualGeometry;
+import com.electroradar.radar.visual.RadarVisualAnimation;
 
 /**
  * Одна ограниченная часть экранного снимка, отправляемая только наблюдателям дисплея или
@@ -216,6 +217,8 @@ public record MonitorSnapshotPayload(
     private static void writeProfile(RegistryFriendlyByteBuf buffer, RadarVisualProfile profile) {
         buffer.writeResourceLocation(profile.dimension());
         buffer.writeBlockPos(profile.radarPosition());
+        // Явный ограниченный ID сохраняет wire-контракт независимым от enum.ordinal().
+        buffer.writeVarInt(profile.animation().wireId());
         buffer.writeDouble(profile.centerX());
         buffer.writeDouble(profile.centerY());
         buffer.writeDouble(profile.centerZ());
@@ -238,6 +241,7 @@ public record MonitorSnapshotPayload(
     private static RadarVisualProfile readProfile(RegistryFriendlyByteBuf buffer) {
         ResourceLocation dimension = buffer.readResourceLocation();
         BlockPos position = buffer.readBlockPos();
+        RadarVisualAnimation animation = RadarVisualAnimation.fromWireId(buffer.readVarInt());
         double centerX = buffer.readDouble();
         double centerY = buffer.readDouble();
         double centerZ = buffer.readDouble();
@@ -267,7 +271,7 @@ public record MonitorSnapshotPayload(
             sectors.add(new RadarVisualGeometry.Sector(i, triangles, boundary));
         }
         return new RadarVisualProfile(dimension, position, centerX, centerY, centerZ,
-                new RadarVisualGeometry.Coverage(outline, separators, sectors));
+                new RadarVisualGeometry.Coverage(outline, separators, sectors), animation);
     }
 
     private static void writePoint(RegistryFriendlyByteBuf buffer, RadarVisualGeometry.Point point) {

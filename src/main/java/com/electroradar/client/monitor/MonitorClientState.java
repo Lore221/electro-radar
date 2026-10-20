@@ -45,23 +45,29 @@ public final class MonitorClientState {
                                 double x, double y, double z, String entityTypeId,
                                 boolean rememberedPoint, boolean previouslyFresh,
                                 double rememberedFadeStartClientTick,
+                                float rememberedFadeStartOpacity,
                                 long rememberedFadeDurationTicks) {
-        /** Помнимая точка продолжает затухание от последнего прохода сектора до полного исчезновения. */
+        /**
+         * Помнимая точка линейно гаснет от сохранённой яркости в момент перехода до нуля.
+         * Повторные снимки, пока цель остаётся помнимой, сохраняют исходную фазу и не запускают
+         * затухание заново, поэтому смена окна не вызывает скачок прозрачности.
+         */
         public float rememberedOpacity(double clientRenderTime) {
             if (!rememberedPoint) return 1.0F;
             if (rememberedFadeDurationTicks <= 0L) return 0.0F;
             double age = Math.max(0.0D, clientRenderTime - rememberedFadeStartClientTick);
-            return (float) Math.clamp(1.0D - age / rememberedFadeDurationTicks, 0.0D, 1.0D);
+            double fade = Math.clamp(1.0D - age / rememberedFadeDurationTicks, 0.0D, 1.0D);
+            return (float) (rememberedFadeStartOpacity * fade);
         }
     }
 
     /** Снимок для рендереров и GUI с уже безопасно сохранёнными точками помнимых целей. */
     public record View(MonitorDisplayKey key, MonitorSnapshotData snapshot,
                        List<DisplayTarget> targets,
-                       List<MonitorSectorAnimationState.ActiveSector> activeSectors) {
+                       List<MonitorSectorAnimationState.ProfileFrame> visualFrames) {
         public View {
             targets = List.copyOf(targets);
-            activeSectors = List.copyOf(activeSectors);
+            visualFrames = List.copyOf(visualFrames);
         }
 
         /** Одна формула прозрачности для GUI и экрана блока. */
@@ -152,7 +158,7 @@ public final class MonitorClientState {
         View stored = VIEWS.get(key);
         if (stored == null) return null;
         return new View(stored.key(), stored.snapshot(), stored.targets(),
-                MonitorSectorAnimationState.activeSectors(key, partialTick));
+                MonitorSectorAnimationState.activeVisuals(key, partialTick));
     }
 
     /** Очищает клиентское состояние при смене мира или физической сборки. */
@@ -200,7 +206,6 @@ public final class MonitorClientState {
             }
         }
         ArrayList<DisplayTarget> displayTargets = new ArrayList<>(snapshot.targets().size());
-        ClientLevel level = currentLevel();
         long receivedAt = clientTickTime;
         for (MonitorTargetData target : snapshot.targets()) {
             if (target.hasPosition()) {
@@ -209,30 +214,40 @@ public final class MonitorClientState {
                         && oldDisplay.detectedThisWindow();
                 displayTargets.add(new DisplayTarget(target.target(), target.detectedThisWindow(), true,
                         target.x(), target.y(), target.z(), target.entityTypeId(), false,
-                        previouslyFresh, 0.0D, 0L));
+                        previouslyFresh, 0.0D, 1.0F, 0L));
                 continue;
             }
             MonitorTargetData old = previousTargets.get(target.target());
             if (old != null && old.hasPosition()) {
                 DisplayTarget oldDisplay = previousDisplayTargets.get(target.target());
-                double fadeStart = oldDisplay != null && oldDisplay.rememberedPoint()
-                        ? oldDisplay.rememberedFadeStartClientTick()
-                        : MonitorSectorAnimationState.fadeStartForRemembered(key,
-                        old.x(), old.z(), receivedAt);
-                long fadeDuration = previous == null ? 0L : previous.snapshot().visualWindowPeriodTicks();
+                double fadeStart;
+                float fadeStartOpacity;
+                long fadeDuration = snapshot.visualWindowPeriodTicks();
                 if (oldDisplay != null && oldDisplay.rememberedPoint()) {
+                    // Переход уже произошёл: не переносим ни начало, ни яркость на новый снимок.
+                    fadeStart = oldDisplay.rememberedFadeStartClientTick();
+                    fadeStartOpacity = oldDisplay.rememberedFadeStartOpacity();
                     fadeDuration = oldDisplay.rememberedFadeDurationTicks();
+                } else {
+                    // Сохраняем именно ту прозрачность, которую видели перед сменой свежести.
+                    // Это одинаково работает после FULL_FLASH, SECTOR_SWEEP и вне профилей.
+                    fadeStart = receivedAt;
+                    fadeStartOpacity = previous == null || oldDisplay == null
+                            ? 1.0F : previous.targetOpacity(oldDisplay, receivedAt);
+                }
+                if (fadeDuration <= 0L && previous != null) {
+                    fadeDuration = previous.snapshot().visualWindowPeriodTicks();
                 }
                 if (fadeDuration <= 0L) fadeDuration = FALLBACK_REMEMBERED_FADE_TICKS;
                 displayTargets.add(new DisplayTarget(target.target(), false, true,
                         old.x(), old.y(), old.z(), old.entityTypeId(), true, false,
-                        fadeStart, fadeDuration));
+                        fadeStart, fadeStartOpacity, fadeDuration));
             } else {
                 displayTargets.add(new DisplayTarget(target.target(), target.detectedThisWindow(), false,
-                        0, 0, 0, "", false, false, 0.0D, 0L));
+                        0, 0, 0, "", false, false, 0.0D, 1.0F, 0L));
             }
         }
-        long receivedAtClientTick = clientTickTime;
+        long receivedAtClientTick = receivedAt;
         MonitorSectorAnimationState.accept(key, previous == null ? null : previous.snapshot(),
                 snapshot, receivedAtClientTick);
         VIEWS.put(key, new View(key, snapshot, displayTargets, List.of()));
@@ -269,6 +284,11 @@ public final class MonitorClientState {
     static void advanceClientClock() {
         ClientLevel level = currentLevel();
         if (level != null && !Minecraft.getInstance().isPaused()) clientTickTime++;
+    }
+
+    /** Клиентский тик для редких диагностических записей очистки общего состояния. */
+    static long clientTickTimeForDiagnostics() {
+        return clientTickTime;
     }
 
     /** Общая фаза GUI и BER; даже непоследовательные partialTick не возвращают сектор назад. */

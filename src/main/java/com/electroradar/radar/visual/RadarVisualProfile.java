@@ -14,7 +14,8 @@ import net.minecraft.resources.ResourceLocation;
  */
 public record RadarVisualProfile(ResourceLocation dimension, BlockPos radarPosition,
                                  double centerX, double centerY, double centerZ,
-                                 RadarVisualGeometry.Coverage coverage) {
+                                 RadarVisualGeometry.Coverage coverage,
+                                 RadarVisualAnimation animation) {
     public static final int DEFAULT_SECTOR_COUNT = 8;
     public static final int MIN_SECTOR_COUNT = 1;
     public static final int MAX_SECTOR_COUNT = 64;
@@ -24,6 +25,7 @@ public record RadarVisualProfile(ResourceLocation dimension, BlockPos radarPosit
         Objects.requireNonNull(dimension, "dimension");
         radarPosition = Objects.requireNonNull(radarPosition, "radarPosition").immutable();
         Objects.requireNonNull(coverage, "coverage");
+        Objects.requireNonNull(animation, "animation");
         if (!Double.isFinite(centerX) || !Double.isFinite(centerY) || !Double.isFinite(centerZ)
                 || coverage.sectors().size() < MIN_SECTOR_COUNT
                 || coverage.sectors().size() > MAX_SECTOR_COUNT) {
@@ -31,12 +33,29 @@ public record RadarVisualProfile(ResourceLocation dimension, BlockPos radarPosit
         }
     }
 
-    /** Прямоугольная область тестового радара; параметры фигуры остаются у её поставщика. */
+    /** Совместимый путь для существующих направленных профилей: по умолчанию они идут секторами. */
+    public RadarVisualProfile(ResourceLocation dimension, BlockPos radarPosition,
+                              double centerX, double centerY, double centerZ,
+                              RadarVisualGeometry.Coverage coverage) {
+        this(dimension, radarPosition, centerX, centerY, centerZ, coverage,
+                RadarVisualAnimation.SECTOR_SWEEP);
+    }
+
+    /** Прямоугольная Coverage; по умолчанию направленные/секторные поставщики используют sweep. */
     public static RadarVisualProfile rectangle(ResourceLocation dimension, BlockPos radarPosition,
                                                double centerX, double centerY, double centerZ,
                                                double halfX, double halfZ, int sectorCount) {
+        return rectangle(dimension, radarPosition, centerX, centerY, centerZ,
+                halfX, halfZ, sectorCount, RadarVisualAnimation.SECTOR_SWEEP);
+    }
+
+    /** Создаёт прямоугольный профиль с выбранным самим радаром способом анимации. */
+    public static RadarVisualProfile rectangle(ResourceLocation dimension, BlockPos radarPosition,
+                                               double centerX, double centerY, double centerZ,
+                                               double halfX, double halfZ, int sectorCount,
+                                               RadarVisualAnimation animation) {
         return new RadarVisualProfile(dimension, radarPosition, centerX, centerY, centerZ,
-                RadarVisualGeometry.rectangle(centerX, centerZ, halfX, halfZ, sectorCount));
+                RadarVisualGeometry.rectangle(centerX, centerZ, halfX, halfZ, sectorCount), animation);
     }
 
     /** Готовый построитель будущей направленной панели; монитор использует тот же контракт. */
@@ -44,9 +63,18 @@ public record RadarVisualProfile(ResourceLocation dimension, BlockPos radarPosit
                                                     double centerX, double centerY, double centerZ,
                                                     double radius, double startAngle, double sweepAngle,
                                                     int sectorCount) {
+        return circularSector(dimension, radarPosition, centerX, centerY, centerZ,
+                radius, startAngle, sweepAngle, sectorCount, RadarVisualAnimation.SECTOR_SWEEP);
+    }
+
+    /** Направленная геометрия принимает любой поддерживаемый угол и число частей. */
+    public static RadarVisualProfile circularSector(ResourceLocation dimension, BlockPos radarPosition,
+                                                    double centerX, double centerY, double centerZ,
+                                                    double radius, double startAngle, double sweepAngle,
+                                                    int sectorCount, RadarVisualAnimation animation) {
         return new RadarVisualProfile(dimension, radarPosition, centerX, centerY, centerZ,
                 RadarVisualGeometry.circularSector(centerX, centerZ, radius,
-                        startAngle, sweepAngle, sectorCount));
+                        startAngle, sweepAngle, sectorCount), animation);
     }
 
     public int sectorCount() {
