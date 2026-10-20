@@ -15,6 +15,7 @@ import net.minecraft.client.renderer.RenderType;
 import com.electroradar.radar.monitor.MonitorSnapshotData;
 import com.electroradar.radar.monitor.RadarDisplayBlockEntity;
 import com.electroradar.radar.RadarDiagnostics;
+import com.electroradar.radar.visual.RadarVisualAnimation;
 import com.electroradar.radar.visual.RadarVisualProfile;
 
 /** Рисует ту же проецированную геометрию секторов на экранной плоскости монитора в мире. */
@@ -50,9 +51,9 @@ final class MonitorSectorWorldRenderer {
                             + " baseHalfWidthFraction=" + BASE_LINE_HALF_WIDTH_FRACTION
                             + " activeHalfWidthFraction=" + ACTIVE_LINE_HALF_WIDTH_FRACTION);
         }
-        Map<RadarVisualProfile.Key, Integer> activeByProfile = new HashMap<>();
-        for (MonitorSectorAnimationState.ActiveSector active : view.activeSectors()) {
-            activeByProfile.put(active.profile().key(), active.sectorIndex());
+        Map<RadarVisualProfile.Key, MonitorSectorAnimationState.ProfileFrame> frameByProfile = new HashMap<>();
+        for (MonitorSectorAnimationState.ProfileFrame frame : view.visualFrames()) {
+            frameByProfile.put(frame.profile().key(), frame);
         }
 
         VertexConsumer consumer = buffers.getBuffer(
@@ -63,8 +64,24 @@ final class MonitorSectorWorldRenderer {
             MonitorSectorProjection.ProjectedCoverage coverage = MonitorSectorProjection.project(
                     profile, snapshot.dimension(), worldCenterX, worldCenterZ, facing,
                     0.0D, 0.0D, RadarDisplayRenderer.MAP_DIAMETER_BLOCKS);
-            Integer activeIndex = activeByProfile.get(profile.key());
-            if (activeIndex != null) {
+            MonitorSectorAnimationState.ProfileFrame frame = frameByProfile.get(profile.key());
+            if (profile.animation() == RadarVisualAnimation.FULL_FLASH) {
+                float strength = frame == null ? 0.0F : frame.flashStrength();
+                if (strength > 0.0F) {
+                    int flashFill = MonitorSectorPalette.scaleAlpha(
+                            MonitorSectorPalette.WORLD_FLASH_FILL_ARGB, strength);
+                    // Используем все уже ограниченные части, чтобы залить объединение Coverage
+                    // по её реальной форме, но не показывать внутренние радиальные разделители.
+                    for (MonitorSectorProjection.ProjectedSector sector : coverage.sectors()) {
+                        for (List<MonitorSectorProjection.MapPoint> polygon : sector.polygons()) {
+                            drawPolygon(display, poseStack, consumer, facing, origin, polygon,
+                                    centerU, centerV, mapRadius, contentLeft, contentBottom,
+                                    contentSide, flashFill, packedOverlay, FILL_FACE_OFFSET);
+                        }
+                    }
+                }
+            } else if (frame != null && frame.activeSectorIndex() >= 0) {
+                int activeIndex = frame.activeSectorIndex();
                 for (MonitorSectorProjection.ProjectedSector sector : coverage.sectors()) {
                     if (sector.index() == activeIndex) {
                         for (List<MonitorSectorProjection.MapPoint> polygon : sector.polygons()) {
@@ -84,13 +101,26 @@ final class MonitorSectorWorldRenderer {
                         MonitorSectorPalette.WORLD_BASE_LINE_ARGB, packedOverlay,
                         BASE_LINE_FACE_OFFSET, baseLineHalfWidth);
             }
-            for (MonitorSectorProjection.ProjectedSegment line : coverage.separators()) {
-                drawLine(display, poseStack, consumer, facing, origin, line,
-                        centerU, centerV, mapRadius, contentLeft, contentBottom, contentSide,
-                        MonitorSectorPalette.WORLD_BASE_LINE_ARGB, packedOverlay,
-                        BASE_LINE_FACE_OFFSET, baseLineHalfWidth);
+            if (profile.animation() == RadarVisualAnimation.SECTOR_SWEEP) {
+                for (MonitorSectorProjection.ProjectedSegment line : coverage.separators()) {
+                    drawLine(display, poseStack, consumer, facing, origin, line,
+                            centerU, centerV, mapRadius, contentLeft, contentBottom, contentSide,
+                            MonitorSectorPalette.WORLD_BASE_LINE_ARGB, packedOverlay,
+                            BASE_LINE_FACE_OFFSET, baseLineHalfWidth);
+                }
+            } else if (frame != null && frame.flashStrength() > 0.0F) {
+                int flashEdge = MonitorSectorPalette.scaleAlpha(
+                        MonitorSectorPalette.WORLD_FLASH_EDGE_ARGB, frame.flashStrength());
+                for (MonitorSectorProjection.ProjectedSegment line : coverage.outline()) {
+                    drawLine(display, poseStack, consumer, facing, origin, line,
+                            centerU, centerV, mapRadius, contentLeft, contentBottom, contentSide,
+                            flashEdge, packedOverlay, ACTIVE_EDGE_FACE_OFFSET,
+                            activeLineHalfWidth);
+                }
             }
-            if (activeIndex != null) {
+            if (profile.animation() == RadarVisualAnimation.SECTOR_SWEEP
+                    && frame != null && frame.activeSectorIndex() >= 0) {
+                int activeIndex = frame.activeSectorIndex();
                 for (MonitorSectorProjection.ProjectedSector sector : coverage.sectors()) {
                     if (sector.index() == activeIndex) {
                         for (MonitorSectorProjection.ProjectedSegment edge : sector.boundary()) {

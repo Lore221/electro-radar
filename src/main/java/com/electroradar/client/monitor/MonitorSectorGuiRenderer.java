@@ -9,6 +9,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceLocation;
 
 import com.electroradar.radar.monitor.MonitorSnapshotData;
+import com.electroradar.radar.visual.RadarVisualAnimation;
 import com.electroradar.radar.visual.RadarVisualProfile;
 
 /** Отрисовка общей секторной геометрии на центральной квадратной карте GUI. */
@@ -27,9 +28,9 @@ final class MonitorSectorGuiRenderer {
         if (view == null) return;
         MonitorSnapshotData snapshot = view.snapshot();
         if (snapshot.visualProfiles().isEmpty()) return;
-        Map<RadarVisualProfile.Key, Integer> activeByProfile = new HashMap<>();
-        for (MonitorSectorAnimationState.ActiveSector active : view.activeSectors()) {
-            activeByProfile.put(active.profile().key(), active.sectorIndex());
+        Map<RadarVisualProfile.Key, MonitorSectorAnimationState.ProfileFrame> frameByProfile = new HashMap<>();
+        for (MonitorSectorAnimationState.ProfileFrame frame : view.visualFrames()) {
+            frameByProfile.put(frame.profile().key(), frame);
         }
 
         double centerX = contentX + contentSize * 0.5D;
@@ -39,8 +40,22 @@ final class MonitorSectorGuiRenderer {
             MonitorSectorProjection.ProjectedCoverage coverage = MonitorSectorProjection.project(
                     profile, mapDimension, mapCenterX, mapCenterZ, facing,
                     offsetX, offsetZ, mapDiameter);
-            Integer activeIndex = activeByProfile.get(profile.key());
-            if (activeIndex != null) {
+            MonitorSectorAnimationState.ProfileFrame frame = frameByProfile.get(profile.key());
+            if (profile.animation() == RadarVisualAnimation.FULL_FLASH) {
+                float strength = frame == null ? 0.0F : frame.flashStrength();
+                if (strength > 0.0F) {
+                    int flashFill = MonitorSectorPalette.scaleAlpha(
+                            MonitorSectorPalette.FLASH_FILL_ARGB, strength);
+                    // Сумма частей — фактическая Coverage радара. Вспышка заполняет её целиком,
+                    // не рисуя внутренние разделители и не обходя части по очереди.
+                    for (MonitorSectorProjection.ProjectedSector sector : coverage.sectors()) {
+                        for (List<MonitorSectorProjection.MapPoint> polygon : sector.polygons()) {
+                            fillPolygon(graphics, polygon, centerX, centerY, radius, flashFill);
+                        }
+                    }
+                }
+            } else if (frame != null && frame.activeSectorIndex() >= 0) {
+                int activeIndex = frame.activeSectorIndex();
                 for (MonitorSectorProjection.ProjectedSector sector : coverage.sectors()) {
                     if (sector.index() == activeIndex) {
                         for (List<MonitorSectorProjection.MapPoint> polygon : sector.polygons()) {
@@ -56,11 +71,21 @@ final class MonitorSectorGuiRenderer {
                 drawLine(graphics, line, centerX, centerY, radius,
                         MonitorSectorPalette.BASE_LINE_ARGB, 1);
             }
-            for (MonitorSectorProjection.ProjectedSegment line : coverage.separators()) {
-                drawLine(graphics, line, centerX, centerY, radius,
-                        MonitorSectorPalette.BASE_LINE_ARGB, 1);
+            if (profile.animation() == RadarVisualAnimation.SECTOR_SWEEP) {
+                for (MonitorSectorProjection.ProjectedSegment line : coverage.separators()) {
+                    drawLine(graphics, line, centerX, centerY, radius,
+                            MonitorSectorPalette.BASE_LINE_ARGB, 1);
+                }
+            } else if (frame != null && frame.flashStrength() > 0.0F) {
+                int flashEdge = MonitorSectorPalette.scaleAlpha(
+                        MonitorSectorPalette.FLASH_EDGE_ARGB, frame.flashStrength());
+                for (MonitorSectorProjection.ProjectedSegment line : coverage.outline()) {
+                    drawLine(graphics, line, centerX, centerY, radius, flashEdge, 2);
+                }
             }
-            if (activeIndex != null) {
+            if (profile.animation() == RadarVisualAnimation.SECTOR_SWEEP
+                    && frame != null && frame.activeSectorIndex() >= 0) {
+                int activeIndex = frame.activeSectorIndex();
                 for (MonitorSectorProjection.ProjectedSector sector : coverage.sectors()) {
                     if (sector.index() == activeIndex) {
                         for (MonitorSectorProjection.ProjectedSegment edge : sector.boundary()) {
