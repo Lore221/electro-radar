@@ -17,7 +17,7 @@ import com.electroradar.radar.RadarDiagnostics;
  * Единственный слой, меняющий блоки мира ради Create. До удаления Create уже собрал и проверил
  * все панели; отказ при спавне entity восстанавливается штатным addBlocksToWorld без дропов.
  */
-public final class RadarContraptionAdapter {
+final class RadarContraptionAdapter {
     private RadarContraptionAdapter() {
     }
 
@@ -27,7 +27,7 @@ public final class RadarContraptionAdapter {
         ControlledContraptionEntity entity;
         try {
             if (!contraption.assembleValidated(level, controller.getBlockPos(), discovery, mode)) {
-                return new Result(null, RadarAssemblyFinder.Failure.CREATE_REJECTED, null);
+                return new Result(null, RadarAssemblyFinder.Failure.CREATE_REJECTED);
             }
             entity = ControlledContraptionEntity.create(level, controller, contraption);
             BlockPos anchor = controller.getBlockPos().above();
@@ -38,7 +38,7 @@ public final class RadarContraptionAdapter {
             RadarDiagnostics.logException("contraption_preparation_failed", controller.networkId(),
                     controller.endpoint(), null, controller.currentTickForDiagnostics(),
                     "panels=" + discovery.panelCount(), exception);
-            return new Result(null, RadarAssemblyFinder.Failure.CREATE_REJECTED, exception);
+            return new Result(null, RadarAssemblyFinder.Failure.CREATE_REJECTED);
         }
 
         boolean blocksRemoved = false;
@@ -47,9 +47,9 @@ public final class RadarContraptionAdapter {
             blocksRemoved = true;
             if (!level.addFreshEntity(entity)) {
                 restoreWithCreate(level, contraption, discovery, controller.getBlockPos());
-                return new Result(null, RadarAssemblyFinder.Failure.ENTITY_REJECTED, null);
+                return new Result(null, RadarAssemblyFinder.Failure.ENTITY_REJECTED);
             }
-            return new Result(entity, RadarAssemblyFinder.Failure.NONE, null);
+            return new Result(entity, RadarAssemblyFinder.Failure.NONE);
         } catch (Exception exception) {
             if (blocksRemoved) {
                 try {
@@ -66,7 +66,7 @@ public final class RadarContraptionAdapter {
             RadarDiagnostics.logException("contraption_capture_failed", controller.networkId(),
                     controller.endpoint(), null, controller.currentTickForDiagnostics(),
                     "panels=" + discovery.panelCount() + " rolledBack=true", exception);
-            return new Result(null, RadarAssemblyFinder.Failure.CREATE_REJECTED, exception);
+            return new Result(null, RadarAssemblyFinder.Failure.CREATE_REJECTED);
         }
     }
 
@@ -95,7 +95,7 @@ public final class RadarContraptionAdapter {
     }
 
     public record Result(ControlledContraptionEntity entity,
-                         RadarAssemblyFinder.Failure failure, Exception cause) {
+                         RadarAssemblyFinder.Failure failure) {
         public boolean success() {
             return entity != null && failure == RadarAssemblyFinder.Failure.NONE;
         }

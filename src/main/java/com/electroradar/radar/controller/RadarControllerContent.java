@@ -2,10 +2,10 @@ package com.electroradar.radar.controller;
 
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.material.MapColor;
@@ -45,8 +45,8 @@ public final class RadarControllerContent {
     public static final DeferredItem<RadarControllerItem> RADAR_CONTROLLER_ITEM = controllerItem("radar_controller", RADAR_CONTROLLER);
     public static final DeferredItem<RadarControllerItem> AIR_RADAR_CONTROLLER_ITEM = controllerItem("air_radar_controller", AIR_RADAR_CONTROLLER);
     public static final DeferredItem<RadarControllerItem> SURFACE_RADAR_CONTROLLER_ITEM = controllerItem("surface_radar_controller", SURFACE_RADAR_CONTROLLER);
-    public static final DeferredItem<BlockItemPanel> RADAR_PANEL_ITEM = ITEMS.register("radar_panel",
-            () -> new BlockItemPanel(RADAR_PANEL.get(), new Item.Properties()));
+    public static final DeferredItem<BlockItem> RADAR_PANEL_ITEM = ITEMS.register("radar_panel",
+            () -> new BlockItem(RADAR_PANEL.get(), new Item.Properties()));
 
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<RadarControllerBlockEntity>> CONTROLLER_ENTITY =
             BLOCK_ENTITIES.register("radar_controller", () -> BlockEntityType.Builder.of(
@@ -102,12 +102,5 @@ public final class RadarControllerContent {
             }
             return BlockMovementChecks.CheckResult.PASS;
         });
-    }
-
-    /** Типизированный BlockItem панели не реализует контракт привязки сети. */
-    public static final class BlockItemPanel extends net.minecraft.world.item.BlockItem {
-        public BlockItemPanel(Block block, Item.Properties properties) {
-            super(block, properties);
-        }
     }
 }

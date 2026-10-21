@@ -1,43 +1,27 @@
 package com.electroradar.radar.monitor;
 
 import java.util.Comparator;
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
-import com.electroradar.radar.monitor.network.MonitorPayloads;
-import com.electroradar.radar.RadarDiagnostics;
 import com.electroradar.radar.network.ConsumerConnection;
 import com.electroradar.radar.network.EndpointKey;
 import com.electroradar.radar.network.EndpointRole;
-import com.electroradar.radar.network.LiveResult;
 import com.electroradar.radar.network.NetworkId;
-import com.electroradar.radar.network.RadarNetworkManager;
 import com.electroradar.radar.network.TargetRef;
-import com.electroradar.radar.network.TargetSnapshot;
-import com.electroradar.radar.network.TargetView;
-import com.electroradar.radar.network.ScanWindow;
-import com.electroradar.radar.visual.RadarVisualProfile;
-import com.electroradar.radar.visual.RadarVisualProfileSource;
 
 /**
  * Сохраняет идентичность одной панели, а у панели-корня дополнительно владеет единственной
@@ -58,8 +42,7 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
     private static final String STRUCTURE_VERSION_TAG = "electroradar_structure_version";
     private static final String LOAD_ID_TAG = "electroradar_load_id";
     private static final long POLL_PERIOD_TICKS = 5L;
-    /** Серверное игровое время следующей границы, на которой нужно перечитать опубликованный снимок. */
-    private long nextSnapshotRefreshGameTime = -1L;
+    private final MonitorSnapshotRuntime snapshots = new MonitorSnapshotRuntime();
 
     private UUID displayId;
     private BlockPos rootPosition;
@@ -77,17 +60,6 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
     private boolean registrationFailureLogged;
     /** Не повторяет stack trace проверки одного runtime-handle до следующей успешной проверки. */
     private boolean connectionCheckFailureLogged;
-    /** Удерживает по одной записи ошибки чтения профиля на endpoint до его восстановления. */
-    private final Set<EndpointKey> visualProfileFailuresLogged = new HashSet<>();
-    private boolean visualProfileCollectionFailureLogged;
-    private MonitorSnapshotData latestSnapshot;
-    /**
-     * Номер последнего собранного снимка этой загрузки. Он только растёт, и по нему клиент
-     * упорядочивает снимки. Сбрасывать его безопасно лишь вместе со сменой loadId: снимки
-     * новой загрузки клиент хранит под другим ключом.
-     */
-    private long snapshotSequence;
-    private long lastSentSequence = -1L;
 
     public RadarDisplayBlockEntity(BlockPos position, BlockState state) {
         super(RadarDisplayContent.RADAR_DISPLAY_ENTITY.get(), position, state);
@@ -98,13 +70,9 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
     public void onLoad() {
         super.onLoad();
         connection = null;
-        clearSnapshotRefreshSchedule();
         registrationFailureLogged = false;
         connectionCheckFailureLogged = false;
-        visualProfileFailuresLogged.clear();
-        visualProfileCollectionFailureLogged = false;
-        latestSnapshot = null;
-        lastSentSequence = -1L;
+        snapshots.resetForLoad();
         assemblyDirty = true;
         if (level instanceof ServerLevel) {
             loadId = UUID.randomUUID();
@@ -127,8 +95,8 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
             loadId = tag.getUUID(LOAD_ID_TAG);
         }
         connection = null;
-        clearSnapshotRefreshSchedule();
-        latestSnapshot = null;
+        snapshots.clearSchedule();
+        snapshots.invalidate();
         assemblyDirty = true;
     }
 
@@ -182,8 +150,7 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
         long gameTime = serverLevel.getGameTime();
         boolean ordinaryPoll = Math.floorMod(
                 gameTime + Math.floorMod(position.asLong(), POLL_PERIOD_TICKS), POLL_PERIOD_TICKS) == 0;
-        boolean scheduledBoundary = display.nextSnapshotRefreshGameTime >= 0L
-                && gameTime >= display.nextSnapshotRefreshGameTime;
+        boolean scheduledBoundary = display.snapshots.refreshDue(gameTime);
         if (ordinaryPoll || scheduledBoundary) {
             // Менеджер уже опубликовал границу в ServerTickEvent.Pre. Этот единственный
             // внеочередной вызов увидит новую эпоху; запрос целей не выполняется каждый тик.
@@ -281,7 +248,7 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
             if (itemNetworkId != null && level.hasChunkAt(rootPosition)) {
                 if (level.getBlockEntity(rootPosition) instanceof RadarDisplayBlockEntity root) {
                     root.networkId = itemNetworkId;
-                    root.latestSnapshot = null;
+                    root.snapshots.invalidate();
                     root.setChanged();
                 }
             }
@@ -291,7 +258,7 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
         rectangleHeight = member.rectangleHeight;
         structureVersion = Math.max(structureVersion, member.structureVersion);
         assemblyDirty = true;
-        latestSnapshot = null;
+        snapshots.invalidate();
         setChanged();
         syncClient();
         RadarDisplayAssembly.markDirtyAround(level, worldPosition, displayId);
@@ -426,7 +393,7 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
             RadarMonitorDiagnostics.consumerConnectionOpened(serverLevel, this);
         } catch (RuntimeException exception) {
             connection = null;
-            clearSnapshotRefreshSchedule();
+            snapshots.clearSchedule();
             // Следующее обращение повторит регистрацию; одинаковый отказ логируется один раз.
             if (!registrationFailureLogged) {
                 registrationFailureLogged = true;
@@ -476,7 +443,7 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
     private void closeConnection(String reason) {
         // После закрытия consumer больше нельзя полагаться на сохранённое расписание.
         // Обычный редкий опрос возобновит сбор, если связь позднее восстановится.
-        clearSnapshotRefreshSchedule();
+        snapshots.clearSchedule();
         ConsumerConnection previous = connection;
         connection = null;
         if (previous != null) {
@@ -491,180 +458,15 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
             ServerLevel serverLevel = level instanceof ServerLevel server ? server : null;
             RadarMonitorDiagnostics.consumerConnectionClosed(serverLevel, this, reason, closed);
             connectionCheckFailureLogged = false;
-            latestSnapshot = null;
+            snapshots.invalidate();
         }
     }
 
     private void refreshAndBroadcast(boolean openGui, ServerPlayer recipient) {
-        if (!(level instanceof ServerLevel serverLevel) || !isRoot()) {
-            return;
-        }
+        if (!(level instanceof ServerLevel serverLevel) || !isRoot()) return;
         ensureConnection(serverLevel);
-        TargetSnapshot<MonitorTargetData> targetSnapshot = connection == null || !isConnectionOpen()
-                ? TargetSnapshot.empty(0, 0)
-                : connection.queryTargets(RadarDisplayBlockEntity::projectTarget);
-        VisualWindow visualWindow = collectVisualWindow(serverLevel);
-        scheduleSnapshotRefresh(serverLevel, visualWindow);
-
-        List<MonitorTargetData> targets = targetSnapshot.targets();
-        TargetRef chosen = null;
-        boolean unavailable = false;
-        if (connection != null && isConnectionOpen()) {
-            Optional<TargetRef> networkSelection = connection.selectedTarget();
-            if (networkSelection.isPresent()) {
-                TargetRef requested = networkSelection.get();
-                if (targets.stream().anyMatch(target -> target.target().equals(requested))) {
-                    chosen = requested;
-                } else {
-                    // Не передаём клиенту даже идентичность цели, недоступной этому монитору.
-                    unavailable = true;
-                }
-            }
-        }
-
-        boolean linked = networkId != null;
-        boolean sameVersion = latestSnapshot != null
-                && latestSnapshot.structureVersion() == structureVersion
-                && latestSnapshot.publishedEpoch() == targetSnapshot.publishedEpoch()
-                && latestSnapshot.revision() == targetSnapshot.revision()
-                && latestSnapshot.linked() == linked
-                && latestSnapshot.visualProfiles().equals(visualWindow.profiles())
-                && latestSnapshot.visualWindowPeriodTicks() == visualWindow.periodTicks();
-        if (!sameVersion) {
-            if (latestSnapshot == null
-                    || !latestSnapshot.visualProfiles().equals(visualWindow.profiles())) {
-                RadarMonitorDiagnostics.visualGeometryChanged(serverLevel, this,
-                        visualWindow.profiles());
-            }
-            latestSnapshot = new MonitorSnapshotData(displayId, worldPosition,
-                    serverLevel.dimension().location(), loadId, ++snapshotSequence, structureVersion,
-                    targetSnapshot.publishedEpoch(), targetSnapshot.revision(), linked,
-                    unavailable, chosen, targets, visualWindow.profiles(),
-                    visualWindow.periodTicks(), visualWindow.remainingTicks());
-            RadarMonitorDiagnostics.snapshotReceived(serverLevel, this, latestSnapshot);
-        }
-
-        if (recipient != null) {
-            MonitorSnapshotData addressedSnapshot = latestSnapshot.withWindowTiming(
-                    visualWindow.periodTicks(), visualWindow.remainingTicks());
-            MonitorPayloads.sendToPlayer(recipient, addressedSnapshot, openGui);
-            RadarMonitorDiagnostics.snapshotSentAddressed(
-                    serverLevel, this, addressedSnapshot, recipient, openGui);
-            // Адресная отправка обслуживает только этого игрока и не подтверждает
-            // доставку остальным наблюдателям, подписанным на чанки дисплея.
-            return;
-        }
-        if (openGui || hasSnapshotChangedSinceBroadcast()) {
-            MonitorPayloads.sendToTracking(serverLevel, latestSnapshot);
-            RadarMonitorDiagnostics.snapshotBroadcast(serverLevel, this, latestSnapshot);
-            rememberSentVersion();
-        }
-    }
-
-    /**
-     * Собирает только профили зарегистрированных статических радаров текущей сети.
-     * Чтение не загружает чанки и не трогает регистрацию; незагруженные BlockEntity и endpoint
-     * другого измерения пропускаются. Окно берётся у действующего расписания, а не вычисляется
-     * делением gameTime, чтобы визуальный круг совпадал с публикацией ядра.
-     */
-    private VisualWindow collectVisualWindow(ServerLevel serverLevel) {
-        if (networkId == null || connection == null || !isConnectionOpen()) return VisualWindow.EMPTY;
-        try {
-            RadarNetworkManager manager = RadarNetworkManager.forServer(serverLevel.getServer());
-            long currentTick = manager.currentServerTick();
-            List<EndpointKey> endpoints = manager.registeredEndpoints(networkId).stream()
-                    .filter(EndpointKey.Static.class::isInstance)
-                    .filter(endpoint -> endpoint.dimension().equals(serverLevel.dimension()))
-                    .sorted(Comparator.comparing(endpoint -> ((EndpointKey.Static) endpoint).position()))
-                    .toList();
-            Set<EndpointKey> presentEndpoints = new HashSet<>(endpoints);
-            visualProfileFailuresLogged.retainAll(presentEndpoints);
-
-            ArrayList<RadarVisualProfile> profiles = new ArrayList<>();
-            ScanWindow activeWindow = null;
-            ScanWindow fallbackWindow = null;
-            for (EndpointKey endpoint : endpoints) {
-                EndpointKey.Static stationary = (EndpointKey.Static) endpoint;
-                if (!serverLevel.hasChunkAt(stationary.position())) continue;
-                BlockEntity blockEntity = serverLevel.getBlockEntity(stationary.position());
-                if (!(blockEntity instanceof RadarVisualProfileSource source)) continue;
-                try {
-                    if (source.visualNetworkId().filter(networkId::equals).isEmpty()) continue;
-                    Optional<RadarVisualProfile> provided = source.radarVisualProfile();
-                    if (provided.isEmpty()) continue;
-                    RadarVisualProfile profile = provided.orElseThrow();
-                    if (!profile.dimension().equals(stationary.dimension().location())
-                            || !profile.radarPosition().equals(stationary.position())) {
-                        throw new IllegalStateException("Radar visual profile identity does not match its endpoint");
-                    }
-                    Optional<ScanWindow> scheduled = manager.scanWindowForRadar(stationary);
-                    if (scheduled.isEmpty()) continue;
-                    profiles.add(profile);
-                    ScanWindow window = scheduled.orElseThrow();
-                    if (window.eligibleThisWindow()) {
-                        if (activeWindow == null || window.boundaryTick() < activeWindow.boundaryTick()) {
-                            activeWindow = window;
-                        }
-                    } else if (fallbackWindow == null || window.boundaryTick() < fallbackWindow.boundaryTick()) {
-                        fallbackWindow = window;
-                    }
-                    visualProfileFailuresLogged.remove(endpoint);
-                } catch (RuntimeException exception) {
-                    if (visualProfileFailuresLogged.add(endpoint)) {
-                        RadarDiagnostics.logException("monitor_visual_profile_read_failed", networkId,
-                                endpoint, null, currentTick,
-                                "operation=read_profile_or_scan_schedule", exception);
-                    }
-                }
-            }
-            profiles.sort(Comparator.comparing(RadarVisualProfile::radarPosition));
-            ScanWindow window = activeWindow == null ? fallbackWindow : activeWindow;
-            long period = window == null ? 0L : window.periodTicks();
-            long remaining = window == null ? 0L
-                    : Math.max(0L, Math.min(period, window.boundaryTick() - currentTick));
-            visualProfileCollectionFailureLogged = false;
-            return new VisualWindow(profiles, period, remaining,
-                    window == null ? -1L : window.boundaryTick(), currentTick);
-        } catch (RuntimeException exception) {
-            if (!visualProfileCollectionFailureLogged) {
-                visualProfileCollectionFailureLogged = true;
-                RadarDiagnostics.logException("monitor_visual_profile_collection_failed", networkId,
-                        new EndpointKey.Static(serverLevel.dimension(), worldPosition), null,
-                        serverLevel.getGameTime(), "operation=read_registered_visual_profiles", exception);
-            }
-            return VisualWindow.EMPTY;
-        }
-    }
-
-    private record VisualWindow(List<RadarVisualProfile> profiles, long periodTicks, long remainingTicks,
-                                long nextBoundaryTick, long observedServerTick) {
-        private static final VisualWindow EMPTY = new VisualWindow(List.of(), 0L, 0L, -1L, -1L);
-
-        private VisualWindow {
-            profiles = List.copyOf(profiles);
-        }
-    }
-
-    /**
-     * Переводит ближайшую границу часов менеджера в одноразовый дедлайн игровых тиков мира.
-     * Часы обоих механизмов продвигаются один раз за серверный тик; разница вычисляется при
-     * чтении расписания, поэтому не требуется запрашивать полный снимок на каждом тике.
-     * При отсутствии профилей или расписания дедлайн снимается, и остаётся обычный опрос.
-     */
-    private void scheduleSnapshotRefresh(ServerLevel serverLevel, VisualWindow visualWindow) {
-        if (visualWindow.profiles().isEmpty() || visualWindow.periodTicks() <= 0L
-                || visualWindow.nextBoundaryTick() < 0L || visualWindow.observedServerTick() < 0L) {
-            clearSnapshotRefreshSchedule();
-            return;
-        }
-        long ticksUntilBoundary = Math.max(
-                0L, visualWindow.nextBoundaryTick() - visualWindow.observedServerTick());
-        nextSnapshotRefreshGameTime = serverLevel.getGameTime() + ticksUntilBoundary;
-    }
-
-    /** Сбрасывает runtime-дедлайн при потере связи, корня или расписания. */
-    private void clearSnapshotRefreshSchedule() {
-        nextSnapshotRefreshGameTime = -1L;
+        snapshots.refreshAndBroadcast(this, serverLevel,
+                isConnectionOpen() ? connection : null, openGui, recipient);
     }
 
     private boolean isConnectionOpen() {
@@ -683,26 +485,6 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
             }
             return false;
         }
-    }
-
-    private boolean hasSnapshotChangedSinceBroadcast() {
-        return latestSnapshot != null && latestSnapshot.sequence() != lastSentSequence;
-    }
-
-    private void rememberSentVersion() {
-        lastSentSequence = latestSnapshot.sequence();
-    }
-
-    private static MonitorTargetData projectTarget(TargetView view) {
-        TargetRef target = view.target();
-        LiveResult live = view.liveResult();
-        if (!view.detectedThisWindow() || live.position().isEmpty() || live.entityType().isEmpty()) {
-            return new MonitorTargetData(target, view.detectedThisWindow(), false, 0, 0, 0, "");
-        }
-        Vec3 position = live.position().orElseThrow();
-        EntityType<?> type = live.entityType().orElseThrow();
-        return new MonitorTargetData(target, true, true, position.x, position.y, position.z,
-                BuiltInRegistries.ENTITY_TYPE.getKey(type).toString());
     }
 
     /** Подготавливает корень к одному ограниченному проходу геометрии. */
@@ -732,14 +514,14 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
     void setNetworkIdFromAssembly(NetworkId recoveredNetworkId) {
         if (networkId == null && recoveredNetworkId != null) {
             networkId = recoveredNetworkId;
-            latestSnapshot = null;
+            snapshots.invalidate();
             setChanged();
         }
     }
 
     /** Сбрасывает старые данные карты, когда корневой экран меняет геометрию. */
     void invalidateSnapshotForAssemblyChange() {
-        latestSnapshot = null;
+        snapshots.invalidate();
     }
 
     void applyAssembly(BlockPos root, UUID id, NetworkId network,
@@ -754,7 +536,7 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
         rectangleWidth = width;
         rectangleHeight = height;
         structureVersion = version;
-        if (networkChanged) latestSnapshot = null;
+        if (networkChanged) snapshots.invalidate();
         BlockState state = getBlockState();
         if (state.getValue(RadarDisplayBlock.ACTIVE) != active
                 || state.getValue(RadarDisplayBlock.FRAME_SHAPE) != frame) {
@@ -833,10 +615,8 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
         rectangleHeight = 0;
         structureVersion++;
         loadId = UUID.randomUUID();
-        latestSnapshot = null;
-        // Новому владельцу нужно разослать первый снимок всем наблюдателям даже при совпавшей
-        // версии сети с прежним корнем; история доставки принадлежит конкретной загрузке корня.
-        lastSentSequence = -1L;
+        // История доставки и sequence принадлежат конкретной загрузке корня.
+        snapshots.resetForLoad();
         registrationFailureLogged = false;
         connectionCheckFailureLogged = false;
         assemblyDirty = true;

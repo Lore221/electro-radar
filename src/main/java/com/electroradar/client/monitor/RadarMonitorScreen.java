@@ -289,11 +289,11 @@ public final class RadarMonitorScreen extends Screen {
             if (selected) {
                 MonitorBlipSprite.drawGui(graphics, MonitorBlipSprite.SELECTED_FRAME,
                         x, y, cellPixels, (alpha << 24)
-                                | (RadarClientConfig.palette().selectedFrame() & 0x00FFFFFF));
+                                | (RadarClientConfig.palette().screen().selectedFrame() & 0x00FFFFFF));
             } else if (isHovered) {
                 MonitorBlipSprite.drawGui(graphics, MonitorBlipSprite.HOVERED_FRAME,
                         x, y, cellPixels, (alpha << 24)
-                                | (RadarClientConfig.palette().hoveredFrame() & 0x00FFFFFF));
+                                | (RadarClientConfig.palette().screen().hoveredFrame() & 0x00FFFFFF));
             }
         }
     }
@@ -307,11 +307,11 @@ public final class RadarMonitorScreen extends Screen {
             if (line.vertical()) {
                 int x = (int) Math.round(contentX + contentSize / 2.0D + pixelOffset);
                 graphics.fill(x, contentY, x + 1, contentY + contentSize,
-                        RadarClientConfig.palette().guiGrid());
+                        RadarClientConfig.palette().screen().guiGrid());
             } else {
                 int y = (int) Math.round(contentY + contentSize / 2.0D + pixelOffset);
                 graphics.fill(contentX, y, contentX + contentSize, y + 1,
-                        RadarClientConfig.palette().guiGrid());
+                        RadarClientConfig.palette().screen().guiGrid());
             }
         }
     }
@@ -343,19 +343,19 @@ public final class RadarMonitorScreen extends Screen {
         int statusColor;
         if (snapshot == null) {
             status = Component.translatable("message.electroradar.monitor.waiting");
-            statusColor = RadarClientConfig.palette().statusWarning();
+            statusColor = RadarClientConfig.palette().screen().statusWarning();
         } else if (!snapshot.linked()) {
             status = Component.translatable("message.electroradar.monitor.no_binding");
-            statusColor = RadarClientConfig.palette().statusWarning();
+            statusColor = RadarClientConfig.palette().screen().statusWarning();
         } else if (snapshot.selectedTargetUnavailable()) {
             status = Component.translatable("message.electroradar.monitor.selection_unavailable");
-            statusColor = RadarClientConfig.palette().statusWarning();
+            statusColor = RadarClientConfig.palette().screen().statusWarning();
         } else if (snapshot.targets().isEmpty()) {
             status = Component.translatable("message.electroradar.monitor.no_targets");
-            statusColor = RadarClientConfig.palette().statusNeutral();
+            statusColor = RadarClientConfig.palette().screen().statusNeutral();
         } else if (snapshot.targets().stream().anyMatch(target -> !target.detectedThisWindow())) {
             status = Component.translatable("message.electroradar.monitor.remembering");
-            statusColor = RadarClientConfig.palette().statusWarning();
+            statusColor = RadarClientConfig.palette().screen().statusWarning();
         } else {
             return;
         }

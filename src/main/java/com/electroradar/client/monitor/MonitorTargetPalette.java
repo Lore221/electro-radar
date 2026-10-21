@@ -18,7 +18,7 @@ final class MonitorTargetPalette {
 
     /** Возвращает RGB-цвет игрока, враждебного/пассивного существа или неизвестной цели. */
     static int entityRgb(MonitorClientState.DisplayTarget target) {
-        RadarClientConfig.Palette palette = RadarClientConfig.palette();
+        RadarClientConfig.TargetColors palette = RadarClientConfig.palette().targets();
         ResourceLocation id = ResourceLocation.tryParse(target.entityTypeId());
         if (id == null) return palette.other();
         if (id.equals(ResourceLocation.withDefaultNamespace("player"))) return palette.player();

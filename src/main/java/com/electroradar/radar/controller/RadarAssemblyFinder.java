@@ -13,13 +13,11 @@ import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.state.BlockState;
 
-import com.electroradar.radar.RadarDiagnostics;
-
 /**
  * Только читает загруженный мир и описывает одну апертуру. Здесь нет Create entity, изменения
  * BlockState, регистрации сети и сканирования целей; это позволяет сначала завершить все отказы.
  */
-public final class RadarAssemblyFinder {
+final class RadarAssemblyFinder {
     private RadarAssemblyFinder() {
     }
 

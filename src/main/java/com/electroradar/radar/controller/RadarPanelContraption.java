@@ -1,11 +1,8 @@
 package com.electroradar.radar.controller;
 
-import java.util.Map;
-
 import com.simibubi.create.api.contraption.BlockMovementChecks;
 import com.simibubi.create.api.contraption.ContraptionType;
 import com.simibubi.create.content.contraptions.AssemblyException;
-import com.simibubi.create.content.contraptions.StructureTransform;
 import com.simibubi.create.content.contraptions.bearing.BearingContraption;
 
 import net.minecraft.core.BlockPos;
@@ -42,7 +39,7 @@ public final class RadarPanelContraption extends BearingContraption {
         return false;
     }
 
-    public boolean assembleValidated(Level level, BlockPos controllerPos,
+    boolean assembleValidated(Level level, BlockPos controllerPos,
                                      RadarAssemblyFinder.Discovery discovery, RadarMode mode)
             throws AssemblyException {
         if (!discovery.valid() || discovery.positions().isEmpty()) return false;
@@ -100,13 +97,5 @@ public final class RadarPanelContraption extends BearingContraption {
     @Override
     public boolean canBeStabilized(Direction facing, BlockPos localPos) {
         return false;
-    }
-
-    public Direction panelFacing() {
-        return getFacing().getCounterClockWise();
-    }
-
-    public Map<BlockPos, StructureBlockInfo> capturedPanels() {
-        return Map.copyOf(blocks);
     }
 }

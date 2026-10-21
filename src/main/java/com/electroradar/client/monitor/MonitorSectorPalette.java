@@ -7,15 +7,15 @@ final class MonitorSectorPalette {
     private MonitorSectorPalette() {
     }
 
-    static int baseLine() { return RadarClientConfig.palette().guiBase(); }
-    static int activeFill() { return RadarClientConfig.palette().guiActiveFill(); }
-    static int activeEdge() { return RadarClientConfig.palette().guiActiveEdge(); }
-    static int flashFill() { return RadarClientConfig.palette().guiFlashFill(); }
-    static int flashEdge() { return RadarClientConfig.palette().guiFlashEdge(); }
-    static int worldBaseLine() { return RadarClientConfig.palette().worldBase(); }
-    static int worldActiveEdge() { return RadarClientConfig.palette().worldActiveEdge(); }
-    static int worldFlashFill() { return RadarClientConfig.palette().worldFlashFill(); }
-    static int worldFlashEdge() { return RadarClientConfig.palette().worldFlashEdge(); }
+    static int baseLine() { return RadarClientConfig.palette().sector().gui().base(); }
+    static int activeFill() { return RadarClientConfig.palette().sector().gui().activeFill(); }
+    static int activeEdge() { return RadarClientConfig.palette().sector().gui().activeEdge(); }
+    static int flashFill() { return RadarClientConfig.palette().sector().gui().flashFill(); }
+    static int flashEdge() { return RadarClientConfig.palette().sector().gui().flashEdge(); }
+    static int worldBaseLine() { return RadarClientConfig.palette().sector().world().base(); }
+    static int worldActiveEdge() { return RadarClientConfig.palette().sector().world().activeEdge(); }
+    static int worldFlashFill() { return RadarClientConfig.palette().sector().world().flashFill(); }
+    static int worldFlashEdge() { return RadarClientConfig.palette().sector().world().flashEdge(); }
 
     /** Масштабирует только alpha цвета, сохраняя RGB-палитру и общий расчёт силы фазы. */
     static int scaleAlpha(int argb, float strength) {
