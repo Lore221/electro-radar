@@ -17,6 +17,7 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 import com.electroradar.ElectroRadar;
+import com.electroradar.config.RadarClientConfig;
 import com.electroradar.radar.monitor.MonitorSnapshotData;
 import com.electroradar.radar.monitor.RadarDisplayBlock;
 import com.electroradar.radar.monitor.RadarDisplayBlockEntity;
@@ -57,9 +58,6 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
     private static final float VERTICAL_GRID_FACE_OFFSET = 0.01095F;
     private static final float HORIZONTAL_GRID_FACE_OFFSET = 0.01115F;
     private static final float MARKER_RENDER_SCALE = 0.85F;
-    private static final float GRID_LINE_RGB_RED = 216.0F;
-    private static final float GRID_LINE_RGB_GREEN = 255.0F;
-    private static final float GRID_LINE_RGB_BLUE = 232.0F;
     private static final float GRID_WHITE_PIXEL_U =
             (MonitorBlipSprite.WHITE_PIXEL.x() + 0.5F) / MonitorBlipSprite.ATLAS_SIZE;
     private static final float GRID_WHITE_PIXEL_V =
@@ -243,9 +241,11 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
             int alpha = Math.clamp(Math.round(255.0F * target.rememberedOpacity(gameTime)), 0, 255);
             drawSprite(display, poseStack, buffers, facing, origin, MonitorBlipSprite.SELECTED_FRAME,
                     contentLeft, contentBottom, contentSide, x, y, frameHalf,
-                    0xFF0000, alpha, packedOverlay, SELECTED_FRAME_FACE_OFFSET);
+                    RadarClientConfig.palette().selectedFrame() & 0x00FFFFFF,
+                    alpha, packedOverlay, SELECTED_FRAME_FACE_OFFSET);
             drawSprite(display, poseStack, buffers, facing, origin, MonitorBlipSprite.SELECTED_FRAME,
-                    contentLeft, contentBottom, contentSide, x, y, frameHalf, 0xFF0000, alpha, packedOverlay,
+                    contentLeft, contentBottom, contentSide, x, y, frameHalf,
+                    RadarClientConfig.palette().selectedFrame() & 0x00FFFFFF, alpha, packedOverlay,
                     SELECTED_FRAME_FACE_OFFSET + ALPHA_REINFORCEMENT_OFFSET);
             return;
         }
@@ -270,6 +270,11 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
                                  double contentLeft, double contentBottom, double contentSide,
                                  double mapRadius, int packedOverlay) {
         double lineHalfWidth = Math.max(0.0008D, contentSide / 1024.0D);
+        int gridColor = RadarClientConfig.palette().worldGrid();
+        float red = (gridColor >>> 16) & 0xFF;
+        float green = (gridColor >>> 8) & 0xFF;
+        float blue = gridColor & 0xFF;
+        int alpha = (gridColor >>> 24) & 0xFF;
         List<MonitorGridGeometry.GridLine> lines = MonitorGridGeometry.project(
                 worldCenterX, worldCenterZ, 0.0D, 0.0D, facing, MAP_DIAMETER_BLOCKS);
         for (MonitorGridGeometry.GridLine line : lines) {
@@ -281,7 +286,7 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
                 if (clippedRight <= clippedLeft) continue;
                 drawSolidAtlasRect(display, poseStack, buffers, facing, origin,
                         clippedLeft, contentBottom, clippedRight, contentBottom + contentSide,
-                        GRID_LINE_RGB_RED, GRID_LINE_RGB_GREEN, GRID_LINE_RGB_BLUE, 255,
+                        red, green, blue, alpha,
                         packedOverlay, VERTICAL_GRID_FACE_OFFSET);
             } else {
                 double y = centerV - offset;
@@ -290,7 +295,7 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
                 if (clippedTop <= clippedBottom) continue;
                 drawSolidAtlasRect(display, poseStack, buffers, facing, origin,
                         contentLeft, clippedBottom, contentLeft + contentSide, clippedTop,
-                        GRID_LINE_RGB_RED, GRID_LINE_RGB_GREEN, GRID_LINE_RGB_BLUE, 255,
+                        red, green, blue, alpha,
                         packedOverlay, HORIZONTAL_GRID_FACE_OFFSET);
             }
         }

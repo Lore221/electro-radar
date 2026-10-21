@@ -13,6 +13,8 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 import com.electroradar.ElectroRadar;
 import com.electroradar.radar.monitor.RadarDisplayContent;
+import com.electroradar.radar.controller.RadarControllerContent;
+import com.electroradar.client.controller.RadarPanelCTBehaviour;
 import com.electroradar.radar.monitor.network.MonitorOpenPayload;
 import com.electroradar.radar.monitor.network.MonitorSnapshotPayload;
 
@@ -37,6 +39,9 @@ public final class MonitorClientEvents {
         event.enqueueWork(() -> CreateRegistrate
                 .connectedTextures(RadarDisplayCTBehaviour::new)
                 .accept(RadarDisplayContent.RADAR_DISPLAY_BLOCK.get()));
+        event.enqueueWork(() -> CreateRegistrate
+                .connectedTextures(RadarPanelCTBehaviour::new)
+                .accept(RadarControllerContent.RADAR_PANEL.get()));
     }
 
     @SubscribeEvent
