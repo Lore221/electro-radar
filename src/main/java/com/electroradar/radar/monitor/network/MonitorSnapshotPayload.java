@@ -256,7 +256,6 @@ public record MonitorSnapshotPayload(
         int lineCount = outline.size() + separators.size();
         for (int i = 0; i < sectorCount; i++) {
             int count = readCount(buffer, RadarVisualGeometry.MAX_TRIANGLES - triangleCount);
-            if (count == 0) throw new IllegalArgumentException("Empty radar visual sector");
             java.util.ArrayList<RadarVisualGeometry.Triangle> triangles = new java.util.ArrayList<>(count);
             for (int j = 0; j < count; j++) {
                 triangles.add(new RadarVisualGeometry.Triangle(
@@ -270,6 +269,7 @@ public record MonitorSnapshotPayload(
             }
             sectors.add(new RadarVisualGeometry.Sector(i, triangles, boundary));
         }
+        // Общие инварианты пустых частей и покрытия проверяет Coverage также при создании на сервере.
         return new RadarVisualProfile(dimension, position, centerX, centerY, centerZ,
                 new RadarVisualGeometry.Coverage(outline, separators, sectors), animation);
     }

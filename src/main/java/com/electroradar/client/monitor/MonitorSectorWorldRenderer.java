@@ -45,9 +45,9 @@ final class MonitorSectorWorldRenderer {
             styleLogged = true;
             RadarDiagnostics.log("monitor_visual_world_style", null, null,
                     snapshot.publishedEpoch(), null,
-                    "clock=client guiBaseAlpha=" + (MonitorSectorPalette.BASE_LINE_ARGB >>> 24)
-                            + " worldBaseAlpha=" + (MonitorSectorPalette.WORLD_BASE_LINE_ARGB >>> 24)
-                            + " worldActiveAlpha=" + (MonitorSectorPalette.WORLD_ACTIVE_EDGE_ARGB >>> 24)
+                    "clock=client guiBaseAlpha=" + (MonitorSectorPalette.baseLine() >>> 24)
+                            + " worldBaseAlpha=" + (MonitorSectorPalette.worldBaseLine() >>> 24)
+                            + " worldActiveAlpha=" + (MonitorSectorPalette.worldActiveEdge() >>> 24)
                             + " baseHalfWidthFraction=" + BASE_LINE_HALF_WIDTH_FRACTION
                             + " activeHalfWidthFraction=" + ACTIVE_LINE_HALF_WIDTH_FRACTION);
         }
@@ -69,7 +69,7 @@ final class MonitorSectorWorldRenderer {
                 float strength = frame == null ? 0.0F : frame.flashStrength();
                 if (strength > 0.0F) {
                     int flashFill = MonitorSectorPalette.scaleAlpha(
-                            MonitorSectorPalette.WORLD_FLASH_FILL_ARGB, strength);
+                            MonitorSectorPalette.worldFlashFill(), strength);
                     // Используем все уже ограниченные части, чтобы залить объединение Coverage
                     // по её реальной форме, но не показывать внутренние радиальные разделители.
                     for (MonitorSectorProjection.ProjectedSector sector : coverage.sectors()) {
@@ -87,7 +87,7 @@ final class MonitorSectorWorldRenderer {
                         for (List<MonitorSectorProjection.MapPoint> polygon : sector.polygons()) {
                             drawPolygon(display, poseStack, consumer, facing, origin, polygon,
                                     centerU, centerV, mapRadius, contentLeft, contentBottom,
-                                    contentSide, MonitorSectorPalette.ACTIVE_FILL_ARGB, packedOverlay,
+                                    contentSide, MonitorSectorPalette.activeFill(), packedOverlay,
                                     FILL_FACE_OFFSET);
                         }
                         break;
@@ -98,19 +98,19 @@ final class MonitorSectorWorldRenderer {
             for (MonitorSectorProjection.ProjectedSegment line : coverage.outline()) {
                 drawLine(display, poseStack, consumer, facing, origin, line,
                         centerU, centerV, mapRadius, contentLeft, contentBottom, contentSide,
-                        MonitorSectorPalette.WORLD_BASE_LINE_ARGB, packedOverlay,
+                        MonitorSectorPalette.worldBaseLine(), packedOverlay,
                         BASE_LINE_FACE_OFFSET, baseLineHalfWidth);
             }
             if (profile.animation() == RadarVisualAnimation.SECTOR_SWEEP) {
                 for (MonitorSectorProjection.ProjectedSegment line : coverage.separators()) {
                     drawLine(display, poseStack, consumer, facing, origin, line,
                             centerU, centerV, mapRadius, contentLeft, contentBottom, contentSide,
-                            MonitorSectorPalette.WORLD_BASE_LINE_ARGB, packedOverlay,
+                            MonitorSectorPalette.worldBaseLine(), packedOverlay,
                             BASE_LINE_FACE_OFFSET, baseLineHalfWidth);
                 }
             } else if (frame != null && frame.flashStrength() > 0.0F) {
                 int flashEdge = MonitorSectorPalette.scaleAlpha(
-                        MonitorSectorPalette.WORLD_FLASH_EDGE_ARGB, frame.flashStrength());
+                        MonitorSectorPalette.worldFlashEdge(), frame.flashStrength());
                 for (MonitorSectorProjection.ProjectedSegment line : coverage.outline()) {
                     drawLine(display, poseStack, consumer, facing, origin, line,
                             centerU, centerV, mapRadius, contentLeft, contentBottom, contentSide,
@@ -126,7 +126,7 @@ final class MonitorSectorWorldRenderer {
                         for (MonitorSectorProjection.ProjectedSegment edge : sector.boundary()) {
                             drawLine(display, poseStack, consumer, facing, origin, edge,
                                     centerU, centerV, mapRadius, contentLeft, contentBottom, contentSide,
-                                    MonitorSectorPalette.WORLD_ACTIVE_EDGE_ARGB, packedOverlay,
+                                    MonitorSectorPalette.worldActiveEdge(), packedOverlay,
                                     ACTIVE_EDGE_FACE_OFFSET, activeLineHalfWidth);
                         }
                         break;

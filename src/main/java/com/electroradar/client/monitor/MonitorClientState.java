@@ -172,24 +172,23 @@ public final class MonitorClientState {
         lastRenderTime = 0.0D;
     }
 
-    /** Удаляет состояния, чей корневой блок оказался загружен как другой блок или другая загрузка. */
+    /** Удаляет состояния дисплеев, корневой чанк которых выгружен или содержит другой корень. */
     public static void pruneLoadedRoots() {
         ClientLevel level = currentLevel();
         if (level == null) return;
         List<MonitorDisplayKey> invalidViews = VIEWS.keySet().stream()
-                .filter(key -> level.hasChunkAt(key.rootPosition())
-                        && !matchesLoadedRoot(level, key.rootPosition(), key.displayId(), key.loadId()))
+                .filter(key -> !matchesLoadedRoot(level, key.rootPosition(), key.displayId(), key.loadId()))
                 .toList();
         for (MonitorDisplayKey key : invalidViews) {
             VIEWS.remove(key);
             MonitorSectorAnimationState.remove(key);
         }
         PENDING.entrySet().removeIf(entry -> clientTickTime - entry.getValue().createdAtClientTick > 200L
-                || level.hasChunkAt(entry.getKey().display.rootPosition())
-                && !matchesLoadedRoot(level, entry.getKey().display.rootPosition(),
+                || !matchesLoadedRoot(level, entry.getKey().display.rootPosition(),
                 entry.getKey().display.displayId(), entry.getKey().display.loadId()));
-        PENDING_SEQUENCES.keySet().removeIf(key -> PENDING.keySet().stream()
-                .noneMatch(part -> part.display.equals(key)));
+        PENDING_SEQUENCES.keySet().removeIf(key ->
+                !matchesLoadedRoot(level, key.rootPosition(), key.displayId(), key.loadId())
+                        || PENDING.keySet().stream().noneMatch(part -> part.display.equals(key)));
     }
 
     private static void apply(MonitorDisplayKey key, MonitorSnapshotData snapshot) {

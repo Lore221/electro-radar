@@ -34,6 +34,10 @@ public final class RadarDiagnostics {
     private static final boolean QUERY_DIAGNOSTICS_ENABLED =
             Boolean.parseBoolean(System.getProperty("electroradar.diagnostics.queries", "false"));
 
+    /** События смены активной визуальной части могут повторяться для каждого радара и монитора. */
+    private static final boolean VISUAL_DIAGNOSTICS_ENABLED =
+            Boolean.parseBoolean(System.getProperty("electroradar.diagnostics.visuals", "false"));
+
     private RadarDiagnostics() {
     }
 
@@ -44,6 +48,11 @@ public final class RadarDiagnostics {
     /** Показывает, включён ли отдельный подробный журнал запросов потребителей. */
     public static boolean queryDiagnosticsEnabled() {
         return ENABLED && QUERY_DIAGNOSTICS_ENABLED;
+    }
+
+    /** Отдельная подробная дорожка для частых клиентских событий смены визуального сектора. */
+    public static boolean visualDiagnosticsEnabled() {
+        return ENABLED && VISUAL_DIAGNOSTICS_ENABLED;
     }
 
     public static void log(

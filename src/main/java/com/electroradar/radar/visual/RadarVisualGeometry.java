@@ -52,7 +52,7 @@ public final class RadarVisualGeometry {
                 - (second.z() - first.z()) * (x - first.x());
     }
 
-    /** Готовый квадратный профиль debug_radar; другие радары могут строить Coverage сами. */
+    /** Общая геометрия квадрата; контроллеры создают секторную Coverage из своих настроек. */
     public static Coverage rectangle(double centerX, double centerZ,
                                      double halfX, double halfZ, int sectorCount) {
         if (!positive(halfX) || !positive(halfZ)) {
@@ -98,40 +98,68 @@ public final class RadarVisualGeometry {
     /** Построитель направленной панели: дуга разбивается на малые треугольники. */
     public static Coverage circularSector(double centerX, double centerZ, double radius,
                                           double startAngle, double sweepAngle, int sectorCount) {
-        if (!positive(radius) || !Double.isFinite(startAngle) || !Double.isFinite(sweepAngle)
+        if (!Double.isFinite(radius) || radius < 0.0D || !Double.isFinite(startAngle) || !Double.isFinite(sweepAngle)
                 || sweepAngle <= 0.0D || sweepAngle > RadarVisualProfile.FULL_TURN) {
             throw new IllegalArgumentException("Invalid circular sector");
         }
         checkCount(sectorCount);
+        // Нулевая дальность разрешена конфигом. Пустая Coverage показывает, что радар
+        // зарегистрирован, но сейчас не имеет площади обзора; серверный скан также пуст.
+        if (radius == 0.0D) {
+            ArrayList<Sector> emptySectors = new ArrayList<>(sectorCount);
+            for (int i = 0; i < sectorCount; i++) emptySectors.add(new Sector(i, List.of(), List.of()));
+            return new Coverage(List.of(), List.of(), emptySectors);
+        }
         Point center = new Point(centerX, centerZ);
+        /*
+         * Сначала строится одна каноническая ломаная дуги. Затем визуальные части режут именно
+         * этот многоугольник лучами из центра. Поэтому сумма треугольников всегда совпадает с
+         * внешним контуром и не меняется при visual.parts; этот инвариант важен и для серверного
+         * SAT-сканера, который использует те же примитивы покрытия.
+         */
+        int outlineSteps = Math.max(1, (int) Math.ceil(sweepAngle / MAX_ARC_STEP));
+        double angleStep = sweepAngle / outlineSteps;
+        ArrayList<Point> arcPoints = new ArrayList<>(outlineSteps + 1);
+        for (int step = 0; step <= outlineSteps; step++) {
+            arcPoints.add(circlePoint(center, radius, startAngle + step * angleStep));
+        }
+
         ArrayList<Sector> sectors = new ArrayList<>(sectorCount);
         ArrayList<Segment> separators = new ArrayList<>();
         double width = sweepAngle / sectorCount;
         for (int i = 0; i < sectorCount; i++) {
             double start = startAngle + i * width;
-            int steps = Math.max(1, (int) Math.ceil(width / MAX_ARC_STEP));
-            ArrayList<Point> polygon = new ArrayList<>(steps + 2);
+            double end = i == sectorCount - 1 ? startAngle + sweepAngle
+                    : startAngle + (i + 1) * width;
+            ArrayList<Point> polygon = new ArrayList<>();
             polygon.add(center);
-            for (int step = 0; step <= steps; step++) {
-                polygon.add(circlePoint(center, radius, start + step * width / steps));
+            Point firstBoundary = arcBoundaryAtAngle(center, arcPoints, startAngle, angleStep, start);
+            if (!samePoint(center, firstBoundary)) polygon.add(firstBoundary);
+            for (int step = 1; step < outlineSteps; step++) {
+                double vertexAngle = startAngle + step * angleStep;
+                if (vertexAngle > start && vertexAngle < end) {
+                    Point point = arcPoints.get(step);
+                    if (!samePoint(polygon.get(polygon.size() - 1), point)) polygon.add(point);
+                }
             }
-            Sector part = sector(i, polygon);
-            sectors.add(sectorCount == 1 && isFullTurn(sweepAngle)
-                    ? new Sector(i, part.triangles(), List.of()) : part);
+            Point lastBoundary = arcBoundaryAtAngle(center, arcPoints, startAngle, angleStep, end);
+            if (!samePoint(polygon.get(polygon.size() - 1), lastBoundary)) polygon.add(lastBoundary);
+            sectors.add(sector(i, polygon));
             if (sectorCount > 1 && (i > 0 || isFullTurn(sweepAngle))) {
-                separators.add(new Segment(center, circlePoint(center, radius, start)));
+                separators.add(new Segment(center, firstBoundary));
             }
         }
-        int outlineSteps = Math.max(1, (int) Math.ceil(sweepAngle / MAX_ARC_STEP));
+
         ArrayList<Point> outlinePoints = new ArrayList<>(outlineSteps + 2);
         if (!isFullTurn(sweepAngle)) outlinePoints.add(center);
         for (int i = 0; i <= outlineSteps; i++) {
-            outlinePoints.add(circlePoint(center, radius,
-                    startAngle + i * sweepAngle / outlineSteps));
+            if (isFullTurn(sweepAngle) && i == outlineSteps) break;
+            outlinePoints.add(arcPoints.get(i));
         }
         List<Segment> outline = closedSegments(outlinePoints);
         if (sectorCount == 1 && isFullTurn(sweepAngle)) {
             Sector part = sectors.get(0);
+            // Полный круг без внутренних частей имеет только круговой внешний контур, без луча.
             sectors.set(0, new Sector(0, part.triangles(), outline));
         }
         return new Coverage(outline, separators, sectors);
@@ -162,6 +190,34 @@ public final class RadarVisualGeometry {
     private static Point circlePoint(Point center, double radius, double angle) {
         return new Point(center.x() + Math.sin(angle) * radius,
                 center.z() - Math.cos(angle) * radius);
+    }
+
+    /** Точка пересечения луча разделителя с отрезком канонической дуги. */
+    private static Point arcBoundaryAtAngle(Point center, List<Point> arcPoints,
+                                            double startAngle, double angleStep, double angle) {
+        double alongArc = Math.clamp((angle - startAngle) / angleStep, 0.0D,
+                arcPoints.size() - 1.0D);
+        int firstIndex = Math.min((int) Math.floor(alongArc), arcPoints.size() - 2);
+        double fraction = alongArc - firstIndex;
+        if (fraction <= 1.0E-10D) return arcPoints.get(firstIndex);
+        if (fraction >= 1.0D - 1.0E-10D) return arcPoints.get(firstIndex + 1);
+
+        Point first = arcPoints.get(firstIndex);
+        Point second = arcPoints.get(firstIndex + 1);
+        double rayX = Math.sin(angle);
+        double rayZ = -Math.cos(angle);
+        double edgeX = second.x() - first.x();
+        double edgeZ = second.z() - first.z();
+        double fromCenterX = first.x() - center.x();
+        double fromCenterZ = first.z() - center.z();
+        double denominator = edgeX * rayZ - edgeZ * rayX;
+        if (Math.abs(denominator) < 1.0E-14D) {
+            // Почти параллельный случай появляется лишь на вершине из-за округления угла.
+            return new Point(first.x() + edgeX * fraction, first.z() + edgeZ * fraction);
+        }
+        double edgeFraction = -(fromCenterX * rayZ - fromCenterZ * rayX) / denominator;
+        edgeFraction = Math.clamp(edgeFraction, 0.0D, 1.0D);
+        return new Point(first.x() + edgeX * edgeFraction, first.z() + edgeZ * edgeFraction);
     }
 
     private static List<Segment> closedSegments(List<Point> points) {
@@ -227,7 +283,7 @@ public final class RadarVisualGeometry {
             triangles = List.copyOf(triangles);
             boundary = List.copyOf(boundary);
             if (index < 0 || index >= RadarVisualProfile.MAX_SECTOR_COUNT
-                    || triangles.isEmpty() || triangles.size() > MAX_TRIANGLES
+                    || (triangles.isEmpty() && !boundary.isEmpty()) || triangles.size() > MAX_TRIANGLES
                     || boundary.size() > MAX_LINES) {
                 throw new IllegalArgumentException("Invalid visual sector");
             }
@@ -246,6 +302,17 @@ public final class RadarVisualGeometry {
                 if (sector.index() != i) throw new IllegalArgumentException("Unordered visual sectors");
                 triangleCount += sector.triangles().size();
                 boundaryCount += sector.boundary().size();
+            }
+            /*
+             * Нулевая дальность — единый валидный случай, когда пусты и контур, и разделители,
+             * и все части. Во всех остальных покрытиях каждая часть должна иметь площадь.
+             * Outline при этом остаётся необязательным для общего контракта визуальных профилей.
+             */
+            boolean emptyCoverage = outline.isEmpty() && separators.isEmpty()
+                    && sectors.stream().allMatch(sector -> sector.triangles().isEmpty()
+                    && sector.boundary().isEmpty());
+            if (!emptyCoverage && sectors.stream().anyMatch(sector -> sector.triangles().isEmpty())) {
+                throw new IllegalArgumentException("Inconsistent visual coverage sectors");
             }
             if (outline.size() + separators.size() + boundaryCount > MAX_LINES
                     || triangleCount > MAX_TRIANGLES

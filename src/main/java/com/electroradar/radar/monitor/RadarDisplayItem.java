@@ -13,14 +13,14 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 
-import com.electroradar.radar.debug.DebugRadarBlockEntity;
-import com.electroradar.radar.debug.DebugRadarContent;
+import com.electroradar.radar.controller.RadarControllerBlock;
+import com.electroradar.radar.network.NetworkIdBindingTarget;
 import com.electroradar.radar.network.NetworkId;
 import com.electroradar.radar.network.NetworkItemBinding;
 import com.electroradar.radar.network.NetworkOutlineActivatingItem;
 
 /**
- * Предмет монитора. Его ПКМ по тестовому радару записывает только NetworkId, а обычное размещение
+ * Предмет монитора. Его ПКМ по установленному контроллеру записывает только NetworkId, а обычное размещение
  * переносит привязку на новую панель до первой серверной регистрации корневого потребителя.
  */
 public final class RadarDisplayItem extends BlockItem implements NetworkOutlineActivatingItem {
@@ -28,19 +28,19 @@ public final class RadarDisplayItem extends BlockItem implements NetworkOutlineA
         super(block, properties);
     }
 
-    /** Серверная привязка к тестовому радару; клиент только подтверждает взаимодействие. */
+    /** Серверная привязка к любому из трёх типов контроллера; клиент только завершает interaction. */
     @Override
     public InteractionResult useOn(UseOnContext context) {
         Level level = context.getLevel();
         BlockPos position = context.getClickedPos();
-        if (!level.getBlockState(position).is(DebugRadarContent.DEBUG_RADAR_BLOCK.get())) {
+        if (!(level.getBlockState(position).getBlock() instanceof RadarControllerBlock)) {
             return super.useOn(context);
         }
         if (level.isClientSide) {
             return InteractionResult.sidedSuccess(true);
         }
         if (!(level instanceof ServerLevel)
-                || !(level.getBlockEntity(position) instanceof DebugRadarBlockEntity radar)) {
+                || !(level.getBlockEntity(position) instanceof NetworkIdBindingTarget radar)) {
             return InteractionResult.CONSUME;
         }
 

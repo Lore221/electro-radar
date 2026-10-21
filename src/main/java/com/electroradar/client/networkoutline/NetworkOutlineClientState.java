@@ -40,6 +40,8 @@ public final class NetworkOutlineClientState {
     /** Sequence живёт дольше привязки предмета, иначе старый ответ мог бы затереть новый. */
     private static long lastAcceptedSequence = -1L;
     private static long clientTicks;
+    /** Outliner снимается один раз при переходе в скрытое состояние. */
+    private static boolean outlinesVisible;
 
     private NetworkOutlineClientState() {
     }
@@ -118,6 +120,7 @@ public final class NetworkOutlineClientState {
         activeDimension = null;
         lastAcceptedSequence = -1L;
         clientTicks = 0L;
+        outlinesVisible = false;
         currentLevel = level;
         currentConnection = connection;
     }
@@ -141,7 +144,10 @@ public final class NetworkOutlineClientState {
      * которым он относится. adoptBinding сбросит его только при смене сети или измерения.
      */
     private static void clearBinding() {
-        clearAllOutlines();
+        if (outlinesVisible) {
+            clearAllOutlines();
+            outlinesVisible = false;
+        }
     }
 
     /** Пересоздаёт или обновляет короткоживущие AABB только для локально проверенных участников. */
@@ -178,6 +184,7 @@ public final class NetworkOutlineClientState {
                     .disableLineNormals()
                     .colored(color);
         }
+        outlinesVisible = !MEMBERS.isEmpty();
     }
 
     /** Удаляет ровно те ключи, которых больше нет в новом серверном составе. */
@@ -192,10 +199,12 @@ public final class NetworkOutlineClientState {
 
     /** Outliner хранит геометрию до TTL, поэтому очищение должно вызвать remove явно. */
     private static void clearAllOutlines() {
+        if (!outlinesVisible) return;
         Outliner outliner = Outliner.getInstance();
         for (OutlineKey key : MEMBERS.keySet()) {
             outliner.remove(key);
         }
+        outlinesVisible = false;
     }
 
     /** Расстояние от позиции игрока до ближайшей точки AABB, а не до корня сборки. */

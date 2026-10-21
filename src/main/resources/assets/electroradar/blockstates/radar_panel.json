@@ -1,0 +1,16 @@
+{
+  "variants": {
+    "facing=north,profile=surface": { "model": "electroradar:block/radar_panel" },
+    "facing=east,profile=surface": { "model": "electroradar:block/radar_panel", "y": 90 },
+    "facing=south,profile=surface": { "model": "electroradar:block/radar_panel", "y": 180 },
+    "facing=west,profile=surface": { "model": "electroradar:block/radar_panel", "y": 270 },
+    "facing=north,profile=based": { "model": "electroradar:block/radar_panel" },
+    "facing=east,profile=based": { "model": "electroradar:block/radar_panel", "y": 90 },
+    "facing=south,profile=based": { "model": "electroradar:block/radar_panel", "y": 180 },
+    "facing=west,profile=based": { "model": "electroradar:block/radar_panel", "y": 270 },
+    "facing=north,profile=air": { "model": "electroradar:block/radar_panel" },
+    "facing=east,profile=air": { "model": "electroradar:block/radar_panel", "y": 90 },
+    "facing=south,profile=air": { "model": "electroradar:block/radar_panel", "y": 180 },
+    "facing=west,profile=air": { "model": "electroradar:block/radar_panel", "y": 270 }
+  }
+}

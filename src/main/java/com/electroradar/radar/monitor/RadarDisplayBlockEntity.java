@@ -745,15 +745,7 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
     void applyAssembly(BlockPos root, UUID id, NetworkId network,
                        BlockPos origin, int width, int height, long version,
                        boolean active, RadarDisplayFrameShape frame) {
-        // Если резолвер переназначил старый корень, сначала снимаем регистрацию и фиксируем
-        // переход владельца один раз — последующие проходы уже увидят сохранённую новую позицию.
-        if (isRoot() && !worldPosition.equals(root)) {
-            closeConnection("assembly_reassigned_root");
-            if (level instanceof ServerLevel serverLevel) {
-                RadarMonitorDiagnostics.rootChanged(serverLevel, this, worldPosition, root,
-                        "assembly_reconciliation");
-            }
-        }
+        closeConnectionBeforeRootReassignment(root, "assembly_reconciliation");
         boolean networkChanged = !java.util.Objects.equals(networkId, network);
         rootPosition = root.immutable();
         displayId = id;
@@ -774,6 +766,16 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
         syncClient();
     }
 
+    /** Снимает регистрацию прежнего корня до записи его новой принадлежности. */
+    private void closeConnectionBeforeRootReassignment(BlockPos root, String reason) {
+        if (isRoot() && !worldPosition.equals(root)) {
+            closeConnection("assembly_reassigned_root");
+            if (level instanceof ServerLevel serverLevel) {
+                RadarMonitorDiagnostics.rootChanged(serverLevel, this, worldPosition, root, reason);
+            }
+        }
+    }
+
     void markRootDirtyIfPresent() {
         if (level == null || isRoot() || !level.hasChunkAt(rootPosition())) {
             return;
@@ -786,6 +788,7 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
 
     /** Переназначает сохранённую принадлежность панели корню, найденному при восстановлении. */
     void setAssemblyRoot(BlockPos root, UUID id, NetworkId network) {
+        closeConnectionBeforeRootReassignment(root, "assembly_recovery");
         rootPosition = root.immutable();
         displayId = id;
         networkId = network;
@@ -810,11 +813,7 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
             RadarDisplayBlockEntity newRoot = survivors.getFirst();
             newRoot.promoteToRoot(id, removed.networkId, removed.getBlockPos(), "root_removed");
             for (RadarDisplayBlockEntity panel : survivors) {
-                panel.rootPosition = newRoot.worldPosition;
-                panel.networkId = removed.networkId;
-                panel.markAssemblyDirty();
-                panel.setChanged();
-                panel.syncClient();
+                panel.setAssemblyRoot(newRoot.worldPosition, id, removed.networkId);
             }
         }
         for (RadarDisplayBlockEntity panel : survivors) {

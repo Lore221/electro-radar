@@ -5,6 +5,8 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobCategory;
 
+import com.electroradar.config.RadarClientConfig;
+
 /**
  * Базовая палитра меток старого монитора, применяемая без запроса сущностей из игрового мира.
  * Классификация использует только строковый идентификатор, уже пришедший в клиентском снимке,
@@ -16,14 +18,15 @@ final class MonitorTargetPalette {
 
     /** Возвращает RGB-цвет игрока, враждебного/пассивного существа или неизвестной цели. */
     static int entityRgb(MonitorClientState.DisplayTarget target) {
+        RadarClientConfig.Palette palette = RadarClientConfig.palette();
         ResourceLocation id = ResourceLocation.tryParse(target.entityTypeId());
-        if (id == null) return 0xFFFF00;
-        if (id.equals(ResourceLocation.withDefaultNamespace("player"))) return 0x0000FF;
+        if (id == null) return palette.other();
+        if (id.equals(ResourceLocation.withDefaultNamespace("player"))) return palette.player();
         EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.get(id);
-        if (type == null) return 0xFFFF00;
+        if (type == null) return palette.other();
         MobCategory category = type.getCategory();
-        if (category == MobCategory.MONSTER) return 0xFF0000;
-        if (category != MobCategory.MISC) return 0x55FF55;
-        return 0xFFFF00;
+        if (category == MobCategory.MONSTER) return palette.hostile();
+        if (category != MobCategory.MISC) return palette.passive();
+        return palette.other();
     }
 }

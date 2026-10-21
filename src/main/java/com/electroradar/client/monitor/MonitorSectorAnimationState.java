@@ -199,13 +199,15 @@ final class MonitorSectorAnimationState {
             if (index >= 0) {
                 if (cycle.lastLoggedSector != index) {
                     cycle.lastLoggedSector = index;
-                    RadarDiagnostics.log("monitor_visual_sector_activated", null, null,
-                            cycle.epoch, (long) renderTime,
-                            "clock=client displayId=" + key.displayId()
-                                    + " radar=" + cycle.profile.radarPosition()
-                                    + " sector=" + index + " freshTargetsInSector="
-                                    + cycle.assignment.counts()[index]
-                                    + " newTargetsInSector=" + cycle.newTargetCounts[index]);
+                    if (RadarDiagnostics.visualDiagnosticsEnabled()) {
+                        RadarDiagnostics.log("monitor_visual_sector_activated", null, null,
+                                cycle.epoch, (long) renderTime,
+                                "clock=client displayId=" + key.displayId()
+                                        + " radar=" + cycle.profile.radarPosition()
+                                        + " sector=" + index + " freshTargetsInSector="
+                                        + cycle.assignment.counts()[index]
+                                        + " newTargetsInSector=" + cycle.newTargetCounts[index]);
+                    }
                 }
             } else if (!cycle.completedLogged && cycle.lastLoggedSector >= 0) {
                 cycle.completedLogged = true;

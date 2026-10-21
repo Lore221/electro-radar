@@ -45,7 +45,7 @@ final class MonitorSectorGuiRenderer {
                 float strength = frame == null ? 0.0F : frame.flashStrength();
                 if (strength > 0.0F) {
                     int flashFill = MonitorSectorPalette.scaleAlpha(
-                            MonitorSectorPalette.FLASH_FILL_ARGB, strength);
+                            MonitorSectorPalette.flashFill(), strength);
                     // Сумма частей — фактическая Coverage радара. Вспышка заполняет её целиком,
                     // не рисуя внутренние разделители и не обходя части по очереди.
                     for (MonitorSectorProjection.ProjectedSector sector : coverage.sectors()) {
@@ -60,7 +60,7 @@ final class MonitorSectorGuiRenderer {
                     if (sector.index() == activeIndex) {
                         for (List<MonitorSectorProjection.MapPoint> polygon : sector.polygons()) {
                             fillPolygon(graphics, polygon, centerX, centerY, radius,
-                                    MonitorSectorPalette.ACTIVE_FILL_ARGB);
+                                    MonitorSectorPalette.activeFill());
                         }
                         break;
                     }
@@ -69,16 +69,16 @@ final class MonitorSectorGuiRenderer {
 
             for (MonitorSectorProjection.ProjectedSegment line : coverage.outline()) {
                 drawLine(graphics, line, centerX, centerY, radius,
-                        MonitorSectorPalette.BASE_LINE_ARGB, 1);
+                        MonitorSectorPalette.baseLine(), 1);
             }
             if (profile.animation() == RadarVisualAnimation.SECTOR_SWEEP) {
                 for (MonitorSectorProjection.ProjectedSegment line : coverage.separators()) {
                     drawLine(graphics, line, centerX, centerY, radius,
-                            MonitorSectorPalette.BASE_LINE_ARGB, 1);
+                            MonitorSectorPalette.baseLine(), 1);
                 }
             } else if (frame != null && frame.flashStrength() > 0.0F) {
                 int flashEdge = MonitorSectorPalette.scaleAlpha(
-                        MonitorSectorPalette.FLASH_EDGE_ARGB, frame.flashStrength());
+                        MonitorSectorPalette.flashEdge(), frame.flashStrength());
                 for (MonitorSectorProjection.ProjectedSegment line : coverage.outline()) {
                     drawLine(graphics, line, centerX, centerY, radius, flashEdge, 2);
                 }
@@ -90,7 +90,7 @@ final class MonitorSectorGuiRenderer {
                     if (sector.index() == activeIndex) {
                         for (MonitorSectorProjection.ProjectedSegment edge : sector.boundary()) {
                             drawLine(graphics, edge, centerX, centerY, radius,
-                                    MonitorSectorPalette.ACTIVE_EDGE_ARGB, 2);
+                                    MonitorSectorPalette.activeEdge(), 2);
                         }
                         break;
                     }

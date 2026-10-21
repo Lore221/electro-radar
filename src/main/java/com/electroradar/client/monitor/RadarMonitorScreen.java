@@ -13,6 +13,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import com.electroradar.ElectroRadar;
+import com.electroradar.config.RadarClientConfig;
 import com.electroradar.radar.monitor.MonitorSnapshotData;
 import com.electroradar.radar.monitor.RadarDisplayBlock;
 import com.electroradar.radar.monitor.RadarDisplayBlockEntity;
@@ -44,7 +45,6 @@ public final class RadarMonitorScreen extends Screen {
     private static final int MAX_MAP_DIAMETER_BLOCKS = 10_000;
     private static final int MAP_ZOOM_STEP_BLOCKS = 100;
     private static final int REFERENCE_MAP_DIAMETER_BLOCKS = 200;
-    private static final int GRID_LINE_COLOR = 0x2ED8FFE8;
     private static final int TARGET_ICON_SCALE = 85;
 
     /* Старый atlas содержит три отметки шага: 100, 500 и 1000 блоков. */
@@ -56,11 +56,6 @@ public final class RadarMonitorScreen extends Screen {
     private static final int GRID_SCALE_100_Y = 214;
     private static final int GRID_SCALE_500_Y = 223;
     private static final int GRID_SCALE_1000_Y = 232;
-
-    private static final int STATUS_WARNING_COLOR = 0xFFFFC66D;
-    private static final int STATUS_NEUTRAL_COLOR = 0xFFB7D1D5;
-    private static final int SELECTED_FRAME_COLOR = 0xFFFF0000;
-    private static final int HOVERED_FRAME_COLOR = 0xFFFFFFFF;
 
     private final MonitorDisplayKey key;
 
@@ -293,10 +288,12 @@ public final class RadarMonitorScreen extends Screen {
             boolean isHovered = hovered.isPresent() && hovered.get().target().equals(target.target());
             if (selected) {
                 MonitorBlipSprite.drawGui(graphics, MonitorBlipSprite.SELECTED_FRAME,
-                        x, y, cellPixels, (alpha << 24) | (SELECTED_FRAME_COLOR & 0x00FFFFFF));
+                        x, y, cellPixels, (alpha << 24)
+                                | (RadarClientConfig.palette().selectedFrame() & 0x00FFFFFF));
             } else if (isHovered) {
                 MonitorBlipSprite.drawGui(graphics, MonitorBlipSprite.HOVERED_FRAME,
-                        x, y, cellPixels, (alpha << 24) | (HOVERED_FRAME_COLOR & 0x00FFFFFF));
+                        x, y, cellPixels, (alpha << 24)
+                                | (RadarClientConfig.palette().hoveredFrame() & 0x00FFFFFF));
             }
         }
     }
@@ -309,10 +306,12 @@ public final class RadarMonitorScreen extends Screen {
             double pixelOffset = line.normalizedCoordinate() * contentSize / 2.0D;
             if (line.vertical()) {
                 int x = (int) Math.round(contentX + contentSize / 2.0D + pixelOffset);
-                graphics.fill(x, contentY, x + 1, contentY + contentSize, GRID_LINE_COLOR);
+                graphics.fill(x, contentY, x + 1, contentY + contentSize,
+                        RadarClientConfig.palette().guiGrid());
             } else {
                 int y = (int) Math.round(contentY + contentSize / 2.0D + pixelOffset);
-                graphics.fill(contentX, y, contentX + contentSize, y + 1, GRID_LINE_COLOR);
+                graphics.fill(contentX, y, contentX + contentSize, y + 1,
+                        RadarClientConfig.palette().guiGrid());
             }
         }
     }
@@ -344,19 +343,19 @@ public final class RadarMonitorScreen extends Screen {
         int statusColor;
         if (snapshot == null) {
             status = Component.translatable("message.electroradar.monitor.waiting");
-            statusColor = STATUS_WARNING_COLOR;
+            statusColor = RadarClientConfig.palette().statusWarning();
         } else if (!snapshot.linked()) {
             status = Component.translatable("message.electroradar.monitor.no_binding");
-            statusColor = STATUS_WARNING_COLOR;
+            statusColor = RadarClientConfig.palette().statusWarning();
         } else if (snapshot.selectedTargetUnavailable()) {
             status = Component.translatable("message.electroradar.monitor.selection_unavailable");
-            statusColor = STATUS_WARNING_COLOR;
+            statusColor = RadarClientConfig.palette().statusWarning();
         } else if (snapshot.targets().isEmpty()) {
             status = Component.translatable("message.electroradar.monitor.no_targets");
-            statusColor = STATUS_NEUTRAL_COLOR;
+            statusColor = RadarClientConfig.palette().statusNeutral();
         } else if (snapshot.targets().stream().anyMatch(target -> !target.detectedThisWindow())) {
             status = Component.translatable("message.electroradar.monitor.remembering");
-            statusColor = STATUS_WARNING_COLOR;
+            statusColor = RadarClientConfig.palette().statusWarning();
         } else {
             return;
         }
