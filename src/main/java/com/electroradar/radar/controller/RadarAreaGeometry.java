@@ -1,7 +1,6 @@
 package com.electroradar.radar.controller;
 
 import java.util.ArrayList;
-import java.util.List;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -15,7 +14,7 @@ import com.electroradar.radar.visual.RadarVisualGeometry;
 import com.electroradar.radar.visual.RadarVisualProfile;
 
 /** Чистое преобразование снимка конфигурации в общую серверную и визуальную геометрию. */
-public final class RadarAreaGeometry {
+final class RadarAreaGeometry {
     /** AABB/entity-section query is strict at faces; exact SAT/Y tests accept EPSILON contacts. */
     private static final double COARSE_QUERY_MARGIN = 1.0E-7D;
 
@@ -30,21 +29,23 @@ public final class RadarAreaGeometry {
             int panelCount,
             RadarServerConfig.Snapshot parameters
     ) {
+        RadarServerConfig.RangeParameters rangeParameters = parameters.range();
+        RadarServerConfig.ModeParameters modeParameters = mode.parameters(parameters);
         double centerX = controllerPos.getX() + 0.5D;
         double centerY = controllerPos.getY() + 0.5D;
         double centerZ = controllerPos.getZ() + 0.5D;
         int boundedPanelCount = Math.min(Math.max(0, panelCount), parameters.maxPanels());
-        double unbounded = ((double) parameters.baseRange()
-                + (double) boundedPanelCount * parameters.rangePerPanel())
-                * parameters.globalMultiplier() * mode.rangeMultiplier(parameters);
+        double unbounded = ((double) rangeParameters.baseRange()
+                + (double) boundedPanelCount * rangeParameters.rangePerPanel())
+                * rangeParameters.globalMultiplier() * modeParameters.rangeMultiplier();
         int range;
-        if (!Double.isFinite(unbounded) || unbounded >= parameters.maxRange()) {
-            range = parameters.maxRange();
+        if (!Double.isFinite(unbounded) || unbounded >= rangeParameters.maxRange()) {
+            range = rangeParameters.maxRange();
         } else {
             range = Math.max(0, (int) Math.floor(unbounded));
         }
 
-        double sweep = Math.toRadians(mode.horizontalAngle(parameters));
+        double sweep = Math.toRadians(modeParameters.horizontalAngle());
         double forwardAngle = Math.atan2(facing.getStepX(), -facing.getStepZ());
         double startAngle = forwardAngle - sweep / 2.0D;
         RadarVisualProfile profile = RadarVisualProfile.circularSector(
@@ -56,7 +57,7 @@ public final class RadarAreaGeometry {
         for (RadarVisualGeometry.Sector sector : profile.coverage().sectors()) {
             triangles.addAll(sector.triangles());
         }
-        RadarServerConfig.VerticalRange vertical = mode.verticalRange(parameters);
+        RadarServerConfig.VerticalRange vertical = modeParameters.verticalRange();
         double worldMinY = centerY + vertical.minY();
         double worldMaxY = centerY + vertical.maxY();
         // Грубый запрос должен быть строго шире точной включительной проверки: entity-section
@@ -66,11 +67,11 @@ public final class RadarAreaGeometry {
                 .inflate(COARSE_QUERY_MARGIN, COARSE_QUERY_MARGIN, COARSE_QUERY_MARGIN);
         SectorRadarScanArea scanArea = new SectorRadarScanArea(bounds, worldMinY, worldMaxY, triangles);
         return new GeometrySnapshot(profile, scanArea, range, vertical.minY(), vertical.maxY(),
-                mode.horizontalAngle(parameters), boundedPanelCount, parameters.revision());
+                modeParameters.horizontalAngle());
     }
 
     public record GeometrySnapshot(RadarVisualProfile profile, SectorRadarScanArea scanArea,
                                    int range, int minYOffset, int maxYOffset,
-                                   double horizontalAngle, int countedPanels, long configRevision) {
+                                   double horizontalAngle) {
     }
 }

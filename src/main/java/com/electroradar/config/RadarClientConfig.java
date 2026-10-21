@@ -26,7 +26,7 @@ public final class RadarClientConfig {
     private static final ModConfigSpec.ConfigValue<String> WORLD_FLASH_EDGE;
     private static final ModConfigSpec.ConfigValue<String> STATUS_WARNING;
     private static final ModConfigSpec.ConfigValue<String> STATUS_NEUTRAL;
-    private static volatile Palette palette = Palette.DEFAULT;
+    private static volatile Palette palette;
 
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
@@ -92,37 +92,37 @@ public final class RadarClientConfig {
     }
 
     private static void refreshPalette() {
-        palette = new Palette(parse(value(PLAYER)), parse(value(HOSTILE)), parse(value(PASSIVE)), parse(value(OTHER)),
-                parse(value(SELECTED_FRAME)), parse(value(HOVERED_FRAME)), parse(value(GUI_GRID)),
-                parse(value(WORLD_GRID)),
-                parse(value(GUI_BASE)), parse(value(GUI_ACTIVE_FILL)), parse(value(GUI_ACTIVE_EDGE)),
-                parse(value(GUI_FLASH_FILL)), parse(value(GUI_FLASH_EDGE)), parse(value(WORLD_BASE)),
-                parse(value(WORLD_ACTIVE_EDGE)), parse(value(WORLD_FLASH_FILL)), parse(value(WORLD_FLASH_EDGE)),
-                parse(value(STATUS_WARNING)), parse(value(STATUS_NEUTRAL)));
+        TargetColors targets = new TargetColors(read(PLAYER), read(HOSTILE), read(PASSIVE), read(OTHER));
+        ScreenColors screen = new ScreenColors(read(SELECTED_FRAME), read(HOVERED_FRAME), read(GUI_GRID),
+                read(WORLD_GRID), read(STATUS_WARNING), read(STATUS_NEUTRAL));
+        GuiSectorColors gui = new GuiSectorColors(read(GUI_BASE), read(GUI_ACTIVE_FILL), read(GUI_ACTIVE_EDGE),
+                read(GUI_FLASH_FILL), read(GUI_FLASH_EDGE));
+        WorldSectorColors world = new WorldSectorColors(read(WORLD_BASE), read(WORLD_ACTIVE_EDGE),
+                read(WORLD_FLASH_FILL), read(WORLD_FLASH_EDGE));
+        palette = new Palette(targets, screen, new SectorColors(gui, world));
     }
 
-    private static String value(ModConfigSpec.ConfigValue<String> value) {
-        return SPEC.isLoaded() ? value.get() : value.getDefault();
-    }
-
-    private static int parse(String value) {
+    private static int read(ModConfigSpec.ConfigValue<String> color) {
+        String value = SPEC.isLoaded() ? color.get() : color.getDefault();
         return (int) Long.parseLong(value.substring(1), 16);
     }
 
-    public record Palette(
-            int player, int hostile, int passive, int other,
-            int selectedFrame, int hoveredFrame, int guiGrid, int worldGrid,
-            int guiBase, int guiActiveFill, int guiActiveEdge,
-            int guiFlashFill, int guiFlashEdge, int worldBase,
-            int worldActiveEdge, int worldFlashFill, int worldFlashEdge,
-            int statusWarning, int statusNeutral
-    ) {
-        private static final Palette DEFAULT = new Palette(
-                0x0000FF, 0xFF0000, 0x55FF55, 0xFFFF00,
-                0xFFFF0000, 0xFFFFFFFF, 0x2ED8FFE8, 0xFFD8FFE8,
-                0x28D8FFE8, 0x20D8FFE8, 0x80D8FFE8,
-                0x3CD8FFE8, 0x88D8FFE8, 0x80D8FFE8,
-                0xD0D8FFE8, 0x34D8FFE8, 0xA0D8FFE8,
-                0xFFFFC66D, 0xFFB7D1D5);
+    public record TargetColors(int player, int hostile, int passive, int other) {
+    }
+
+    public record ScreenColors(int selectedFrame, int hoveredFrame, int guiGrid, int worldGrid,
+                               int statusWarning, int statusNeutral) {
+    }
+
+    public record GuiSectorColors(int base, int activeFill, int activeEdge, int flashFill, int flashEdge) {
+    }
+
+    public record WorldSectorColors(int base, int activeEdge, int flashFill, int flashEdge) {
+    }
+
+    public record SectorColors(GuiSectorColors gui, WorldSectorColors world) {
+    }
+
+    public record Palette(TargetColors targets, ScreenColors screen, SectorColors sector) {
     }
 }

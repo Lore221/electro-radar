@@ -6,7 +6,7 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.HolderLookup;
+import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
@@ -28,7 +28,7 @@ import com.electroradar.radar.visual.RadarVisualProfile;
  * Runtime одного установленного источника. Здесь живут NetworkId, регистрационный token и epoch;
  * ни список целей, ни собственный кэш наблюдений не покидают общий EntityRadarScanner/NetworkManager.
  */
-public final class RadarServerRuntime {
+final class RadarServerRuntime {
     private static final String NETWORK_ID_TAG = "NetworkId";
     private static final long PERIOD_TICKS = 40L;
     private static final long FORGET_AFTER_MISSES = 3L;
@@ -45,10 +45,7 @@ public final class RadarServerRuntime {
     private Long completedEpoch;
     private Long failureLoggedEpoch;
     private RadarServerConfig.Snapshot activeParameters;
-    private RadarAreaGeometry.GeometrySnapshot cachedGeometry;
-    private long observedConfigRevision = Long.MIN_VALUE;
-    private RadarMode cachedMode;
-    private DirectionAndPosition cachedPlacement;
+    private CachedGeometry cachedGeometry;
     private boolean registrationFailureLogged;
     private boolean noScheduleLogged;
     private long lastLimitWarningRevision = Long.MIN_VALUE;
@@ -80,10 +77,7 @@ public final class RadarServerRuntime {
         completedEpoch = null;
         failureLoggedEpoch = null;
         activeParameters = null;
-        cachedGeometry = null;
-        observedConfigRevision = Long.MIN_VALUE;
-        cachedMode = null;
-        cachedPlacement = null;
+        invalidateProfile();
         registrationFailureLogged = false;
         noScheduleLogged = false;
     }
@@ -118,7 +112,7 @@ public final class RadarServerRuntime {
         completedEpoch = null;
         activeEpoch = null;
         activeParameters = null;
-        cachedGeometry = null;
+        invalidateProfile();
         owner.setChanged();
         RadarDiagnostics.log("radar_item_network_id_applied", networkId, endpoint, null, tick(level),
                 "source=controller_item");
@@ -129,15 +123,34 @@ public final class RadarServerRuntime {
         ensureNetworkId(owner, level);
         register(level, owner.getBlockPos());
         if (token == null || endpoint == null || networkId == null) return;
-        RadarNetworkManager manager;
+        RadarNetworkManager manager = networkManager(level);
+        if (manager == null) return;
+        ScanWindow window = prepareScanWindow(manager);
+        if (window == null) return;
+
+        long startedAt = System.nanoTime();
+        List<RadarDetection> detections;
         try {
-            manager = RadarNetworkManager.forServer(level.getServer());
+            detections = scan(owner, level, manager, window, mode, panelCount, assembled);
+        } catch (RuntimeException exception) {
+            logWindowFailure("scan_failed", manager, window, exception);
+            return;
+        }
+        submitReport(manager, window, detections, assembled, startedAt);
+    }
+
+    private RadarNetworkManager networkManager(ServerLevel level) {
+        try {
+            return RadarNetworkManager.forServer(level.getServer());
         } catch (RuntimeException exception) {
             RadarDiagnostics.logException("scan_skipped", networkId, endpoint, null, tick(level),
                     "reason=network_manager_unavailable", exception);
-            return;
+            return null;
         }
+    }
 
+    /** Закрепляет параметры один раз на эпоху; проход разрешён только перед её границей. */
+    private ScanWindow prepareScanWindow(RadarNetworkManager manager) {
         Optional<ScanWindow> scheduled = manager.scanWindowForRadar(endpoint);
         if (scheduled.isEmpty()) {
             if (!noScheduleLogged) {
@@ -145,62 +158,59 @@ public final class RadarServerRuntime {
                 RadarDiagnostics.log("scan_skipped", networkId, endpoint, null, manager.currentServerTick(),
                         "reason=no_schedule_for_registration");
             }
-            return;
+            return null;
         }
         noScheduleLogged = false;
         ScanWindow window = scheduled.orElseThrow();
-        if (!window.eligibleThisWindow()) return;
+        if (!window.eligibleThisWindow()) return null;
         if (activeEpoch == null || activeEpoch != window.epoch()) {
             activeEpoch = window.epoch();
             completedEpoch = null;
             activeParameters = RadarServerConfig.snapshot();
-            cachedGeometry = null;
-            cachedMode = null;
-            cachedPlacement = null;
             RadarDiagnostics.log("scan_window_snapshot", networkId, endpoint, activeEpoch,
                     manager.currentServerTick(), "configRevision=" + activeParameters.revision()
                             + " boundaryTick=" + window.boundaryTick());
         }
         long now = manager.currentServerTick();
-        if (completedEpoch != null && completedEpoch == window.epoch()) return;
-        if (now < Math.max(0L, window.boundaryTick() - PRE_BOUNDARY_TICKS)) return;
+        if (completedEpoch != null && completedEpoch == window.epoch()) return null;
+        if (now < Math.max(0L, window.boundaryTick() - PRE_BOUNDARY_TICKS)) return null;
         if (now >= window.boundaryTick()) {
             RadarDiagnostics.log("scan_skipped", networkId, endpoint, window.epoch(), now,
                     "reason=window_boundary_passed boundaryTick=" + window.boundaryTick());
-            return;
+            return null;
         }
+        return window;
+    }
 
-        RadarAreaGeometry.GeometrySnapshot geometry = null;
-        List<RadarDetection> detections = List.of();
-        long startedAt = System.nanoTime();
-        RadarDiagnostics.log("scan_started", networkId, endpoint, window.epoch(), now,
+    private List<RadarDetection> scan(RadarControllerBlockEntity owner, ServerLevel level,
+                                      RadarNetworkManager manager, ScanWindow window,
+                                      RadarMode mode, int panelCount, boolean assembled) {
+        RadarDiagnostics.log("scan_started", networkId, endpoint, window.epoch(), manager.currentServerTick(),
                 "mode=" + mode + " assembled=" + assembled + " panels=" + panelCount);
-        try {
-            if (assembled) {
-                geometry = geometry(owner, level, mode, panelCount, activeParameters);
-                if (panelCount > activeParameters.maxPanels()
-                        && lastLimitWarningRevision != activeParameters.revision()) {
-                    lastLimitWarningRevision = activeParameters.revision();
-                    RadarDiagnostics.log("assembly_limit_reduced", networkId, endpoint, window.epoch(), now,
-                            "capturedPanels=" + panelCount + " activeLimit=" + activeParameters.maxPanels()
-                                    + " action=range_uses_limit_panels_assembly_kept");
-                }
-                EntityRadarScanner.ScanResult result = SCANNER.scan(level, geometry.scanArea(), ELIGIBLE);
-                detections = result.detections();
-                RadarDiagnostics.log("scan_candidates", networkId, endpoint, window.epoch(),
-                        manager.currentServerTick(), "candidates=" + result.candidateCount()
-                                + " acceptedHitboxes=" + result.acceptedHitboxCount()
-                                + " found=" + detections.size());
-            }
-        } catch (RuntimeException exception) {
-            if (failureLoggedEpoch == null || failureLoggedEpoch != window.epoch()) {
-                failureLoggedEpoch = window.epoch();
-                RadarDiagnostics.logException("scan_failed", networkId, endpoint, window.epoch(),
-                        manager.currentServerTick(), "retry=next_preboundary_tick", exception);
-            }
-            return;
-        }
+        if (!assembled) return List.of();
+        RadarAreaGeometry.GeometrySnapshot geometry = geometry(owner, level, mode, panelCount, activeParameters);
+        warnPanelLimit(manager, window, panelCount);
+        EntityRadarScanner.ScanResult result = SCANNER.scan(level, geometry.scanArea(), ELIGIBLE);
+        RadarDiagnostics.log("scan_candidates", networkId, endpoint, window.epoch(),
+                manager.currentServerTick(), "candidates=" + result.candidateCount()
+                        + " acceptedHitboxes=" + result.acceptedHitboxCount()
+                        + " found=" + result.detections().size());
+        return result.detections();
+    }
 
+    private void warnPanelLimit(RadarNetworkManager manager, ScanWindow window, int panelCount) {
+        if (panelCount <= activeParameters.maxPanels()
+                || lastLimitWarningRevision == activeParameters.revision()) return;
+        lastLimitWarningRevision = activeParameters.revision();
+        RadarDiagnostics.log("assembly_limit_reduced", networkId, endpoint, window.epoch(),
+                manager.currentServerTick(), "capturedPanels=" + panelCount
+                        + " activeLimit=" + activeParameters.maxPanels()
+                        + " action=range_uses_limit_panels_assembly_kept");
+    }
+
+    /** Отмечает эпоху завершённой только после приёма полного отчёта менеджером. */
+    private void submitReport(RadarNetworkManager manager, ScanWindow window,
+                              List<RadarDetection> detections, boolean assembled, long startedAt) {
         long finished = manager.currentServerTick();
         if (finished >= window.boundaryTick()) {
             RadarDiagnostics.log("report_rejected", networkId, endpoint, window.epoch(), finished,
@@ -211,75 +221,60 @@ public final class RadarServerRuntime {
             boolean accepted = manager.submitCompletedScan(endpoint, networkId, token,
                     window.epoch(), detections);
             if (accepted) completedEpoch = window.epoch();
-            String refs = RadarDiagnostics.enabled()
-                    ? detections.stream().map(detection -> detection.target().toString())
-                            .collect(Collectors.joining(",", "[", "]"))
-                    : "[]";
-            RadarDiagnostics.log(accepted ? "report_submitted" : "report_rejected",
-                    networkId, endpoint, window.epoch(), manager.currentServerTick(),
-                    "accepted=" + accepted + " found=" + detections.size()
-                            + " durationNanos=" + (System.nanoTime() - startedAt)
-                            + " targets=" + refs + " emptyReason=" + (assembled ? "none" : "not_assembled"));
+            logReport(manager, window, detections, assembled, startedAt, accepted);
         } catch (RuntimeException exception) {
-            if (failureLoggedEpoch == null || failureLoggedEpoch != window.epoch()) {
-                failureLoggedEpoch = window.epoch();
-                RadarDiagnostics.logException("report_submission_failed", networkId, endpoint,
-                        window.epoch(), manager.currentServerTick(), "retry=next_preboundary_tick", exception);
-            }
+            logWindowFailure("report_submission_failed", manager, window, exception);
         }
+    }
+
+    private void logReport(RadarNetworkManager manager, ScanWindow window, List<RadarDetection> detections,
+                           boolean assembled, long startedAt, boolean accepted) {
+        String refs = RadarDiagnostics.enabled()
+                ? detections.stream().map(detection -> detection.target().toString())
+                        .collect(Collectors.joining(",", "[", "]"))
+                : "[]";
+        RadarDiagnostics.log(accepted ? "report_submitted" : "report_rejected",
+                networkId, endpoint, window.epoch(), manager.currentServerTick(),
+                "accepted=" + accepted + " found=" + detections.size()
+                        + " durationNanos=" + (System.nanoTime() - startedAt)
+                        + " targets=" + refs + " emptyReason=" + (assembled ? "none" : "not_assembled"));
+    }
+
+    private void logWindowFailure(String event, RadarNetworkManager manager, ScanWindow window,
+                                  RuntimeException exception) {
+        if (failureLoggedEpoch != null && failureLoggedEpoch == window.epoch()) return;
+        failureLoggedEpoch = window.epoch();
+        RadarDiagnostics.logException(event, networkId, endpoint, window.epoch(),
+                manager.currentServerTick(), "retry=next_preboundary_tick", exception);
     }
 
     public Optional<RadarVisualProfile> visualProfile(RadarControllerBlockEntity owner) {
         if (!(owner.getLevel() instanceof ServerLevel level) || !owner.assembly().isAssembled()) {
             return Optional.empty();
         }
-        RadarMode mode = owner.mode();
-        DirectionAndPosition direction = new DirectionAndPosition(
-                owner.getBlockState().getValue(RadarControllerBlock.FACING), owner.getBlockPos());
-        RadarServerConfig.Snapshot observed = RadarServerConfig.snapshot();
-        if (observedConfigRevision != observed.revision()) {
-            cachedGeometry = null;
-            cachedMode = null;
-            cachedPlacement = null;
-            observedConfigRevision = observed.revision();
-        }
-        RadarServerConfig.Snapshot parameters = activeParameters == null ? observed : activeParameters;
-        RadarAreaGeometry.GeometrySnapshot geometry = geometry(owner, level, mode,
-                owner.assembly().panelCount(), parameters, direction);
-        return Optional.of(geometry.profile());
+        RadarServerConfig.Snapshot parameters = activeParameters == null
+                ? RadarServerConfig.snapshot() : activeParameters;
+        return Optional.of(geometry(owner, level, owner.mode(), owner.assembly().panelCount(), parameters).profile());
     }
 
     private RadarAreaGeometry.GeometrySnapshot geometry(RadarControllerBlockEntity owner, ServerLevel level,
                                                         RadarMode mode, int panelCount,
                                                         RadarServerConfig.Snapshot parameters) {
-        return geometry(owner, level, mode, panelCount, parameters,
-                new DirectionAndPosition(owner.getBlockState().getValue(RadarControllerBlock.FACING),
-                        owner.getBlockPos()));
-    }
-
-    private RadarAreaGeometry.GeometrySnapshot geometry(RadarControllerBlockEntity owner, ServerLevel level,
-                                                        RadarMode mode, int panelCount,
-                                                        RadarServerConfig.Snapshot parameters,
-                                                        DirectionAndPosition placement) {
-        RadarAreaGeometry.GeometrySnapshot current = cachedGeometry;
-        if (current != null && current.configRevision() == parameters.revision()
-                && current.countedPanels() == Math.min(panelCount, parameters.maxPanels())
-                && cachedMode == mode && placement.equals(cachedPlacement)) return current;
-        cachedGeometry = RadarAreaGeometry.create(level.dimension().location(), placement.position(),
-                placement.facing(), mode, panelCount, parameters);
-        cachedMode = mode;
-        cachedPlacement = placement;
+        GeometryKey key = new GeometryKey(parameters.revision(), Math.min(Math.max(0, panelCount), parameters.maxPanels()),
+                mode, owner.getBlockState().getValue(RadarControllerBlock.FACING), owner.getBlockPos());
+        if (cachedGeometry != null && cachedGeometry.key().equals(key)) return cachedGeometry.geometry();
+        RadarAreaGeometry.GeometrySnapshot geometry = RadarAreaGeometry.create(level.dimension().location(),
+                key.position(), key.facing(), mode, panelCount, parameters);
+        cachedGeometry = new CachedGeometry(key, geometry);
         RadarDiagnostics.log("radar_profile_published", networkId, endpoint, activeEpoch, tick(level),
-                "mode=" + mode + " range=" + cachedGeometry.range() + " angle="
-                        + cachedGeometry.horizontalAngle() + " minY=" + cachedGeometry.minYOffset()
-                        + " maxY=" + cachedGeometry.maxYOffset() + " parts=" + parameters.visualParts());
-        return cachedGeometry;
+                "mode=" + mode + " range=" + geometry.range() + " angle="
+                        + geometry.horizontalAngle() + " minY=" + geometry.minYOffset()
+                        + " maxY=" + geometry.maxYOffset() + " parts=" + parameters.visualParts());
+        return geometry;
     }
 
     public void invalidateProfile() {
         cachedGeometry = null;
-        cachedMode = null;
-        cachedPlacement = null;
     }
 
     public void unregister(String reason, RadarControllerBlockEntity owner) {
@@ -357,6 +352,10 @@ public final class RadarServerRuntime {
         return tick(level);
     }
 
-    private record DirectionAndPosition(net.minecraft.core.Direction facing, BlockPos position) {
+    private record GeometryKey(long configRevision, int countedPanels, RadarMode mode,
+                               Direction facing, BlockPos position) {
+    }
+
+    private record CachedGeometry(GeometryKey key, RadarAreaGeometry.GeometrySnapshot geometry) {
     }
 }

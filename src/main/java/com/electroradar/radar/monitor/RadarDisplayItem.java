@@ -1,20 +1,14 @@
 package com.electroradar.radar.monitor;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.network.chat.Component;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionResult;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BlockItem;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.entity.BlockEntity;
 
-import com.electroradar.radar.controller.RadarControllerBlock;
-import com.electroradar.radar.network.NetworkIdBindingTarget;
+import com.electroradar.radar.controller.RadarControllerBinding;
 import com.electroradar.radar.network.NetworkId;
 import com.electroradar.radar.network.NetworkItemBinding;
 import com.electroradar.radar.network.NetworkOutlineActivatingItem;
@@ -31,26 +25,9 @@ public final class RadarDisplayItem extends BlockItem implements NetworkOutlineA
     /** Серверная привязка к любому из трёх типов контроллера; клиент только завершает interaction. */
     @Override
     public InteractionResult useOn(UseOnContext context) {
-        Level level = context.getLevel();
-        BlockPos position = context.getClickedPos();
-        if (!(level.getBlockState(position).getBlock() instanceof RadarControllerBlock)) {
-            return super.useOn(context);
-        }
-        if (level.isClientSide) {
-            return InteractionResult.sidedSuccess(true);
-        }
-        if (!(level instanceof ServerLevel)
-                || !(level.getBlockEntity(position) instanceof NetworkIdBindingTarget radar)) {
-            return InteractionResult.CONSUME;
-        }
-
-        NetworkId networkId = radar.getOrCreateNetworkIdForBinding();
-        NetworkItemBinding.write(context.getItemInHand(), networkId);
-        Player player = context.getPlayer();
-        if (player != null) {
-            player.displayClientMessage(Component.translatable("message.electroradar.monitor.bound"), true);
-        }
-        return InteractionResult.sidedSuccess(false);
+        InteractionResult result = RadarControllerBinding.bindToController(
+                context, "message.electroradar.monitor.bound");
+        return result == InteractionResult.PASS ? super.useOn(context) : result;
     }
 
     /**

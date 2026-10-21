@@ -5,7 +5,6 @@ import java.util.UUID;
 import com.simibubi.create.content.contraptions.AbstractContraptionEntity;
 import com.simibubi.create.content.contraptions.ControlledContraptionEntity;
 
-import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
@@ -22,7 +21,7 @@ import com.electroradar.radar.RadarDiagnostics;
  * Владеет состоянием одной сборки Create и её коротким визуальным наклоном. В NBT остаются UUID,
  * количество и фаза анимации; состав панелей сериализует сама contraption, не BlockEntity.
  */
-public final class RadarAssemblyController {
+final class RadarAssemblyController {
     private static final String ASSEMBLED_TAG = "Assembled";
     private static final String ENTITY_UUID_TAG = "PanelContraptionUuid";
     private static final String PANEL_COUNT_TAG = "PanelCount";
@@ -161,9 +160,11 @@ public final class RadarAssemblyController {
                 logAssembly(owner, RadarAssemblyFinder.Failure.ENTITY_UNAVAILABLE, panelCount);
                 return;
             }
-            disassemble(owner, level, "manual");
+            boolean disassembled = disassemble(owner, level, "manual");
             if (player != null) {
-                player.displayClientMessage(Component.translatable("message.electroradar.assembly.disassembled"), true);
+                String message = disassembled ? "message.electroradar.assembly.disassembled"
+                        : "message.electroradar.assembly.disassembly_failed";
+                player.displayClientMessage(Component.translatable(message), true);
             }
             return;
         }
@@ -221,9 +222,9 @@ public final class RadarAssemblyController {
         }
     }
 
-    private void disassemble(RadarControllerBlockEntity owner, ServerLevel level, String reason) {
+    private boolean disassemble(RadarControllerBlockEntity owner, ServerLevel level, String reason) {
         ControlledContraptionEntity current = resolveEntity(owner, level);
-        if (current == null) return;
+        if (current == null) return false;
         try {
             current.setAngle(0.0F);
             if (current.getContraption() instanceof RadarPanelContraption panels) {
@@ -240,10 +241,12 @@ public final class RadarAssemblyController {
             clearRuntime();
             owner.runtime().invalidateProfile();
             owner.setChanged();
+            return true;
         } catch (RuntimeException exception) {
             RadarDiagnostics.logException("contraption_disassembly_failed", owner.networkId(),
                     owner.endpoint(), null, owner.currentTickForDiagnostics(),
                     "entity=" + entityUuid + " reason=" + reason, exception);
+            return false;
         }
     }
 

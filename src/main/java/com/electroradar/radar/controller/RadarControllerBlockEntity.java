@@ -16,11 +16,9 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 
-import com.electroradar.radar.RadarDiagnostics;
 import com.electroradar.radar.network.EndpointKey;
 import com.electroradar.radar.network.NetworkId;
 import com.electroradar.radar.network.NetworkIdBindingTarget;
-import com.electroradar.radar.network.RadarNetworkManager;
 import com.electroradar.radar.visual.RadarVisualProfile;
 import com.electroradar.radar.visual.RadarVisualProfileSource;
 
@@ -181,8 +179,4 @@ public final class RadarControllerBlockEntity extends BlockEntity
         controller.assembly.sendCurrentTiltTo(player, contraption);
     }
 
-    /** Оставлено доступным для диагностики, не меняет регистрацию или snapshot API монитора. */
-    public void logContraptionState(String event, String details) {
-        RadarDiagnostics.log(event, networkId(), endpoint(), null, currentTickForDiagnostics(), details);
-    }
 }

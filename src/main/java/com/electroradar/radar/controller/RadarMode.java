@@ -18,10 +18,6 @@ public enum RadarMode {
         this.panelTiltDegrees = panelTiltDegrees;
     }
 
-    public String serializedName() {
-        return serializedName;
-    }
-
     /**
      * Возвращает знак угла Create для заданного направления контроллера.
      * Create вращает вокруг положительной мировой оси; для SOUTH/WEST этот же знак опускает
@@ -37,27 +33,11 @@ public enum RadarMode {
         return panelTiltDegrees * axisSign;
     }
 
-    public RadarServerConfig.VerticalRange verticalRange(RadarServerConfig.Snapshot snapshot) {
+    public RadarServerConfig.ModeParameters parameters(RadarServerConfig.Snapshot snapshot) {
         return switch (this) {
-            case GROUND -> snapshot.groundY();
-            case AIR -> snapshot.airY();
-            case SURFACE -> snapshot.surfaceY();
-        };
-    }
-
-    public double horizontalAngle(RadarServerConfig.Snapshot snapshot) {
-        return switch (this) {
-            case GROUND -> snapshot.groundAngle();
-            case AIR -> snapshot.airAngle();
-            case SURFACE -> snapshot.surfaceAngle();
-        };
-    }
-
-    public double rangeMultiplier(RadarServerConfig.Snapshot snapshot) {
-        return switch (this) {
-            case GROUND -> snapshot.groundMultiplier();
-            case AIR -> snapshot.airMultiplier();
-            case SURFACE -> snapshot.surfaceMultiplier();
+            case GROUND -> snapshot.ground();
+            case AIR -> snapshot.air();
+            case SURFACE -> snapshot.surface();
         };
     }
 

@@ -241,11 +241,11 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
             int alpha = Math.clamp(Math.round(255.0F * target.rememberedOpacity(gameTime)), 0, 255);
             drawSprite(display, poseStack, buffers, facing, origin, MonitorBlipSprite.SELECTED_FRAME,
                     contentLeft, contentBottom, contentSide, x, y, frameHalf,
-                    RadarClientConfig.palette().selectedFrame() & 0x00FFFFFF,
+                    RadarClientConfig.palette().screen().selectedFrame() & 0x00FFFFFF,
                     alpha, packedOverlay, SELECTED_FRAME_FACE_OFFSET);
             drawSprite(display, poseStack, buffers, facing, origin, MonitorBlipSprite.SELECTED_FRAME,
                     contentLeft, contentBottom, contentSide, x, y, frameHalf,
-                    RadarClientConfig.palette().selectedFrame() & 0x00FFFFFF, alpha, packedOverlay,
+                    RadarClientConfig.palette().screen().selectedFrame() & 0x00FFFFFF, alpha, packedOverlay,
                     SELECTED_FRAME_FACE_OFFSET + ALPHA_REINFORCEMENT_OFFSET);
             return;
         }
@@ -270,7 +270,7 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
                                  double contentLeft, double contentBottom, double contentSide,
                                  double mapRadius, int packedOverlay) {
         double lineHalfWidth = Math.max(0.0008D, contentSide / 1024.0D);
-        int gridColor = RadarClientConfig.palette().worldGrid();
+        int gridColor = RadarClientConfig.palette().screen().worldGrid();
         float red = (gridColor >>> 16) & 0xFF;
         float green = (gridColor >>> 8) & 0xFF;
         float blue = gridColor & 0xFF;
