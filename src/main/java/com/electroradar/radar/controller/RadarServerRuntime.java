@@ -249,7 +249,7 @@ final class RadarServerRuntime {
     }
 
     public Optional<RadarVisualProfile> visualProfile(RadarControllerBlockEntity owner) {
-        if (!(owner.getLevel() instanceof ServerLevel level) || !owner.assembly().isAssembled()) {
+        if (!(owner.getLevel() instanceof ServerLevel level) || !owner.assembly().isReadyForScanning(owner)) {
             return Optional.empty();
         }
         RadarServerConfig.Snapshot parameters = activeParameters == null

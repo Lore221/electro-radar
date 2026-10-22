@@ -85,8 +85,10 @@ final class RadarAssemblyController {
         lastFacing = owner.getBlockState().getValue(RadarControllerBlock.FACING);
     }
 
-    public boolean isAssembled() {
-        return assembled;
+    /** При необработанном повороте панели и область скана ещё не согласованы. */
+    public boolean isReadyForScanning(RadarControllerBlockEntity owner) {
+        return assembled && (lastFacing == null
+                || lastFacing == owner.getBlockState().getValue(RadarControllerBlock.FACING));
     }
 
     /** UUID учитывается и во время восстановления entity после загрузки чанка. */
@@ -106,10 +108,9 @@ final class RadarAssemblyController {
         Direction facing = owner.getBlockState().getValue(RadarControllerBlock.FACING);
         if (lastFacing == null) {
             lastFacing = facing;
-        } else if (lastFacing != facing) {
-            // Wrench меняет только состояние блока. До расчёта следующего профиля штатно
-            // возвращаем Create entity в нулевой угол, чтобы сохранённые панели не сместились.
-            disassemble(owner, level, "controller_rotated");
+        } else if (lastFacing != facing && prepareForControllerRotation(owner, level)) {
+            // Внешняя смена BlockState могла обойти предварительную разборку ключом.
+            // При отказе lastFacing остаётся прежним: следующий тик повторит попытку.
             RadarDiagnostics.log("controller_orientation_changed", owner.networkId(), owner.endpoint(),
                     null, owner.currentTickForDiagnostics(), "from=" + lastFacing + " to=" + facing);
             lastFacing = facing;
@@ -139,7 +140,7 @@ final class RadarAssemblyController {
             }
             return;
         }
-        if (attached == null || !tiltActive) return;
+        if (attached == null || !tiltActive || lastFacing != facing) return;
 
         tiltElapsed = Math.min(tiltDuration, tiltElapsed + 1);
         // Вращение продолжается лишь 15 тиков, поэтому помечаем BE изменённым на каждом шаге:
@@ -223,9 +224,16 @@ final class RadarAssemblyController {
         } else {
             RadarDiagnostics.log("contraption_unavailable_on_controller_removal", owner.networkId(),
                     owner.endpoint(), null, owner.currentTickForDiagnostics(),
-                    "entity=" + entityUuid + " action=no_duplicate_panels");
+                    "entity=" + entityUuid + " action=defer_disassembly_to_entity_tick");
+            // Панели хранятся только в entity. Её Pre-tick после загрузки восстановит их,
+            // если установленного владельца уже нет; создавать копии здесь нельзя.
             clearRuntime();
         }
+    }
+
+    /** Ключ меняет FACING только после успешного возврата захваченных панелей. */
+    public boolean prepareForControllerRotation(RadarControllerBlockEntity owner, ServerLevel level) {
+        return !hasActiveAssembly() || disassemble(owner, level, "controller_rotated");
     }
 
     private boolean disassemble(RadarControllerBlockEntity owner, ServerLevel level, String reason) {

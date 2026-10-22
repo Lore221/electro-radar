@@ -28,6 +28,7 @@
   "message.electroradar.assembly.success": "Assembled %s AESA panels",
   "message.electroradar.assembly.disassembled": "Radar panels returned to their original positions",
   "message.electroradar.assembly.disassembly_failed": "Could not disassemble radar panels; see the server log",
+  "message.electroradar.assembly.rotation_deferred": "Cannot rotate the controller until its panel assembly can be disassembled",
   "message.electroradar.assembly.no_panel": "Place at least one radar panel directly above the controller",
   "message.electroradar.assembly.incompatible_direction": "All panels must face the same direction as the controller",
   "message.electroradar.assembly.too_many_panels": "Assembly exceeds the configured limit of %s panels",

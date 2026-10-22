@@ -28,6 +28,7 @@
   "message.electroradar.assembly.success": "Собрано панелей ФАР: %s",
   "message.electroradar.assembly.disassembled": "Панели радара возвращены на исходные места",
   "message.electroradar.assembly.disassembly_failed": "Не удалось разобрать панели радара; подробности в журнале сервера",
+  "message.electroradar.assembly.rotation_deferred": "Поворот недоступен, пока сборку панелей нельзя разобрать",
   "message.electroradar.assembly.no_panel": "Разместите хотя бы одну панель радара прямо над контроллером",
   "message.electroradar.assembly.incompatible_direction": "Все панели должны быть направлены как контроллер радара",
   "message.electroradar.assembly.too_many_panels": "Сборка превышает настроенный предел в %s панелей",

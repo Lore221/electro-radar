@@ -10,6 +10,7 @@ import com.electroradar.config.RadarServerConfig;
 import com.electroradar.radar.controller.RadarControllerContent;
 import com.electroradar.radar.controller.RadarControllerBlockEntity;
 import com.electroradar.radar.controller.RadarPanelTiltPayloads;
+import com.electroradar.radar.controller.RadarPanelContraption;
 import com.electroradar.radar.monitor.RadarDisplayContent;
 import com.electroradar.radar.monitor.network.MonitorPayloads;
 import com.electroradar.radar.network.RadarNetworkManager;
@@ -43,5 +44,6 @@ public final class ElectroRadar {
         NeoForge.EVENT_BUS.addListener(NetworkOutlineServer::onPlayerLoggedOut);
         NeoForge.EVENT_BUS.addListener(MonitorPayloads::onChunkWatched);
         NeoForge.EVENT_BUS.addListener(RadarControllerBlockEntity::onEntityStartTracking);
+        NeoForge.EVENT_BUS.addListener(RadarPanelContraption::onEntityTick);
     }
 }

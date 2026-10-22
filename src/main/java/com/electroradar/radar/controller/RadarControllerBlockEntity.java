@@ -73,7 +73,7 @@ public final class RadarControllerBlockEntity extends BlockEntity
         if (!(level instanceof ServerLevel serverLevel) || controller.isRemoved()) return;
         controller.assembly.tick(controller, serverLevel);
         controller.runtime.tick(controller, serverLevel, controller.mode(),
-                controller.assembly.panelCount(), controller.assembly.isAssembled());
+                controller.assembly.panelCount(), controller.assembly.isReadyForScanning(controller));
     }
 
     public void toggleAssembly(net.minecraft.world.entity.player.Player player) {
@@ -85,6 +85,11 @@ public final class RadarControllerBlockEntity extends BlockEntity
             assembly.prepareForBlockRemoval(this, serverLevel);
             runtime.unregister("controller_removed", this);
         }
+    }
+
+    public boolean prepareForControllerRotation() {
+        return level instanceof ServerLevel serverLevel
+                && assembly.prepareForControllerRotation(this, serverLevel);
     }
 
     public RadarMode mode() {
