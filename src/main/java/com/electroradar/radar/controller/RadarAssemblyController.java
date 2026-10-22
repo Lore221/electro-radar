@@ -5,12 +5,14 @@ import java.util.UUID;
 import com.simibubi.create.content.contraptions.AbstractContraptionEntity;
 import com.simibubi.create.content.contraptions.ControlledContraptionEntity;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.ChunkPos;
 
 import net.neoforged.neoforge.network.PacketDistributor;
 
@@ -115,9 +117,13 @@ final class RadarAssemblyController {
 
         ControlledContraptionEntity attached = resolveEntity(owner, level);
         if (assembled && attached == null) {
-            // UUID не сбрасывается при выгрузке: если опорный чанк не загружен, runtime заморожен.
-            // После нескольких тиков загруженного контроллера отсутствие entity уже подтверждено.
-            if (level.hasChunkAt(owner.getBlockPos().above())) missingEntityTicks++;
+            // BlockEntity тикает, как только чанк получил статус block ticking, а сущности чанка
+            // читаются с диска асинхронно и могут появиться заметно позже. Отсутствие entity
+            // засчитывается только после того, как менеджер сущностей загрузил чанк якоря: иначе
+            // медленный IO снял бы UUID, а поздно загруженная contraption осталась бы навсегда
+            // непривязанной (attach принимает только сохранённый UUID) вместе со всеми панелями.
+            BlockPos anchor = owner.getBlockPos().above();
+            if (level.areEntitiesLoaded(ChunkPos.asLong(anchor))) missingEntityTicks++;
             if (missingEntityTicks >= MISSING_ENTITY_CONFIRM_TICKS) {
                 if (!missingEntityLogged) {
                     missingEntityLogged = true;
