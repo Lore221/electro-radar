@@ -3,14 +3,21 @@ package com.electroradar.radar.controller;
 import com.simibubi.create.api.contraption.BlockMovementChecks;
 import com.simibubi.create.api.contraption.ContraptionType;
 import com.simibubi.create.content.contraptions.AssemblyException;
+import com.simibubi.create.content.contraptions.ControlledContraptionEntity;
 import com.simibubi.create.content.contraptions.bearing.BearingContraption;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate.StructureBlockInfo;
 import net.minecraft.world.phys.AABB;
+
+import net.neoforged.neoforge.event.tick.EntityTickEvent;
+
+import com.electroradar.radar.RadarDiagnostics;
+import com.electroradar.radar.network.EndpointKey;
 
 /**
  * Create-тип только для уже проверенной стационарной апертуры. Наследование BearingContraption
@@ -18,6 +25,8 @@ import net.minecraft.world.phys.AABB;
  * корректного восстановления этого класса через Contraption.fromNBT после перезапуска мира.
  */
 public final class RadarPanelContraption extends BearingContraption {
+    private transient boolean orphanRecoveryFailed;
+
     public RadarPanelContraption() {
         super();
     }
@@ -91,6 +100,44 @@ public final class RadarPanelContraption extends BearingContraption {
                         net.minecraft.world.level.block.Block.UPDATE_CLIENTS
                                 | net.minecraft.world.level.block.Block.UPDATE_NEIGHBORS);
             }
+        }
+    }
+
+    /**
+     * Контроллер мог исчезнуть до асинхронной загрузки entity. Перед её первым обычным тиком
+     * возвращаем сохранённые панели: Create при отсутствии контроллера вызвал бы discard без
+     * разборки. Anchor сохраняется самой Contraption; чужой UUID никогда не усыновляется.
+     */
+    public static void onEntityTick(EntityTickEvent.Pre event) {
+        if (!(event.getEntity() instanceof ControlledContraptionEntity entity)
+                || !(entity.level() instanceof ServerLevel level) || !entity.isAlive()
+                || !(entity.getContraption() instanceof RadarPanelContraption panels)) return;
+        BlockPos controllerPos = panels.anchor.below();
+        if (!level.hasChunkAt(controllerPos)) return;
+        if (level.getBlockEntity(controllerPos) instanceof RadarControllerBlockEntity controller
+                && controller.assembly().owns(entity)) return;
+
+        // Даже при отказе разборки Create не должен продолжить тик и безвозвратно удалить entity.
+        event.setCanceled(true);
+        if (!panels.orphanRecoveryFailed) panels.recoverWithoutController(entity, level, controllerPos);
+    }
+
+    private void recoverWithoutController(ControlledContraptionEntity entity, ServerLevel level,
+                                          BlockPos controllerPos) {
+        EndpointKey.Static endpoint = new EndpointKey.Static(level.dimension(), controllerPos);
+        try {
+            entity.setAngle(0.0F);
+            entity.disassemble();
+            clearPanelProfiles(level, controllerPos);
+            RadarDiagnostics.log("orphan_contraption_disassembled", null, endpoint, null,
+                    level.getGameTime(), "entity=" + entity.getUUID() + " reason=controller_unavailable");
+        } catch (RuntimeException exception) {
+            // Create мог выставить disassembled до частичного отказа addBlocksToWorld.
+            // Повтор уже не восстановил бы остаток, но удалил бы entity: сохраняем её для восстановления.
+            orphanRecoveryFailed = true;
+            RadarDiagnostics.logException("orphan_contraption_disassembly_failed", null, endpoint,
+                    null, level.getGameTime(), "entity=" + entity.getUUID()
+                            + " action=keep_entity_for_recovery", exception);
         }
     }
 

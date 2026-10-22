@@ -4,9 +4,11 @@ import com.mojang.serialization.MapCodec;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.block.BaseEntityBlock;
@@ -102,7 +104,24 @@ public final class RadarControllerBlock extends BaseEntityBlock implements IRota
         builder.add(FACING);
     }
 
-    /** Create wrench вращает только горизонтальную ориентацию; вал и кинетический интерфейс не добавляются. */
+    /** Нельзя повернуть блок раньше успешной разборки его старой апертуры. */
+    @Override
+    public InteractionResult onWrenched(BlockState state, UseOnContext context) {
+        Level level = context.getLevel();
+        if (level.isClientSide) return InteractionResult.SUCCESS;
+        if (level.getBlockEntity(context.getClickedPos()) instanceof RadarControllerBlockEntity controller
+                && !controller.prepareForControllerRotation()) {
+            Player player = context.getPlayer();
+            if (player != null) {
+                player.displayClientMessage(Component.translatable(
+                        "message.electroradar.assembly.rotation_deferred"), true);
+            }
+            return InteractionResult.CONSUME;
+        }
+        return IRotate.super.onWrenched(state, context);
+    }
+
+    /** Create wrench вращает только горизонтальную ориентацию; кинетический интерфейс не добавляется. */
     @Override
     public BlockState getRotatedBlockState(BlockState state, Direction targetedFace) {
         return state.setValue(FACING, state.getValue(FACING).getClockWise());
