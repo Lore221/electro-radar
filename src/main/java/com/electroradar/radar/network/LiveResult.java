@@ -49,9 +49,9 @@ public record LiveResult(long sampledTick, TargetAvailability availability,
     }
 
     /**
-     * Показывает, отличается ли видимая потребителю часть измерения: положение, тип или
-     * переход между наблюдением и памятью. Повтор того же положения в следующем тике
-     * не меняет версию сети, хотя sampledTick обновляется.
+     * Показывает, отличается ли видимое содержимое измерения: положение, тип или переход между
+     * наблюдением и памятью. sampledTick сюда намеренно не входит: повтор того же положения не
+     * меняет {@code contentVersion} сети (см. границы гарантии в {@link TargetSnapshot}).
      */
     boolean sameVisibleState(LiveResult other) {
         return other != null && observing == other.observing && freezeTick == other.freezeTick

@@ -24,7 +24,7 @@ import com.electroradar.radar.network.TargetView;
  * Единственный владелец снимка корневого экрана, его номеров и истории рассылки.
  *
  * <p><b>Когда пересобирать.</b> Корень тикает каждый тик, но сеть перечитывает только если
- * изменилась версия сети ({@link ConsumerConnection#networkVersion()}), сама связь, NetworkId
+ * изменилась версия сети ({@link ConsumerConnection#contentVersion()}), сама связь, NetworkId
  * или сборка экрана, либо снимок явно сброшен. Версия сети растёт при любом видимом
  * изменении, поэтому в тихой сети тик корня стоит одного сравнения чисел.</p>
  *
@@ -47,7 +47,7 @@ final class MonitorSnapshotRuntime {
 
     private boolean rebuildRequired = true;
     private ConsumerConnection lastConnection;
-    private long lastNetworkVersion = Long.MIN_VALUE;
+    private long lastContentVersion = Long.MIN_VALUE;
     private long lastStructureVersion = Long.MIN_VALUE;
     private NetworkId lastNetworkId;
 
@@ -70,16 +70,16 @@ final class MonitorSnapshotRuntime {
 
     void refreshAndBroadcast(RadarDisplayBlockEntity owner, ServerLevel serverLevel,
                              ConsumerConnection connection, boolean openGui, ServerPlayer recipient) {
-        long networkVersion = connection == null ? -1L : connection.networkVersion();
+        long contentVersion = connection == null ? -1L : connection.contentVersion();
         boolean dirty = rebuildRequired || latestSnapshot == null
-                || connection != lastConnection || networkVersion != lastNetworkVersion
+                || connection != lastConnection || contentVersion != lastContentVersion
                 || owner.structureVersion() != lastStructureVersion
                 || !Objects.equals(owner.networkId(), lastNetworkId);
         if (dirty) {
             rebuild(owner, serverLevel, connection);
             rebuildRequired = false;
             lastConnection = connection;
-            lastNetworkVersion = networkVersion;
+            lastContentVersion = contentVersion;
             lastStructureVersion = owner.structureVersion();
             lastNetworkId = owner.networkId();
         }
@@ -131,7 +131,7 @@ final class MonitorSnapshotRuntime {
     private void forgetSources() {
         rebuildRequired = true;
         lastConnection = null;
-        lastNetworkVersion = Long.MIN_VALUE;
+        lastContentVersion = Long.MIN_VALUE;
         lastStructureVersion = Long.MIN_VALUE;
         lastNetworkId = null;
     }

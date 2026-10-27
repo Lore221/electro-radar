@@ -48,7 +48,8 @@ import com.electroradar.radar.scan.EntityRadarScanner;
  * В начале OBSERVING выполняется ровно один пространственный поиск, затем до конца окна
  * каждый тик проверяется только найденный набор UUID.</p>
  *
- * <p><b>Версия.</b> У сети один счётчик {@code version}. Он берётся из общей для менеджера
+ * <p><b>Версия.</b> У сети один счётчик {@code contentVersion} — версия видимого содержимого
+ * (гарантии и их границы описаны в {@link TargetSnapshot}). Он берётся из общей для менеджера
  * монотонной последовательности, поэтому номер никогда не повторяется, даже если runtime сети
  * удалили и создали заново.</p>
  */
@@ -197,12 +198,12 @@ public final class RadarNetworkManager {
      * Версия видимого состояния сети для этой регистрации; {@code -1}, если регистрация
      * неактуальна. Дешёвая проверка: потребитель перечитывает цели, только когда она изменилась.
      */
-    public long networkVersion(EndpointKey consumer, NetworkId networkId, RegistrationToken token) {
+    public long contentVersion(EndpointKey consumer, NetworkId networkId, RegistrationToken token) {
         checkActive();
         Registration registration = matchingRegistration(consumer, networkId, token, null);
         if (registration == null || !registration.role.canQueryNetwork()) return -1L;
         NetworkRuntime network = networks.get(networkId);
-        return network == null ? 0L : network.version;
+        return network == null ? 0L : network.contentVersion;
     }
 
     public <T> TargetSnapshot<T> queryTargets(EndpointKey consumer, NetworkId networkId,
@@ -720,7 +721,7 @@ public final class RadarNetworkManager {
     private void markChanged(Set<NetworkId> changedNetworks) {
         for (NetworkId id : changedNetworks) {
             NetworkRuntime network = networks.get(id);
-            if (network != null) network.version = ++versionSequence;
+            if (network != null) network.contentVersion = ++versionSequence;
         }
     }
 
