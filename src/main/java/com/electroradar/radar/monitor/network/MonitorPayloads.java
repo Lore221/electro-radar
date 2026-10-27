@@ -109,9 +109,13 @@ public final class MonitorPayloads {
                 || !level.hasChunkAt(payload.rootPosition())) return;
         long now = level.getGameTime();
         Long previous = LAST_RESYNC_REQUEST.get(player.getUUID());
-        if (previous != null && now - previous < 20L) return;
+        // Карта статическая и переживает смену мира во встроенном сервере. В новом мире
+        // gameTime может быть меньше сохранённого: отрицательная разница — это чужая запись,
+        // а не свежий запрос, иначе игрок навсегда лишился бы восстановления.
+        if (previous != null && now >= previous && now - previous < 20L) return;
         LAST_RESYNC_REQUEST.put(player.getUUID(), now);
-        LAST_RESYNC_REQUEST.entrySet().removeIf(entry -> now - entry.getValue() > 1_200L);
+        LAST_RESYNC_REQUEST.entrySet().removeIf(entry -> now - entry.getValue() > 1_200L
+                || entry.getValue() > now);
         if (LAST_RESYNC_REQUEST.size() > 4_096) {
             LAST_RESYNC_REQUEST.clear();
             LAST_RESYNC_REQUEST.put(player.getUUID(), now);
