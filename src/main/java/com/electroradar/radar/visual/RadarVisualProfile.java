@@ -10,15 +10,15 @@ import net.minecraft.resources.ResourceLocation;
  *
  * <p>Монитор ничего не знает о форме радара. Новый радар сам строит контур, линии и части,
  * после чего общий кодек и оба клиентских рендера используют одни и те же примитивы. У сектора
- * есть каноническая внешняя граница; его части лишь делят соответствующие треугольники для
- * анимации. Сервер проверяет hitbox по объединению тех же треугольников, поэтому контур и
- * обнаружение не расходятся, а число визуальных частей не меняет площадь покрытия.</p>
+ * есть готовая внешняя граница и части анимации. Сервер проверяет hitbox по объединению тех же
+ * треугольников, поэтому контур и обнаружение не расходятся. Поставщик определяет, влияет ли
+ * число частей на форму: у треугольного веера оно задаёт также внешнюю ломаную.</p>
  */
 public record RadarVisualProfile(ResourceLocation dimension, BlockPos radarPosition,
                                  double centerX, double centerY, double centerZ,
                                  RadarVisualGeometry.Coverage coverage,
-                                 RadarVisualAnimation animation) {
-    public static final int DEFAULT_SECTOR_COUNT = 8;
+                                 RadarVisualAnimation animation, int sectorOrderVariant) {
+    public static final int DEFAULT_SECTOR_COUNT = 7;
     public static final int MIN_SECTOR_COUNT = 1;
     public static final int MAX_SECTOR_COUNT = 64;
     public static final double FULL_TURN = Math.PI * 2.0D;
@@ -30,9 +30,17 @@ public record RadarVisualProfile(ResourceLocation dimension, BlockPos radarPosit
         Objects.requireNonNull(animation, "animation");
         if (!Double.isFinite(centerX) || !Double.isFinite(centerY) || !Double.isFinite(centerZ)
                 || coverage.sectors().size() < MIN_SECTOR_COUNT
-                || coverage.sectors().size() > MAX_SECTOR_COUNT) {
+                || coverage.sectors().size() > MAX_SECTOR_COUNT
+                || !RadarSectorOrder.validVariant(sectorOrderVariant)) {
             throw new IllegalArgumentException("Invalid radar visual profile");
         }
+    }
+
+    /** Профили без собственного варианта используют первый воспроизводимый порядок. */
+    public RadarVisualProfile(ResourceLocation dimension, BlockPos radarPosition,
+                              double centerX, double centerY, double centerZ,
+                              RadarVisualGeometry.Coverage coverage, RadarVisualAnimation animation) {
+        this(dimension, radarPosition, centerX, centerY, centerZ, coverage, animation, 1);
     }
 
     /** Совместимый путь для существующих направленных профилей: по умолчанию они идут секторами. */
@@ -77,6 +85,16 @@ public record RadarVisualProfile(ResourceLocation dimension, BlockPos radarPosit
         return new RadarVisualProfile(dimension, radarPosition, centerX, centerY, centerZ,
                 RadarVisualGeometry.circularSector(centerX, centerZ, radius,
                         startAngle, sweepAngle, sectorCount), animation);
+    }
+
+    /** Прямые треугольные части с сохранённым сервером вариантом загорания. */
+    public static RadarVisualProfile triangularFan(ResourceLocation dimension, BlockPos radarPosition,
+                                                   double centerX, double centerY, double centerZ,
+                                                   double radius, double startAngle, double sweepAngle,
+                                                   int sectorCount, int sectorOrderVariant) {
+        return new RadarVisualProfile(dimension, radarPosition, centerX, centerY, centerZ,
+                RadarVisualGeometry.triangularFan(centerX, centerZ, radius, startAngle, sweepAngle, sectorCount),
+                RadarVisualAnimation.SECTOR_SWEEP, sectorOrderVariant);
     }
 
     public int sectorCount() {

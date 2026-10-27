@@ -8,15 +8,15 @@ import java.util.function.Supplier;
 /**
  * Read-only данные одной цели, передаваемые {@link TargetProjection} во время запроса.
  *
- * <p>Статус обнаружения вычисляется только по радарам, доступным текущему потребителю.
- * {@link #liveResult()} описывает отдельное получение живых параметров на границе окна:
- * доступные координаты не означают, что доступный радар обнаружил цель в этом окне.
+ * <p>Статус наблюдения вычисляется только по радарам, доступным текущему потребителю.
+ * {@link #liveResult()} содержит последнее разрешённое измерение и явно отличает его от
+ * текущего наблюдения и замороженной серверной памяти.
  * Источники материализуются лениво, чтобы проекция, которой нужен только {@link TargetRef},
  * не создавала списки {@link RadarSource}. После возврата из проекции представление закрывается.</p>
  */
 public final class TargetView {
     private final TargetRef target;
-    private final boolean detectedThisWindow;
+    private final boolean observingNow;
     private final LiveResult liveResult;
     private Supplier<List<RadarSource>> sourcesFactory;
     private List<RadarSource> sources;
@@ -24,12 +24,12 @@ public final class TargetView {
 
     TargetView(
             TargetRef target,
-            boolean detectedThisWindow,
+            boolean observingNow,
             LiveResult liveResult,
             Supplier<List<RadarSource>> sourcesFactory
     ) {
         this.target = Objects.requireNonNull(target, "target");
-        this.detectedThisWindow = detectedThisWindow;
+        this.observingNow = observingNow;
         this.liveResult = Objects.requireNonNull(liveResult, "liveResult");
         this.sourcesFactory = Objects.requireNonNull(sourcesFactory, "sourcesFactory");
     }
@@ -40,19 +40,23 @@ public final class TargetView {
         return target;
     }
 
-    /**
-     * Возвращает, обнаружил ли хотя бы один доступный потребителю радар цель в последнем
-     * опубликованном окне. Живое положение сущности на этот признак не влияет.
-     */
+    /** Совместимое имя для текущего, уже опубликованного результата проверки доступных радаров. */
+    @Deprecated
     public boolean detectedThisWindow() {
         ensureActive();
-        return detectedThisWindow;
+        return observingNow;
+    }
+
+    /** Возвращает, успешно ли доступный источник проверил цель в текущей серверной фазе. */
+    public boolean observingNow() {
+        ensureActive();
+        return observingNow;
     }
 
     /** Возвращает true, если доступные радары только помнят цель после пропущенных сканов. */
     public boolean remembering() {
         ensureActive();
-        return !detectedThisWindow;
+        return liveResult.availability() == TargetAvailability.AVAILABLE && !observingNow;
     }
 
     /**

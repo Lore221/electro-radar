@@ -20,6 +20,8 @@ import com.simibubi.create.api.registry.CreateRegistries;
 
 import com.electroradar.ElectroRadar;
 import com.electroradar.radar.monitor.RadarDisplayContent;
+import com.electroradar.radar.linker.LinkerContent;
+import com.electroradar.radar.network.NetworkBoundBlockItem;
 
 /** Регистрация контроллеров, панели, единого BlockEntity и творческой вкладки. */
 public final class RadarControllerContent {
@@ -42,9 +44,9 @@ public final class RadarControllerContent {
             "radar_panel", RadarPanelBlock::new,
             BlockBehaviour.Properties.of().mapColor(MapColor.METAL).strength(1.5F).noOcclusion());
 
-    public static final DeferredItem<RadarControllerItem> RADAR_CONTROLLER_ITEM = controllerItem("radar_controller", RADAR_CONTROLLER);
-    public static final DeferredItem<RadarControllerItem> AIR_RADAR_CONTROLLER_ITEM = controllerItem("air_radar_controller", AIR_RADAR_CONTROLLER);
-    public static final DeferredItem<RadarControllerItem> SURFACE_RADAR_CONTROLLER_ITEM = controllerItem("surface_radar_controller", SURFACE_RADAR_CONTROLLER);
+    public static final DeferredItem<NetworkBoundBlockItem> RADAR_CONTROLLER_ITEM = controllerItem("radar_controller", RADAR_CONTROLLER);
+    public static final DeferredItem<NetworkBoundBlockItem> AIR_RADAR_CONTROLLER_ITEM = controllerItem("air_radar_controller", AIR_RADAR_CONTROLLER);
+    public static final DeferredItem<NetworkBoundBlockItem> SURFACE_RADAR_CONTROLLER_ITEM = controllerItem("surface_radar_controller", SURFACE_RADAR_CONTROLLER);
     public static final DeferredItem<BlockItem> RADAR_PANEL_ITEM = ITEMS.register("radar_panel",
             () -> new BlockItem(RADAR_PANEL.get(), new Item.Properties()));
 
@@ -63,6 +65,7 @@ public final class RadarControllerContent {
                         output.accept(SURFACE_RADAR_CONTROLLER_ITEM.get());
                         output.accept(RADAR_PANEL_ITEM.get());
                         output.accept(RadarDisplayContent.RADAR_DISPLAY_ITEM.get());
+                        output.accept(LinkerContent.LINKER.get());
                     }).build());
 
     private RadarControllerContent() {
@@ -74,9 +77,10 @@ public final class RadarControllerContent {
                 BlockBehaviour.Properties.of().mapColor(MapColor.METAL).strength(1.5F));
     }
 
-    private static DeferredItem<RadarControllerItem> controllerItem(
+    private static DeferredItem<NetworkBoundBlockItem> controllerItem(
             String id, DeferredBlock<RadarControllerBlock> block) {
-        return ITEMS.register(id, () -> new RadarControllerItem(block.get(), new Item.Properties()));
+        return ITEMS.register(id, () -> new NetworkBoundBlockItem(block.get(), new Item.Properties(),
+                "message.electroradar.controller.bound"));
     }
 
     public static void register(IEventBus bus) {

@@ -1,4 +1,17 @@
 {
+  "message.electroradar.network.item_bound": "Item linked to this radar network",
+  "item.electroradar.linker": "Linker",
+  "item.electroradar.linker.description": "Reconfigures radar networks.",
+  "item.electroradar.linker.configure": "Use on a device: copy or apply a network",
+  "item.electroradar.linker.disconnect": "Sneak + use on a device: disconnect",
+  "item.electroradar.linker.clear": "Sneak + use in the air: clear selection",
+  "message.electroradar.linker.radar_missing": "This block is not connected to a radar network",
+  "message.electroradar.linker.radar_copied": "Radar network copied",
+  "message.electroradar.linker.radar_applied": "Connected to the selected radar network",
+  "message.electroradar.linker.radar_already_connected": "Already connected to the selected radar network",
+  "message.electroradar.linker.radar_disconnected": "Block disconnected from the radar network",
+  "message.electroradar.linker.cleared": "Linker selection cleared",
+  "message.electroradar.linker.unloaded": "Load the entire monitor assembly and its surrounding chunks first",
   "block.electroradar.radar_display": "Radar Monitor Panel",
   "item.electroradar.radar_display": "Radar Monitor Panel",
   "screen.electroradar.monitor.title": "RADAR MONITOR",
@@ -73,5 +86,6 @@
   "electroradar.config.server.surface.max_y": "Surface radar maximum Y offset",
   "electroradar.config.server.surface.horizontal_angle_degrees": "Surface radar horizontal field of view in degrees",
   "electroradar.config.server.surface.range_multiplier": "Surface radar range multiplier",
-  "electroradar.config.server.visual.parts": "Animated sweep sector count (display only)"
+  "electroradar.config.server.visual.parts": "Deprecated: ignored sector count",
+  "electroradar.config.server.scanning.sector_ticks": "Ticks per radar sector"
 }

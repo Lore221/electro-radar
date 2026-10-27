@@ -39,25 +39,24 @@ public record MonitorSnapshotData(
         TargetRef selectedTarget,
         List<MonitorTargetData> targets,
         List<RadarVisualProfile> visualProfiles,
-        long visualWindowPeriodTicks,
-        long visualWindowRemainingTicks
+        long measurementRevision,
+        long viewGeneration,
+        long observedServerTick,
+        List<MonitorVisualPhase> visualPhases
 ) {
     public MonitorSnapshotData {
         Objects.requireNonNull(displayId, "displayId");
         rootPosition = Objects.requireNonNull(rootPosition, "rootPosition").immutable();
         Objects.requireNonNull(dimension, "dimension");
         Objects.requireNonNull(loadId, "loadId");
-        if (sequence < 0 || structureVersion < 0 || publishedEpoch < 0 || revision < 0) {
+        if (sequence < 0 || structureVersion < 0 || publishedEpoch < 0 || revision < 0
+                || measurementRevision < 0 || viewGeneration < 0 || observedServerTick < 0) {
             throw new IllegalArgumentException("Monitor snapshot versions must be non-negative");
         }
         targets = List.copyOf(targets);
         visualProfiles = List.copyOf(visualProfiles);
-        if (visualWindowPeriodTicks < 0 || visualWindowRemainingTicks < 0
-                || visualWindowRemainingTicks > visualWindowPeriodTicks
-                || visualWindowPeriodTicks == 0 && visualWindowRemainingTicks != 0
-                || !visualProfiles.isEmpty() && (!linked || visualWindowPeriodTicks == 0)) {
-            throw new IllegalArgumentException("Invalid monitor visual window timing");
-        }
+        visualPhases = List.copyOf(visualPhases);
+        if (!visualProfiles.isEmpty() && !linked) throw new IllegalArgumentException("Unlinked monitor has radar profiles");
         Set<RadarVisualProfile.Key> profileKeys = new HashSet<>();
         if (visualProfiles.stream().anyMatch(profile -> !profile.dimension().equals(dimension))) {
             throw new IllegalArgumentException("Radar visual profile belongs to another dimension");
@@ -65,6 +64,20 @@ public record MonitorSnapshotData(
         for (RadarVisualProfile profile : visualProfiles) {
             if (!profileKeys.add(profile.key())) {
                 throw new IllegalArgumentException("Monitor snapshot contains a duplicate radar profile");
+            }
+        }
+        Set<TargetRef> targetRefs = new HashSet<>();
+        for (MonitorTargetData target : targets) {
+            if (!target.target().dimension().location().equals(dimension) || !targetRefs.add(target.target())) {
+                throw new IllegalArgumentException("Monitor snapshot targets must be unique and same-dimension");
+            }
+        }
+        Set<BlockPos> phasePositions = new HashSet<>();
+        for (MonitorVisualPhase phase : visualPhases) {
+            if (!phasePositions.add(phase.radarPosition())
+                    || visualProfiles.stream().noneMatch(profile -> profile.radarPosition().equals(phase.radarPosition())
+                    && phase.activeSectorIndex() < profile.sectorCount())) {
+                throw new IllegalArgumentException("Monitor phase has no unique geometry profile");
             }
         }
         if (selectedTarget != null && targets.stream().noneMatch(target -> target.target().equals(selectedTarget))) {
@@ -75,13 +88,12 @@ public record MonitorSnapshotData(
         }
     }
 
-    /**
-     * Создаёт адресную копию с актуальным остатком окна. Sequence и publishedEpoch остаются
-     * прежними: получение GUI не запускает визуальный проход заново и не меняет снимок целей.
-     */
-    public MonitorSnapshotData withWindowTiming(long periodTicks, long remainingTicks) {
+    /** Перевязывает серверный тик к моменту адресного baseline для расчёта возраста freeze. */
+    public MonitorSnapshotData withServerTiming(long serverTick) {
+        if (serverTick < 0) throw new IllegalArgumentException("Server tick must be non-negative");
         return new MonitorSnapshotData(displayId, rootPosition, dimension, loadId, sequence,
                 structureVersion, publishedEpoch, revision, linked, selectedTargetUnavailable,
-                selectedTarget, targets, visualProfiles, periodTicks, remainingTicks);
+                selectedTarget, targets, visualProfiles, measurementRevision, viewGeneration,
+                serverTick, visualPhases);
     }
 }

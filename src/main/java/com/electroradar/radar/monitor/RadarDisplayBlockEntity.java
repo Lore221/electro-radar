@@ -11,6 +11,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -21,6 +22,7 @@ import com.electroradar.radar.network.ConsumerConnection;
 import com.electroradar.radar.network.EndpointKey;
 import com.electroradar.radar.network.EndpointRole;
 import com.electroradar.radar.network.NetworkId;
+import com.electroradar.radar.network.NetworkLinkTarget;
 import com.electroradar.radar.network.TargetRef;
 
 /**
@@ -32,7 +34,7 @@ import com.electroradar.radar.network.TargetRef;
  * для восстановления физической сборки и связи после удаления корня; токен регистрации и цели
  * никогда не записываются в NBT. Связь закрывается до удаления, выгрузки и повышения нового корня.</p>
  */
-public final class RadarDisplayBlockEntity extends BlockEntity {
+public final class RadarDisplayBlockEntity extends BlockEntity implements NetworkLinkTarget {
     private static final String DISPLAY_ID_TAG = "electroradar_display_id";
     private static final String ROOT_POS_TAG = "electroradar_root_pos";
     private static final String NETWORK_ID_TAG = "electroradar_network_id";
@@ -41,7 +43,6 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
     private static final String RECT_HEIGHT_TAG = "electroradar_rect_height";
     private static final String STRUCTURE_VERSION_TAG = "electroradar_structure_version";
     private static final String LOAD_ID_TAG = "electroradar_load_id";
-    private static final long POLL_PERIOD_TICKS = 5L;
     private final MonitorSnapshotRuntime snapshots = new MonitorSnapshotRuntime();
 
     private UUID displayId;
@@ -95,7 +96,6 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
             loadId = tag.getUUID(LOAD_ID_TAG);
         }
         connection = null;
-        snapshots.clearSchedule();
         snapshots.invalidate();
         assemblyDirty = true;
     }
@@ -147,15 +147,8 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
             RadarDisplayAssembly.resolve(display);
         }
         display.ensureConnection(serverLevel);
-        long gameTime = serverLevel.getGameTime();
-        boolean ordinaryPoll = Math.floorMod(
-                gameTime + Math.floorMod(position.asLong(), POLL_PERIOD_TICKS), POLL_PERIOD_TICKS) == 0;
-        boolean scheduledBoundary = display.snapshots.refreshDue(gameTime);
-        if (ordinaryPoll || scheduledBoundary) {
-            // Менеджер уже опубликовал границу в ServerTickEvent.Pre. Этот единственный
-            // внеочередной вызов увидит новую эпоху; запрос целей не выполняется каждый тик.
-            display.refreshAndBroadcast(false, null);
-        }
+        // Данные готовятся в Pre, поэтому корень читает и публикует единый итог каждый тик.
+        display.refreshAndBroadcast(false, null);
     }
 
     /** Создаёт базовую идентичность самостоятельной панели и применяет привязку её предмета. */
@@ -202,6 +195,44 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
 
     public NetworkId networkId() {
         return networkId;
+    }
+
+    /** Любая панель коммутируется через загруженный корень, включая неактивные края сборки. */
+    @Override
+    public RadarDisplayBlockEntity loadedLinkTarget() {
+        if (!(level instanceof ServerLevel)) return null;
+        ensureIdentity();
+        return loadedRoot();
+    }
+
+    @Override
+    public NetworkId networkIdForLinking() {
+        return networkId;
+    }
+
+    /** Смена сети не меняет DisplayId, форму, loadId или монотонный sequence снимков. */
+    @Override
+    public boolean reconfigureNetwork(NetworkId replacement) {
+        if (!(level instanceof ServerLevel)) {
+            throw new IllegalStateException("Monitor NetworkId can only be changed on the logical server");
+        }
+        RadarDisplayBlockEntity root = loadedLinkTarget();
+        if (root == null) return false;
+        if (root != this) return root.reconfigureNetwork(replacement);
+        if (java.util.Objects.equals(networkId, replacement)) return true;
+        if (!RadarDisplayAssembly.reconfigureNetwork(this, replacement)) return false;
+        refreshAndBroadcast(false, null);
+        return true;
+    }
+
+    /** Все панели получают новую сохранённую привязку до следующего восстановления корня. */
+    void applyNetworkIdFromLinker(NetworkId replacement) {
+        closeConnection("linker_reconfiguration");
+        networkId = replacement;
+        snapshots.invalidate();
+        assemblyDirty = true;
+        setChanged();
+        syncClient();
     }
 
     public BlockPos rectangleOrigin() {
@@ -355,6 +386,22 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
         refreshAndBroadcast(false, player);
     }
 
+    /** Проверяет право игрока наблюдать корень и отправляет только адресный baseline восстановления. */
+    public boolean handleResyncRequest(ServerPlayer player, UUID requestedDisplayId, UUID requestedLoadId) {
+        if (!(level instanceof ServerLevel serverLevel) || !isRoot()
+                || !worldPosition.equals(rootPosition()) || displayId == null || loadId == null
+                || !displayId.equals(requestedDisplayId) || !loadId.equals(requestedLoadId)
+                || !player.serverLevel().dimension().equals(serverLevel.dimension())
+                || !serverLevel.hasChunkAt(worldPosition)) return false;
+        // То же множество получателей, что у PacketDistributor.sendToPlayersTrackingChunk:
+        // расстояние взаимодействия с GUI не ограничивает наблюдение экрана в мире.
+        if (!serverLevel.getChunkSource().chunkMap.getPlayers(new ChunkPos(worldPosition), false)
+                .contains(player)) return false;
+        if (assemblyDirty) RadarDisplayAssembly.resolve(this);
+        refreshAndBroadcast(false, player);
+        return true;
+    }
+
     private void ensureIdentity() {
         boolean created = displayId == null;
         if (displayId == null) {
@@ -393,7 +440,6 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
             RadarMonitorDiagnostics.consumerConnectionOpened(serverLevel, this);
         } catch (RuntimeException exception) {
             connection = null;
-            snapshots.clearSchedule();
             // Следующее обращение повторит регистрацию; одинаковый отказ логируется один раз.
             if (!registrationFailureLogged) {
                 registrationFailureLogged = true;
@@ -441,9 +487,6 @@ public final class RadarDisplayBlockEntity extends BlockEntity {
      * используется и не сможет повторять одинаковую ошибку на каждом серверном тике.
      */
     private void closeConnection(String reason) {
-        // После закрытия consumer больше нельзя полагаться на сохранённое расписание.
-        // Обычный редкий опрос возобновит сбор, если связь позднее восстановится.
-        snapshots.clearSchedule();
         ConsumerConnection previous = connection;
         connection = null;
         if (previous != null) {

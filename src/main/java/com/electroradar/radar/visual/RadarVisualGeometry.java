@@ -15,6 +15,7 @@ import java.util.Objects;
 public final class RadarVisualGeometry {
     private static final double EPSILON = 1.0E-8D;
     private static final double MAX_ARC_STEP = Math.PI / 48.0D;
+    private static final double MAX_FAN_TRIANGLE_SWEEP = Math.PI - 1.0E-6D;
     public static final int MAX_LINES = 512;
     public static final int MAX_TRIANGLES = 512;
 
@@ -95,21 +96,69 @@ public final class RadarVisualGeometry {
         return new Coverage(closedSegments(corners), separators, sectors);
     }
 
-    /** Построитель направленной панели: дуга разбивается на малые треугольники. */
+    /**
+     * Веер прямых треугольных частей: Parts определяет также внешнюю ломаную сканирования.
+     * Радиус измеряется до её вершин. Только часть шириной около 180° или больше требует
+     * дополнительных треугольников, иначе её основание выродится или развернёт покрытие.
+     */
+    public static Coverage triangularFan(double centerX, double centerZ, double radius,
+                                          double startAngle, double sweepAngle, int sectorCount) {
+        checkSector(radius, startAngle, sweepAngle, sectorCount);
+        if (radius == 0.0D) return emptyCoverage(sectorCount);
+        Point center = new Point(centerX, centerZ);
+        double width = sweepAngle / sectorCount;
+        int trianglesPerPart = Math.max(1, (int) Math.ceil(width / MAX_FAN_TRIANGLE_SWEEP));
+        int steps = sectorCount * trianglesPerPart;
+        ArrayList<Point> vertices = new ArrayList<>(steps + 1);
+        for (int step = 0; step <= steps; step++) {
+            vertices.add(circlePoint(center, radius, startAngle + sweepAngle * step / steps));
+        }
+        ArrayList<Sector> sectors = new ArrayList<>(sectorCount);
+        ArrayList<Segment> separators = new ArrayList<>();
+        for (int i = 0; i < sectorCount; i++) {
+            int first = i * trianglesPerPart;
+            ArrayList<Point> polygon = new ArrayList<>(trianglesPerPart + 2);
+            polygon.add(center);
+            polygon.addAll(vertices.subList(first, first + trianglesPerPart + 1));
+            sectors.add(sector(i, polygon));
+            if (sectorCount > 1 && (i > 0 || isFullTurn(sweepAngle))) {
+                separators.add(new Segment(center, vertices.get(first)));
+            }
+        }
+        ArrayList<Point> outlinePoints = new ArrayList<>(steps + 2);
+        if (!isFullTurn(sweepAngle)) outlinePoints.add(center);
+        outlinePoints.addAll(vertices.subList(0, isFullTurn(sweepAngle) ? steps : steps + 1));
+        List<Segment> outline = closedSegments(outlinePoints);
+        if (sectorCount == 1 && isFullTurn(sweepAngle)) {
+            sectors.set(0, new Sector(0, sectors.get(0).triangles(), outline));
+        }
+        return new Coverage(outline, separators, sectors);
+    }
+
+    /** Круговой сектор с мелкой аппроксимацией дуги для поставщиков, которым нужна эта форма. */
     public static Coverage circularSector(double centerX, double centerZ, double radius,
                                           double startAngle, double sweepAngle, int sectorCount) {
+        checkSector(radius, startAngle, sweepAngle, sectorCount);
+        if (radius == 0.0D) return emptyCoverage(sectorCount);
+        return circularCoverage(centerX, centerZ, radius, startAngle, sweepAngle, sectorCount);
+    }
+
+    private static void checkSector(double radius, double startAngle, double sweepAngle, int sectorCount) {
         if (!Double.isFinite(radius) || radius < 0.0D || !Double.isFinite(startAngle) || !Double.isFinite(sweepAngle)
                 || sweepAngle <= 0.0D || sweepAngle > RadarVisualProfile.FULL_TURN) {
-            throw new IllegalArgumentException("Invalid circular sector");
+            throw new IllegalArgumentException("Invalid radar sector");
         }
         checkCount(sectorCount);
-        // Нулевая дальность разрешена конфигом. Пустая Coverage показывает, что радар
-        // зарегистрирован, но сейчас не имеет площади обзора; серверный скан также пуст.
-        if (radius == 0.0D) {
-            ArrayList<Sector> emptySectors = new ArrayList<>(sectorCount);
-            for (int i = 0; i < sectorCount; i++) emptySectors.add(new Sector(i, List.of(), List.of()));
-            return new Coverage(List.of(), List.of(), emptySectors);
-        }
+    }
+
+    private static Coverage emptyCoverage(int sectorCount) {
+        ArrayList<Sector> emptySectors = new ArrayList<>(sectorCount);
+        for (int i = 0; i < sectorCount; i++) emptySectors.add(new Sector(i, List.of(), List.of()));
+        return new Coverage(List.of(), List.of(), emptySectors);
+    }
+
+    private static Coverage circularCoverage(double centerX, double centerZ, double radius,
+                                              double startAngle, double sweepAngle, int sectorCount) {
         Point center = new Point(centerX, centerZ);
         /*
          * Сначала строится одна каноническая ломаная дуги. Затем визуальные части режут именно

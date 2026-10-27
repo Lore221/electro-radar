@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Predicate;
+import java.util.Collections;
 
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
@@ -61,9 +62,23 @@ public final class EntityRadarScanner {
             RadarScanArea area,
             Predicate<? super Entity> eligibility
     ) {
+        EntitySearchResult entities = scanEntities(level, area, eligibility);
+        List<RadarDetection> detections = entities.entities().keySet().stream()
+                .map(RadarDetection::of).toList();
+        return new ScanResult(entities.candidateCount(), entities.acceptedHitboxCount(), detections);
+    }
+
+    /** Выполняет ровно один тесный spatial query и возвращает корневые сущности только вызывающему Pre. */
+    public EntitySearchResult scanEntities(
+            ServerLevel level,
+            RadarScanArea area,
+            Predicate<? super Entity> eligibility
+    ) {
         Objects.requireNonNull(level, "level");
         Objects.requireNonNull(area, "area");
         Objects.requireNonNull(eligibility, "eligibility");
+
+        if (area.isEmpty()) return new EntitySearchResult(0, 0, Map.of());
 
         // Каждый элемент выборки — фрагмент hitbox: обычная сущность, родитель составной сущности
         // или одна из его частей. Фильтр смотрит на цель, которую фрагмент представляет.
@@ -71,7 +86,7 @@ public final class EntityRadarScanner {
             Entity target = rootTarget(hitbox);
             return target != null && target.isAlive() && eligibility.test(target);
         });
-        Map<TargetRef, RadarDetection> found = new LinkedHashMap<>();
+        Map<TargetRef, Entity> found = new LinkedHashMap<>();
         int acceptedHitboxes = 0;
         for (Entity hitbox : candidates) {
             // Точная форма проверяется по собственному box фрагмента: именно он пересёкся с грубым AABB.
@@ -86,9 +101,22 @@ public final class EntityRadarScanner {
             // Полный TargetRef отделяет одинаковые UUID из разных измерений и видов источника.
             // Для части здесь UUID родителя, поэтому putIfAbsent схлопывает все её фрагменты в одну цель.
             TargetRef ref = new TargetRef(level.dimension(), TargetRef.SourceKind.ENTITY, target.getUUID());
-            found.putIfAbsent(ref, RadarDetection.of(ref));
+            found.putIfAbsent(ref, target);
         }
-        return new ScanResult(candidates.size(), acceptedHitboxes, List.copyOf(found.values()));
+        return new EntitySearchResult(candidates.size(), acceptedHitboxes,
+                Collections.unmodifiableMap(new LinkedHashMap<>(found)));
+    }
+
+    /** Проверяет уже разрешённую цель по текущим box родителя и актуальных частей. */
+    public static boolean anyHitboxInside(Entity root, RadarScanArea area) {
+        if (root == null || area == null || !root.isAlive()) return false;
+        if (area.contains(root)) return true;
+        Entity[] parts = root.getParts();
+        if (parts == null) return false;
+        for (Entity part : parts) {
+            if (part != null && rootTarget(part) == root && area.contains(part)) return true;
+        }
+        return false;
     }
 
     /**
@@ -108,6 +136,17 @@ public final class EntityRadarScanner {
             }
         }
         return current.level() == hitbox.level() ? current : null;
+    }
+
+    /** Результат поиска краткоживущ; Entity не сохраняется в сетевой таблице. */
+    public record EntitySearchResult(int candidateCount, int acceptedHitboxCount,
+                                     Map<TargetRef, Entity> entities) {
+        public EntitySearchResult {
+            if (candidateCount < 0 || acceptedHitboxCount < 0 || acceptedHitboxCount > candidateCount) {
+                throw new IllegalArgumentException("Search counts are invalid");
+            }
+            entities = Collections.unmodifiableMap(new LinkedHashMap<>(entities));
+        }
     }
 
     /**

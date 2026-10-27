@@ -12,6 +12,9 @@ import net.minecraft.world.phys.AABB;
  * будущий сектор или конус меняет только реализацию области, не добавляя геометрию в сканер.</p>
  */
 public interface RadarScanArea {
+    /** Пустая область не требует обращения к пространственному индексу мира. */
+    default boolean isEmpty() { return false; }
+
     /** Возвращает грубую область поиска по уже загруженным сущностям. */
     AABB queryBounds();
 

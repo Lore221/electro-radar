@@ -2,55 +2,47 @@ package com.electroradar.radar.controller;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Predicate;
-import java.util.stream.Collectors;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.item.ItemEntity;
 
 import com.electroradar.config.RadarServerConfig;
 import com.electroradar.radar.RadarDiagnostics;
 import com.electroradar.radar.network.EndpointKey;
 import com.electroradar.radar.network.NetworkId;
 import com.electroradar.radar.network.NetworkPolicy;
-import com.electroradar.radar.network.RadarDetection;
 import com.electroradar.radar.network.RadarNetworkManager;
+import com.electroradar.radar.network.RadarObservationPlan;
+import com.electroradar.radar.network.RadarObservationSource;
 import com.electroradar.radar.network.RegistrationToken;
-import com.electroradar.radar.network.ScanWindow;
-import com.electroradar.radar.scan.EntityRadarScanner;
+import com.electroradar.radar.visual.RadarSectorOrder;
 import com.electroradar.radar.visual.RadarVisualProfile;
 
-/**
- * Runtime одного установленного источника. Здесь живут NetworkId, регистрационный token и epoch;
- * ни список целей, ни собственный кэш наблюдений не покидают общий EntityRadarScanner/NetworkManager.
- */
-final class RadarServerRuntime {
+/** Контроллер хранит идентичность, а построение плана и обход вызывает общий Pre-координатор. */
+final class RadarServerRuntime implements RadarObservationSource {
     private static final String NETWORK_ID_TAG = "NetworkId";
-    private static final long PERIOD_TICKS = 40L;
-    private static final long FORGET_AFTER_MISSES = 3L;
-    private static final int PRE_BOUNDARY_TICKS = 5;
-    private static final NetworkPolicy POLICY = new NetworkPolicy(PERIOD_TICKS, FORGET_AFTER_MISSES);
-    private static final Predicate<Entity> ELIGIBLE = entity -> !(entity instanceof ItemEntity);
-    private static final EntityRadarScanner SCANNER = new EntityRadarScanner();
+    private static final String SECTOR_ORDER_TAG = "SectorOrderVariant";
+    /** Память забывает подтверждение после трёх посещений именно его геометрического сектора. */
+    private static final NetworkPolicy POLICY = new NetworkPolicy(3L);
 
     private NetworkId networkId;
     private boolean loadedNetworkId;
+    private int sectorOrderVariant;
     private RegistrationToken token;
     private EndpointKey.Static endpoint;
-    private Long activeEpoch;
-    private Long completedEpoch;
-    private Long failureLoggedEpoch;
-    private RadarServerConfig.Snapshot activeParameters;
-    private CachedGeometry cachedGeometry;
+    private RadarControllerBlockEntity owner;
+    private RadarAreaGeometry.GeometrySnapshot cachedGeometry;
+    private GeometryKey cachedKey;
+    private RadarObservationPlan lastPreparedPlan;
+    private long geometryRevision;
     private boolean registrationFailureLogged;
-    private boolean noScheduleLogged;
     private long lastLimitWarningRevision = Long.MIN_VALUE;
 
     public void read(CompoundTag tag) {
+        int savedOrder = tag.getInt(SECTOR_ORDER_TAG);
+        sectorOrderVariant = RadarSectorOrder.validVariant(savedOrder) ? savedOrder : 0;
         if (tag.hasUUID(NETWORK_ID_TAG)) {
             networkId = new NetworkId(tag.getUUID(NETWORK_ID_TAG));
             loadedNetworkId = true;
@@ -63,32 +55,30 @@ final class RadarServerRuntime {
 
     public void write(CompoundTag tag) {
         if (networkId != null) tag.putUUID(NETWORK_ID_TAG, networkId.value());
+        if (RadarSectorOrder.validVariant(sectorOrderVariant)) tag.putInt(SECTOR_ORDER_TAG, sectorOrderVariant);
     }
 
-    /** Новая загрузка чанка всегда получает новый token; расписание не переносится через NBT. */
-    public void onLoad() {
+    /** Новый token и новый план создаются при каждой загрузке BlockEntity. */
+    public void onLoad(RadarControllerBlockEntity owner) {
         resetTransientState();
+        this.owner = owner;
+        if (owner.getLevel() instanceof ServerLevel level) ensureSectorOrder(owner, level);
     }
 
     private void resetTransientState() {
         token = null;
         endpoint = null;
-        activeEpoch = null;
-        completedEpoch = null;
-        failureLoggedEpoch = null;
-        activeParameters = null;
-        invalidateProfile();
+        cachedGeometry = null;
+        cachedKey = null;
+        lastPreparedPlan = null;
         registrationFailureLogged = false;
-        noScheduleLogged = false;
     }
 
-    public NetworkId networkId() {
-        return networkId;
-    }
+    public NetworkId networkId() { return networkId; }
 
     public NetworkId getOrCreateNetworkIdForBinding(RadarControllerBlockEntity owner) {
         if (!(owner.getLevel() instanceof ServerLevel level)) {
-            throw new IllegalStateException("Radar NetworkId is only available on the logical server");
+            throw new IllegalStateException("Radar NetworkId is only available on logical server");
         }
         endpoint = endpoint(level, owner.getBlockPos());
         if (networkId == null) {
@@ -103,178 +93,131 @@ final class RadarServerRuntime {
 
     public void applyNetworkIdFromItem(RadarControllerBlockEntity owner, NetworkId replacement) {
         if (!(owner.getLevel() instanceof ServerLevel level)) {
-            throw new IllegalStateException("Radar NetworkId can only be applied on the logical server");
+            throw new IllegalStateException("Radar NetworkId can only be applied on logical server");
         }
         if (token != null) throw new IllegalStateException("Cannot replace a registered radar NetworkId");
         networkId = replacement;
         loadedNetworkId = false;
         endpoint = endpoint(level, owner.getBlockPos());
-        completedEpoch = null;
-        activeEpoch = null;
-        activeParameters = null;
         invalidateProfile();
         owner.setChanged();
         RadarDiagnostics.log("radar_item_network_id_applied", networkId, endpoint, null, tick(level),
-                "source=controller_item");
+                "source=bound_item");
     }
 
-    public void tick(RadarControllerBlockEntity owner, ServerLevel level,
-                     RadarMode mode, int panelCount, boolean assembled) {
-        ensureNetworkId(owner, level);
+    /** Отключение сперва отзывает старые права и измерения, затем регистрирует новый NetworkId. */
+    public void reconfigureNetwork(RadarControllerBlockEntity owner, NetworkId replacement) {
+        if (!(owner.getLevel() instanceof ServerLevel level)) {
+            throw new IllegalStateException("Radar NetworkId can only be changed on logical server");
+        }
+        NetworkId next = replacement == null ? NetworkId.create() : replacement;
+        if (next.equals(networkId)) return;
+        NetworkId previous = networkId;
+        unregister("linker_reconfiguration", owner);
+        resetTransientState();
+        this.owner = owner;
+        networkId = next;
+        loadedNetworkId = false;
+        owner.setChanged();
         register(level, owner.getBlockPos());
-        if (token == null || endpoint == null || networkId == null) return;
-        RadarNetworkManager manager = networkManager(level);
-        if (manager == null) return;
-        ScanWindow window = prepareScanWindow(manager);
-        if (window == null) return;
-
-        long startedAt = System.nanoTime();
-        List<RadarDetection> detections;
-        try {
-            detections = scan(owner, level, manager, window, mode, panelCount, assembled);
-        } catch (RuntimeException exception) {
-            logWindowFailure("scan_failed", manager, window, exception);
-            return;
-        }
-        submitReport(manager, window, detections, assembled, startedAt);
+        RadarDiagnostics.log("radar_network_reconfigured", networkId, endpoint, null, tick(level),
+                "previous=" + previous + " isolated=" + (replacement == null));
     }
 
-    private RadarNetworkManager networkManager(ServerLevel level) {
-        try {
-            return RadarNetworkManager.forServer(level.getServer());
-        } catch (RuntimeException exception) {
-            RadarDiagnostics.logException("scan_skipped", networkId, endpoint, null, tick(level),
-                    "reason=network_manager_unavailable", exception);
-            return null;
-        }
+    /** BlockEntity ticker обслуживает lifecycle и регистрацию; сканирования здесь больше нет. */
+    public void tick(RadarControllerBlockEntity owner, ServerLevel level) {
+        this.owner = owner;
+        ensureNetworkId(owner, level);
+        ensureSectorOrder(owner, level);
+        register(level, owner.getBlockPos());
     }
 
-    /** Закрепляет параметры один раз на эпоху; проход разрешён только перед её границей. */
-    private ScanWindow prepareScanWindow(RadarNetworkManager manager) {
-        Optional<ScanWindow> scheduled = manager.scanWindowForRadar(endpoint);
-        if (scheduled.isEmpty()) {
-            if (!noScheduleLogged) {
-                noScheduleLogged = true;
-                RadarDiagnostics.log("scan_skipped", networkId, endpoint, null, manager.currentServerTick(),
-                        "reason=no_schedule_for_registration");
-            }
-            return null;
+    @Override
+    public Optional<RadarObservationPlan> createObservationPlan(RadarServerConfig.Snapshot parameters) {
+        RadarControllerBlockEntity controller = owner;
+        if (controller == null || controller.isRemoved()
+                || !(controller.getLevel() instanceof ServerLevel level)
+                || !level.hasChunkAt(controller.getBlockPos())
+                || !(controller.getBlockState().getBlock() instanceof RadarControllerBlock)
+                || !controller.assembly().isReadyForScanning(controller)) return Optional.empty();
+        ensureSectorOrder(controller, level);
+        RadarMode mode = controller.mode();
+        int panels = controller.assembly().panelCount();
+        RadarAreaGeometry.GeometrySnapshot geometry = geometry(controller, level, mode, panels, parameters);
+        if (panels > parameters.maxPanels() && lastLimitWarningRevision != parameters.revision()) {
+            lastLimitWarningRevision = parameters.revision();
+            RadarDiagnostics.log("assembly_limit_reduced", networkId, endpoint, null, tick(level),
+                    "capturedPanels=" + panels + " activeLimit=" + parameters.maxPanels()
+                            + " action=range_uses_limit_panels_assembly_kept");
         }
-        noScheduleLogged = false;
-        ScanWindow window = scheduled.orElseThrow();
-        if (!window.eligibleThisWindow()) return null;
-        if (activeEpoch == null || activeEpoch != window.epoch()) {
-            activeEpoch = window.epoch();
-            completedEpoch = null;
-            activeParameters = RadarServerConfig.snapshot();
-            RadarDiagnostics.log("scan_window_snapshot", networkId, endpoint, activeEpoch,
-                    manager.currentServerTick(), "configRevision=" + activeParameters.revision()
-                            + " boundaryTick=" + window.boundaryTick());
+        RadarObservationPlan previous = lastPreparedPlan;
+        if (previous != null && previous.geometryRevision() == geometryRevision
+                && previous.sectorOrderVariant() == sectorOrderVariant
+                && previous.configRevision() == parameters.revision()) return Optional.of(previous);
+        RadarObservationPlan plan;
+        if (previous != null && previous.geometryRevision() == geometryRevision
+                && previous.sectorOrderVariant() == sectorOrderVariant) {
+            // D может измениться при reload, хотя SAT/профиль/перестановка геометрически прежние.
+            plan = new RadarObservationPlan(level.dimension().location(), previous.profile(), previous.sectors(),
+                    sectorOrderVariant, geometryRevision, parameters.revision(), previous.schedule());
+        } else {
+            List<RadarObservationPlan.Sector> sectors = geometry.sectors().stream()
+                    .map(sector -> new RadarObservationPlan.Sector(sector.index(), sector.area())).toList();
+            plan = new RadarObservationPlan(level.dimension().location(), geometry.profile(),
+                    sectors, sectorOrderVariant, geometryRevision, parameters.revision());
         }
-        long now = manager.currentServerTick();
-        if (completedEpoch != null && completedEpoch == window.epoch()) return null;
-        if (now < Math.max(0L, window.boundaryTick() - PRE_BOUNDARY_TICKS)) return null;
-        if (now >= window.boundaryTick()) {
-            RadarDiagnostics.log("scan_skipped", networkId, endpoint, window.epoch(), now,
-                    "reason=window_boundary_passed boundaryTick=" + window.boundaryTick());
-            return null;
-        }
-        return window;
+        lastPreparedPlan = plan;
+        RadarDiagnostics.log("radar_profile_published", networkId, endpoint, null, tick(level),
+                "geometryRevision=" + geometryRevision + " configRevision=" + parameters.revision()
+                        + " mode=" + mode + " range=" + geometry.range() + " angle="
+                        + geometry.horizontalAngle() + " minY=" + geometry.minYOffset() + " maxY="
+                        + geometry.maxYOffset() + " sectors=" + plan.sectors().size()
+                        + " orderVariant=" + sectorOrderVariant);
+        return Optional.of(plan);
     }
 
-    private List<RadarDetection> scan(RadarControllerBlockEntity owner, ServerLevel level,
-                                      RadarNetworkManager manager, ScanWindow window,
-                                      RadarMode mode, int panelCount, boolean assembled) {
-        RadarDiagnostics.log("scan_started", networkId, endpoint, window.epoch(), manager.currentServerTick(),
-                "mode=" + mode + " assembled=" + assembled + " panels=" + panelCount);
-        if (!assembled) return List.of();
-        RadarAreaGeometry.GeometrySnapshot geometry = geometry(owner, level, mode, panelCount, activeParameters);
-        warnPanelLimit(manager, window, panelCount);
-        EntityRadarScanner.ScanResult result = SCANNER.scan(level, geometry.scanArea(), ELIGIBLE);
-        RadarDiagnostics.log("scan_candidates", networkId, endpoint, window.epoch(),
-                manager.currentServerTick(), "candidates=" + result.candidateCount()
-                        + " acceptedHitboxes=" + result.acceptedHitboxCount()
-                        + " found=" + result.detections().size());
-        return result.detections();
-    }
-
-    private void warnPanelLimit(RadarNetworkManager manager, ScanWindow window, int panelCount) {
-        if (panelCount <= activeParameters.maxPanels()
-                || lastLimitWarningRevision == activeParameters.revision()) return;
-        lastLimitWarningRevision = activeParameters.revision();
-        RadarDiagnostics.log("assembly_limit_reduced", networkId, endpoint, window.epoch(),
-                manager.currentServerTick(), "capturedPanels=" + panelCount
-                        + " activeLimit=" + activeParameters.maxPanels()
-                        + " action=range_uses_limit_panels_assembly_kept");
-    }
-
-    /** Отмечает эпоху завершённой только после приёма полного отчёта менеджером. */
-    private void submitReport(RadarNetworkManager manager, ScanWindow window,
-                              List<RadarDetection> detections, boolean assembled, long startedAt) {
-        long finished = manager.currentServerTick();
-        if (finished >= window.boundaryTick()) {
-            RadarDiagnostics.log("report_rejected", networkId, endpoint, window.epoch(), finished,
-                    "reason=window_boundary_passed found=" + detections.size());
-            return;
-        }
-        try {
-            boolean accepted = manager.submitCompletedScan(endpoint, networkId, token,
-                    window.epoch(), detections);
-            if (accepted) completedEpoch = window.epoch();
-            logReport(manager, window, detections, assembled, startedAt, accepted);
-        } catch (RuntimeException exception) {
-            logWindowFailure("report_submission_failed", manager, window, exception);
-        }
-    }
-
-    private void logReport(RadarNetworkManager manager, ScanWindow window, List<RadarDetection> detections,
-                           boolean assembled, long startedAt, boolean accepted) {
-        String refs = RadarDiagnostics.enabled()
-                ? detections.stream().map(detection -> detection.target().toString())
-                        .collect(Collectors.joining(",", "[", "]"))
-                : "[]";
-        RadarDiagnostics.log(accepted ? "report_submitted" : "report_rejected",
-                networkId, endpoint, window.epoch(), manager.currentServerTick(),
-                "accepted=" + accepted + " found=" + detections.size()
-                        + " durationNanos=" + (System.nanoTime() - startedAt)
-                        + " targets=" + refs + " emptyReason=" + (assembled ? "none" : "not_assembled"));
-    }
-
-    private void logWindowFailure(String event, RadarNetworkManager manager, ScanWindow window,
-                                  RuntimeException exception) {
-        if (failureLoggedEpoch != null && failureLoggedEpoch == window.epoch()) return;
-        failureLoggedEpoch = window.epoch();
-        RadarDiagnostics.logException(event, networkId, endpoint, window.epoch(),
-                manager.currentServerTick(), "retry=next_preboundary_tick", exception);
+    @Override
+    public boolean isReadyForObservation(RadarObservationPlan plan) {
+        RadarControllerBlockEntity controller = owner;
+        if (plan == null || controller == null || controller.isRemoved() || controller.getLevel() == null
+                || !(controller.getLevel() instanceof ServerLevel level)
+                || !level.dimension().location().equals(plan.dimension())
+                || !level.hasChunkAt(controller.getBlockPos())
+                || !(controller.getBlockState().getBlock() instanceof RadarControllerBlock)
+                || !controller.assembly().isReadyForScanning(controller)
+                || networkId == null || endpoint == null
+                || !endpoint.equals(endpoint(level, controller.getBlockPos()))) return false;
+        Direction currentFacing = controller.getBlockState().getValue(RadarControllerBlock.FACING);
+        return cachedKey != null && currentFacing == cachedKey.facing()
+                && plan.geometryRevision() == geometryRevision;
     }
 
     public Optional<RadarVisualProfile> visualProfile(RadarControllerBlockEntity owner) {
-        if (!(owner.getLevel() instanceof ServerLevel level) || !owner.assembly().isReadyForScanning(owner)) {
-            return Optional.empty();
-        }
-        RadarServerConfig.Snapshot parameters = activeParameters == null
-                ? RadarServerConfig.snapshot() : activeParameters;
-        return Optional.of(geometry(owner, level, owner.mode(), owner.assembly().panelCount(), parameters).profile());
+        RadarObservationPlan plan = lastPreparedPlan;
+        if (plan == null || !isReadyForObservation(plan)) return Optional.empty();
+        return Optional.of(plan.profile());
     }
 
     private RadarAreaGeometry.GeometrySnapshot geometry(RadarControllerBlockEntity owner, ServerLevel level,
                                                         RadarMode mode, int panelCount,
                                                         RadarServerConfig.Snapshot parameters) {
-        GeometryKey key = new GeometryKey(parameters.revision(), Math.min(Math.max(0, panelCount), parameters.maxPanels()),
-                mode, owner.getBlockState().getValue(RadarControllerBlock.FACING), owner.getBlockPos());
-        if (cachedGeometry != null && cachedGeometry.key().equals(key)) return cachedGeometry.geometry();
-        RadarAreaGeometry.GeometrySnapshot geometry = RadarAreaGeometry.create(level.dimension().location(),
-                key.position(), key.facing(), mode, panelCount, parameters);
-        cachedGeometry = new CachedGeometry(key, geometry);
-        RadarDiagnostics.log("radar_profile_published", networkId, endpoint, activeEpoch, tick(level),
-                "mode=" + mode + " range=" + geometry.range() + " angle="
-                        + geometry.horizontalAngle() + " minY=" + geometry.minYOffset()
-                        + " maxY=" + geometry.maxYOffset() + " parts=" + parameters.visualParts());
-        return geometry;
+        int boundedPanels = Math.min(Math.max(0, panelCount), parameters.maxPanels());
+        RadarServerConfig.ModeParameters modeParameters = mode.parameters(parameters);
+        GeometryKey key = new GeometryKey(parameters.range(), modeParameters, boundedPanels, mode,
+                owner.getBlockState().getValue(RadarControllerBlock.FACING), owner.getBlockPos().immutable(),
+                sectorOrderVariant);
+        if (cachedGeometry != null && key.equals(cachedKey)) return cachedGeometry;
+        cachedGeometry = RadarAreaGeometry.create(level.dimension().location(), key.position(), key.facing(),
+                mode, panelCount, parameters, sectorOrderVariant);
+        cachedKey = key;
+        geometryRevision = Math.incrementExact(geometryRevision);
+        return cachedGeometry;
     }
 
     public void invalidateProfile() {
         cachedGeometry = null;
+        cachedKey = null;
+        lastPreparedPlan = null;
     }
 
     public void unregister(String reason, RadarControllerBlockEntity owner) {
@@ -282,6 +225,7 @@ final class RadarServerRuntime {
                 || !(owner.getLevel() instanceof ServerLevel level)) {
             token = null;
             endpoint = null;
+            invalidateProfile();
             return;
         }
         try {
@@ -296,6 +240,7 @@ final class RadarServerRuntime {
         } finally {
             token = null;
             endpoint = null;
+            invalidateProfile();
         }
     }
 
@@ -306,23 +251,30 @@ final class RadarServerRuntime {
             owner.setChanged();
             RadarDiagnostics.log("network_id_created", networkId, endpoint, null, tick(level),
                     "reason=missing_saved_id");
-            return;
-        }
-        if (loadedNetworkId) {
+        } else if (loadedNetworkId) {
             RadarDiagnostics.log("network_id_loaded", networkId, endpoint, null, tick(level),
                     "source=block_entity_nbt");
             loadedNetworkId = false;
         }
     }
 
+    private void ensureSectorOrder(RadarControllerBlockEntity owner, ServerLevel level) {
+        if (RadarSectorOrder.validVariant(sectorOrderVariant)) return;
+        sectorOrderVariant = 1 + level.random.nextInt(RadarSectorOrder.VARIANT_COUNT);
+        owner.setChanged();
+        invalidateProfile();
+        RadarDiagnostics.log("radar_sector_order_assigned", networkId, endpoint(level, owner.getBlockPos()),
+                null, tick(level), "orderVariant=" + sectorOrderVariant + " persist=controller_nbt");
+    }
+
     private void register(ServerLevel level, BlockPos pos) {
         if (token != null || networkId == null) return;
         endpoint = endpoint(level, pos);
         try {
-            token = RadarNetworkManager.forServer(level.getServer()).registerRadar(endpoint, networkId, POLICY);
+            token = RadarNetworkManager.forServer(level.getServer()).registerRadar(endpoint, networkId, POLICY, this);
             registrationFailureLogged = false;
             RadarDiagnostics.log("radar_registration_ready", networkId, endpoint, null, tick(level),
-                    "token=" + token.value() + " policy=" + POLICY);
+                    "token=" + token.value() + " forgetAfterMisses=" + POLICY.forgetAfterMisses());
         } catch (RuntimeException exception) {
             if (!registrationFailureLogged) {
                 registrationFailureLogged = true;
@@ -337,25 +289,15 @@ final class RadarServerRuntime {
     }
 
     private long tick(ServerLevel level) {
-        try {
-            return RadarNetworkManager.forServer(level.getServer()).currentServerTick();
-        } catch (RuntimeException ignored) {
-            return -1L;
-        }
+        try { return RadarNetworkManager.forServer(level.getServer()).currentServerTick(); }
+        catch (RuntimeException ignored) { return -1L; }
     }
 
-    public EndpointKey.Static endpoint() {
-        return endpoint;
-    }
+    public EndpointKey.Static endpoint() { return endpoint; }
+    public long currentTick(ServerLevel level) { return tick(level); }
 
-    public long currentTick(ServerLevel level) {
-        return tick(level);
-    }
-
-    private record GeometryKey(long configRevision, int countedPanels, RadarMode mode,
-                               Direction facing, BlockPos position) {
-    }
-
-    private record CachedGeometry(GeometryKey key, RadarAreaGeometry.GeometrySnapshot geometry) {
-    }
+    private record GeometryKey(RadarServerConfig.RangeParameters rangeParameters,
+                               RadarServerConfig.ModeParameters modeParameters, int countedPanels,
+                               RadarMode mode, Direction facing, BlockPos position,
+                               int sectorOrderVariant) { }
 }

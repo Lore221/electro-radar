@@ -72,7 +72,10 @@ public final class RadarMonitorScreen extends Screen {
     private int contentY;
     private int contentSize;
 
-    private int mapDiameterBlocks = REFERENCE_MAP_DIAMETER_BLOCKS;
+    private double mapDiameterBlocks = MonitorMapScale.FALLBACK_DIAMETER_BLOCKS;
+    private double maxMapDiameterBlocks = MAX_MAP_DIAMETER_BLOCKS;
+    /** После первого зума или перетаскивания новые снимки не меняют пользовательский вид. */
+    private boolean manualViewport;
     private double centerOffsetX;
     private double centerOffsetZ;
     private boolean leftMouseDown;
@@ -119,11 +122,12 @@ public final class RadarMonitorScreen extends Screen {
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
         if (!insideMap(mouseX, mouseY)) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
         if (scrollY != 0.0D) {
+            manualViewport = true;
             int direction = scrollY > 0.0D ? -1 : 1;
             int steps = Math.max(1, (int) Math.round(Math.abs(scrollY)));
             mapDiameterBlocks = Math.max(MIN_MAP_DIAMETER_BLOCKS,
-                    Math.min(MAX_MAP_DIAMETER_BLOCKS,
-                            mapDiameterBlocks + direction * MAP_ZOOM_STEP_BLOCKS * steps));
+                    Math.min(maxMapDiameterBlocks,
+                            mapDiameterBlocks + direction * (double) MAP_ZOOM_STEP_BLOCKS * steps));
         }
         return true;
     }
@@ -166,6 +170,7 @@ public final class RadarMonitorScreen extends Screen {
 
     /** Перемещает только локальный центр карты по дельте мыши после преодоления drag-порога. */
     private void panMapTo(double mouseX, double mouseY) {
+        manualViewport = true;
         double worldUnitsPerPixel = mapDiameterBlocks / (double) Math.max(1, contentSize);
         double deltaX = mouseX - lastDragX;
         double deltaY = mouseY - lastDragY;
@@ -221,6 +226,11 @@ public final class RadarMonitorScreen extends Screen {
 
         MonitorClientState.View view = MonitorClientState.get(key, partialTick);
         MonitorSnapshotData snapshot = view == null ? null : view.snapshot();
+        if (!manualViewport) {
+            MapCenter center = mapCenter(facing());
+            mapDiameterBlocks = MonitorMapScale.diameter(snapshot, center.x(), center.z());
+            maxMapDiameterBlocks = Math.max(MAX_MAP_DIAMETER_BLOCKS, mapDiameterBlocks);
+        }
         Optional<MonitorClientState.DisplayTarget> hovered = view == null
                 ? Optional.empty() : findTargetAt(view, mouseX, mouseY);
         graphics.enableScissor(contentX, contentY, contentX + contentSize, contentY + contentSize);
@@ -316,17 +326,20 @@ public final class RadarMonitorScreen extends Screen {
         }
     }
 
-    /** Значок шага берётся из прежнего атласа и масштабируется вместе с квадратом карты. */
+    /** Обычные шаги берутся из атласа, более крупный шаг удалённой сети выводится числом. */
     private void drawGridScaleOverlay(GuiGraphics graphics) {
-        int sourceY = switch (MonitorGridGeometry.stepBlocks(mapDiameterBlocks)) {
-            case 100 -> GRID_SCALE_100_Y;
-            case 500 -> GRID_SCALE_500_Y;
-            default -> GRID_SCALE_1000_Y;
-        };
+        double gridStep = MonitorGridGeometry.stepBlocks(mapDiameterBlocks);
         int x = mapX + Math.round(mapSize * GRID_SCALE_DESTINATION_X / (float) ICON_ATLAS_SIZE);
         int y = mapY + Math.round(mapSize * GRID_SCALE_DESTINATION_Y / (float) ICON_ATLAS_SIZE);
         int iconWidth = Math.max(1, Math.round(mapSize * GRID_SCALE_SOURCE_WIDTH / (float) ICON_ATLAS_SIZE));
         int iconHeight = Math.max(1, Math.round(mapSize * GRID_SCALE_SOURCE_HEIGHT / (float) ICON_ATLAS_SIZE));
+        if (gridStep > 1_000.0D) {
+            graphics.drawString(font, Long.toString(Math.round(gridStep)), x, y,
+                    RadarClientConfig.palette().screen().guiGrid() | 0xFF000000, false);
+            return;
+        }
+        int sourceY = gridStep == 100.0D ? GRID_SCALE_100_Y
+                : gridStep == 500.0D ? GRID_SCALE_500_Y : GRID_SCALE_1000_Y;
         graphics.blit(RADAR_ICONS, x, y, iconWidth, iconHeight,
                 GRID_SCALE_SOURCE_X, sourceY, GRID_SCALE_SOURCE_WIDTH, GRID_SCALE_SOURCE_HEIGHT,
                 ICON_ATLAS_SIZE, ICON_ATLAS_SIZE);

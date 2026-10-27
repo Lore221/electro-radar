@@ -3,6 +3,7 @@ package com.electroradar.radar.network;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Collection;
 
 import net.minecraft.server.MinecraftServer;
 
@@ -75,6 +76,31 @@ public final class ConsumerConnection implements AutoCloseable {
             return TargetSnapshot.empty(0, 0);
         }
         return manager.queryTargets(endpoint, networkId, current, projection);
+    }
+
+    /** Читает только идентичности и discovery metadata; координатные DTO не создаются. */
+    public TargetSnapshot<TargetRef> queryTargetRefs() {
+        checkServerThread();
+        RegistrationToken current = currentToken();
+        if (current == null) {
+            logClosedAccess("query_target_refs");
+            return TargetSnapshot.empty(0, 0);
+        }
+        return manager.queryTargetRefs(endpoint, networkId, current);
+    }
+
+    /** Групповое чтение только явно запрошенных и всё ещё разрешённых TargetRef. */
+    public <T> TargetSnapshot<T> queryTargetDetails(Collection<TargetRef> targets,
+                                                    TargetProjection<T> projection) {
+        Objects.requireNonNull(targets, "targets");
+        Objects.requireNonNull(projection, "projection");
+        checkServerThread();
+        RegistrationToken current = currentToken();
+        if (current == null) {
+            logClosedAccess("query_target_details");
+            return TargetSnapshot.empty(0, 0);
+        }
+        return manager.queryTargetDetails(endpoint, networkId, current, targets, projection);
     }
 
     /**
