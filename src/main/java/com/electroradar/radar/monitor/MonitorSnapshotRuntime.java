@@ -172,11 +172,7 @@ final class MonitorSnapshotRuntime {
         for (MonitorTargetData target : latestSnapshot.targets()) current.put(target.target(), target);
         List<MonitorTargetData> upserts = new ArrayList<>();
         List<TargetRef> removes = new ArrayList<>();
-        for (TargetRef target : changedTargetsSinceBroadcast.stream()
-                .sorted(java.util.Comparator
-                        .comparing((TargetRef value) -> value.dimension().location().toString())
-                        .thenComparing(value -> value.sourceKind().name())
-                        .thenComparing(value -> value.id().toString())).toList()) {
+        for (TargetRef target : changedTargetsSinceBroadcast.stream().sorted(TargetRef.ORDER).toList()) {
             MonitorTargetData value = current.get(target);
             if (value == null) removes.add(target); else upserts.add(value);
         }

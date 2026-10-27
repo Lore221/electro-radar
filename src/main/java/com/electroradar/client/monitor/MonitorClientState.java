@@ -235,10 +235,8 @@ public final class MonitorClientState {
         for (MonitorTargetData target : current.snapshot().targets()) targets.put(target.target(), target);
         for (TargetRef remove : delta.removes()) targets.remove(remove);
         for (MonitorTargetData upsert : delta.upserts()) targets.put(upsert.target(), upsert);
-        List<MonitorTargetData> ordered = targets.values().stream().sorted(Comparator
-                .comparing((MonitorTargetData value) -> value.target().dimension().location().toString())
-                .thenComparing(value -> value.target().sourceKind().name())
-                .thenComparing(value -> value.target().id().toString())).toList();
+        List<MonitorTargetData> ordered = targets.values().stream()
+                .sorted(Comparator.comparing(MonitorTargetData::target, TargetRef.ORDER)).toList();
         try {
             MonitorSnapshotData snapshot = new MonitorSnapshotData(header.displayId(), header.rootPosition(),
                     header.dimension(), header.loadId(), header.toSequence(), header.structureVersion(),

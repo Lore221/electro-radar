@@ -10,10 +10,7 @@ import java.util.TreeSet;
 /** Изменяемые таблицы сетевого ядра; все поля принадлежат основному серверному потоку. */
 final class RadarNetworkState {
     static final Comparator<EndpointKey> ENDPOINT_ORDER = RadarNetworkState::compareEndpointKeys;
-    static final Comparator<TargetRef> TARGET_ORDER = Comparator
-            .comparing((TargetRef target) -> target.dimension().location().toString())
-            .thenComparing(target -> target.sourceKind().name())
-            .thenComparing(target -> target.id().toString());
+    static final Comparator<TargetRef> TARGET_ORDER = TargetRef.ORDER;
 
     private RadarNetworkState() { }
 
