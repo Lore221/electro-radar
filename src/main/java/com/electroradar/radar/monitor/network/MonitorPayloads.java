@@ -34,6 +34,8 @@ public final class MonitorPayloads {
         PayloadRegistrar registrar = event.registrar(PROTOCOL_VERSION);
         registrar.playToServer(MonitorSelectPayload.TYPE, MonitorSelectPayload.STREAM_CODEC,
                 MonitorPayloads::handleSelection);
+        registrar.playToServer(MonitorGeometryRequestPayload.TYPE, MonitorGeometryRequestPayload.STREAM_CODEC,
+                MonitorPayloads::handleGeometryRequest);
         if (FMLEnvironment.dist == Dist.DEDICATED_SERVER) {
             // Dedicated server регистрирует исходящие типы без ссылки на клиентские классы.
             registrar.playToClient(MonitorSnapshotPayload.TYPE, MonitorSnapshotPayload.STREAM_CODEC,
@@ -71,6 +73,17 @@ public final class MonitorPayloads {
         ChunkPos chunk = new ChunkPos(snapshot.rootPosition());
         for (MonitorSnapshotPayload part : MonitorSnapshotPayload.split(snapshot, includeGeometry)) {
             PacketDistributor.sendToPlayersTrackingChunk(level, chunk, part);
+        }
+    }
+
+    /** Проверки идентичности, наблюдения чанка и частоты выполняет сам корень. Чанк не загружается. */
+    private static void handleGeometryRequest(MonitorGeometryRequestPayload payload, IPayloadContext context) {
+        if (!(context.player() instanceof ServerPlayer player)) return;
+        ServerLevel level = player.serverLevel();
+        if (!level.dimension().location().equals(payload.dimension())
+                || !level.hasChunkAt(payload.rootPosition())) return;
+        if (level.getBlockEntity(payload.rootPosition()) instanceof RadarDisplayBlockEntity root) {
+            root.handleGeometryRequest(player, payload.displayId(), payload.loadId());
         }
     }
 
