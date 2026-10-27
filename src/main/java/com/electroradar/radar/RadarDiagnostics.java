@@ -1,5 +1,7 @@
 package com.electroradar.radar;
 
+import java.util.function.Supplier;
+
 import com.mojang.logging.LogUtils;
 
 import org.slf4j.Logger;
@@ -21,11 +23,12 @@ public final class RadarDiagnostics {
 
     /**
      * Единственный переключатель подробной диагностики для всех серверных сетей.
-     * Выключается без пересборки JVM-флагом {@code -Delectroradar.diagnostics=false}.
+     * По умолчанию выключен: подробный журнал пишет события каждого окна и каждого снимка.
+     * Включается без пересборки JVM-флагом {@code -Delectroradar.diagnostics=true}.
      * Ошибки продолжают записываться независимо от этого флага.
      */
     private static final boolean ENABLED =
-            Boolean.parseBoolean(System.getProperty("electroradar.diagnostics", "true"));
+            Boolean.parseBoolean(System.getProperty("electroradar.diagnostics", "false"));
 
     /**
      * Отдельный opt-in для частых чтений; по умолчанию запросы потребителей не засоряют INFO.
@@ -73,6 +76,24 @@ public final class RadarDiagnostics {
                 epoch == null ? "-" : epoch,
                 tick == null ? "-" : tick,
                 details == null ? "" : details);
+    }
+
+    /**
+     * Ленивый вариант для частых событий: строка подробностей собирается только при включённом
+     * журнале. Используйте его везде, где событие происходит каждое окно, тик или снимок.
+     */
+    public static void log(
+            String event,
+            NetworkId network,
+            EndpointKey radar,
+            Object epoch,
+            Object tick,
+            Supplier<String> details
+    ) {
+        if (!ENABLED) {
+            return;
+        }
+        log(event, network, radar, epoch, tick, details == null ? null : details.get());
     }
 
     /**
