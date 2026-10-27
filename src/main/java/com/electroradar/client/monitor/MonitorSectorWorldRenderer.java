@@ -44,7 +44,7 @@ final class MonitorSectorWorldRenderer {
         if (!styleLogged) {
             styleLogged = true;
             RadarDiagnostics.log("monitor_visual_world_style", null, null,
-                    snapshot.publishedEpoch(), null,
+                    snapshot.sequence(), null,
                     "clock=client guiBaseAlpha=" + (MonitorSectorPalette.baseLine() >>> 24)
                             + " worldBaseAlpha=" + (MonitorSectorPalette.worldBaseLine() >>> 24)
                             + " worldActiveAlpha=" + (MonitorSectorPalette.worldActiveEdge() >>> 24)

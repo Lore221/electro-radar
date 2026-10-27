@@ -4,14 +4,19 @@ import java.util.Objects;
 
 import com.electroradar.radar.network.TargetRef;
 
-/** Серверное состояние отметки: отдельные факт наблюдения, sample и зафиксированное затухание. */
+/**
+ * Отметка цели на мониторе: факт наблюдения, последнее разрешённое положение и затухание.
+ *
+ * <p>Времени снятия sample здесь нет: клиенту оно не нужно, а у наблюдаемой цели оно меняется
+ * каждый тик и превращало бы неподвижную цель в постоянный поток обновлений.</p>
+ */
 public record MonitorTargetData(TargetRef target, boolean observing, boolean hasPosition,
                                 double x, double y, double z, String entityTypeId,
-                                long sampledTick, long freezeTick, long fadeDurationTicks) {
+                                long freezeTick, long fadeDurationTicks) {
     public MonitorTargetData {
         Objects.requireNonNull(target, "target");
         Objects.requireNonNull(entityTypeId, "entityTypeId");
-        if (sampledTick < 0 || freezeTick < -1 || fadeDurationTicks < 0
+        if (freezeTick < -1 || fadeDurationTicks < 0
                 || observing && (!hasPosition || freezeTick != -1)
                 || hasPosition && !observing && freezeTick < 0
                 || hasPosition && (!Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(z))
@@ -20,13 +25,6 @@ public record MonitorTargetData(TargetRef target, boolean observing, boolean has
         }
     }
 
-    /** Сохраняет старое имя как алиас для экранных компонентов, переводимых на observing. */
-    @Deprecated
+    /** Старое имя для экранных компонентов. */
     public boolean detectedThisWindow() { return observing; }
-
-    public MonitorTargetData(TargetRef target, boolean detectedThisWindow, boolean hasPosition,
-                             double x, double y, double z, String entityTypeId) {
-        this(target, detectedThisWindow, hasPosition, x, y, z, entityTypeId,
-                0, detectedThisWindow || !hasPosition ? -1 : 0, 0);
-    }
 }

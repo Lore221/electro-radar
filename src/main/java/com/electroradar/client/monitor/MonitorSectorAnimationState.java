@@ -19,7 +19,6 @@ import com.electroradar.radar.visual.RadarVisualProfile;
 final class MonitorSectorAnimationState {
     private static final double FULL_FLASH_DURATION_TICKS = 6.0D;
     private static final Map<MonitorDisplayKey, Map<RadarVisualProfile.Key, ProfileCycle>> CYCLES = new HashMap<>();
-    private static final Map<MonitorDisplayKey, Long> VIEW_GENERATIONS = new HashMap<>();
 
     private MonitorSectorAnimationState() { }
 
@@ -28,8 +27,6 @@ final class MonitorSectorAnimationState {
             remove(key);
             return;
         }
-        Long generation = VIEW_GENERATIONS.put(key, current.viewGeneration());
-        if (generation != null && generation.longValue() != current.viewGeneration()) CYCLES.remove(key);
         Map<RadarVisualProfile.Key, ProfileCycle> cycles = CYCLES.computeIfAbsent(key, ignored -> new HashMap<>());
         Map<net.minecraft.core.BlockPos, MonitorVisualPhase> phases = new HashMap<>();
         for (MonitorVisualPhase phase : current.visualPhases()) phases.put(phase.radarPosition(), phase);
@@ -41,19 +38,19 @@ final class MonitorSectorAnimationState {
             MonitorVisualPhase phase = phases.get(profile.radarPosition());
             if (phase == null) continue;
             ProfileCycle old = cycles.get(profile.key());
-            boolean newSlot = old == null || old.phase.slotSerial() != phase.slotSerial()
-                    || old.phase.geometryRevision() != phase.geometryRevision();
+            // Новое посещение — другое начало окна; новая геометрия — другой профиль.
+            boolean newSlot = old == null || old.phase.windowStartTick() != phase.windowStartTick()
+                    || !old.profile.equals(profile);
             double mappedWindowStart = clientTickTime + phase.windowStartTick() - current.observedServerTick();
             // Повторный sample не сдвигает привязку начала окна к клиентскому времени.
             ProfileCycle cycle = new ProfileCycle(profile, phase,
                     newSlot ? mappedWindowStart : old.windowStartClientTick);
             cycles.put(profile.key(), cycle);
             if (newSlot && RadarDiagnostics.visualDiagnosticsEnabled()) {
-                RadarDiagnostics.log("monitor_visual_server_slot", null, null, phase.slotSerial(),
-                        (long) clientTickTime, "displayId=" + key.displayId() + " radar="
-                                + profile.radarPosition() + " sector=" + phase.activeSectorIndex()
-                                + " window=[" + phase.windowStartTick() + "," + phase.windowEndTick()
-                                + ") geometryRevision=" + phase.geometryRevision());
+                RadarDiagnostics.log("monitor_visual_server_slot", null, null, null, (long) clientTickTime,
+                        "displayId=" + key.displayId() + " radar=" + profile.radarPosition()
+                                + " sector=" + phase.activeSectorIndex() + " window=[" + phase.windowStartTick()
+                                + "," + phase.windowEndTick() + ")");
             }
         }
     }
@@ -75,12 +72,10 @@ final class MonitorSectorAnimationState {
 
     static void remove(MonitorDisplayKey key) {
         CYCLES.remove(key);
-        VIEW_GENERATIONS.remove(key);
     }
 
     static void clear() {
         CYCLES.clear();
-        VIEW_GENERATIONS.clear();
     }
 
     record ProfileFrame(RadarVisualProfile profile, int activeSectorIndex, float flashStrength) { }

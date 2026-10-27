@@ -4,21 +4,30 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Predicate;
 
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.entity.Entity;
 
 import com.electroradar.radar.scan.RadarScanArea;
 import com.electroradar.radar.visual.RadarSectorOrder;
 import com.electroradar.radar.visual.RadarVisualProfile;
 
-/** Неизменяемая геометрия и политика окон одного источника. */
+/**
+ * Неизменяемая геометрия, фильтр целей и политика окон одного источника.
+ *
+ * <p>Фильтр принадлежит источнику, а не ядру: какой объект считать целью, решает тип радара.
+ * Ядро применяет его к корневой сущности (для частей — к родителю) при поиске.</p>
+ */
 public record RadarObservationPlan(ResourceLocation dimension, RadarVisualProfile profile,
                                    List<Sector> sectors, int sectorOrderVariant,
                                    long geometryRevision, long configRevision,
+                                   Predicate<Entity> eligibility,
                                    ObservationWindowSchedule schedule) {
     public RadarObservationPlan {
         Objects.requireNonNull(dimension, "dimension");
         Objects.requireNonNull(profile, "profile");
+        Objects.requireNonNull(eligibility, "eligibility");
         Objects.requireNonNull(schedule, "schedule");
         sectors = List.copyOf(sectors);
         if (!profile.dimension().equals(dimension) || !RadarSectorOrder.validVariant(sectorOrderVariant)
@@ -35,12 +44,13 @@ public record RadarObservationPlan(ResourceLocation dimension, RadarVisualProfil
         }
     }
 
-    /** Текущий семисекторный контроллер по умолчанию следует общей конфигурационной фазе. */
+    /** Текущий семисекторный контроллер по умолчанию следует окнам своей сети. */
     public RadarObservationPlan(ResourceLocation dimension, RadarVisualProfile profile,
                                 List<Sector> sectors, int sectorOrderVariant,
-                                long geometryRevision, long configRevision) {
-        this(dimension, profile, sectors, sectorOrderVariant, geometryRevision, configRevision,
-                ObservationWindowSchedule.globalSectorCycle(profile.sectorCount(), sectorOrderVariant));
+                                long geometryRevision, long configRevision,
+                                Predicate<Entity> eligibility) {
+        this(dimension, profile, sectors, sectorOrderVariant, geometryRevision, configRevision, eligibility,
+                ObservationWindowSchedule.sectorCycle(profile.sectorCount(), sectorOrderVariant));
     }
 
     /** Геометрический индекс не меняется при выборе другого порядка обхода. */

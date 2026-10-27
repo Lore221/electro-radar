@@ -11,7 +11,6 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -384,22 +383,6 @@ public final class RadarDisplayBlockEntity extends BlockEntity implements Networ
         ensureIdentity();
         if (assemblyDirty) RadarDisplayAssembly.resolve(this);
         refreshAndBroadcast(false, player);
-    }
-
-    /** Проверяет право игрока наблюдать корень и отправляет только адресный baseline восстановления. */
-    public boolean handleResyncRequest(ServerPlayer player, UUID requestedDisplayId, UUID requestedLoadId) {
-        if (!(level instanceof ServerLevel serverLevel) || !isRoot()
-                || !worldPosition.equals(rootPosition()) || displayId == null || loadId == null
-                || !displayId.equals(requestedDisplayId) || !loadId.equals(requestedLoadId)
-                || !player.serverLevel().dimension().equals(serverLevel.dimension())
-                || !serverLevel.hasChunkAt(worldPosition)) return false;
-        // То же множество получателей, что у PacketDistributor.sendToPlayersTrackingChunk:
-        // расстояние взаимодействия с GUI не ограничивает наблюдение экрана в мире.
-        if (!serverLevel.getChunkSource().chunkMap.getPlayers(new ChunkPos(worldPosition), false)
-                .contains(player)) return false;
-        if (assemblyDirty) RadarDisplayAssembly.resolve(this);
-        refreshAndBroadcast(false, player);
-        return true;
     }
 
     private void ensureIdentity() {

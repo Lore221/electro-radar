@@ -159,12 +159,14 @@ final class RadarServerRuntime implements RadarObservationSource {
                 && previous.sectorOrderVariant() == sectorOrderVariant) {
             // D может измениться при reload, хотя SAT/профиль/перестановка геометрически прежние.
             plan = new RadarObservationPlan(level.dimension().location(), previous.profile(), previous.sectors(),
-                    sectorOrderVariant, geometryRevision, parameters.revision(), previous.schedule());
+                    sectorOrderVariant, geometryRevision, parameters.revision(), RadarTargetFilter.ELIGIBLE,
+                    previous.schedule());
         } else {
             List<RadarObservationPlan.Sector> sectors = geometry.sectors().stream()
                     .map(sector -> new RadarObservationPlan.Sector(sector.index(), sector.area())).toList();
             plan = new RadarObservationPlan(level.dimension().location(), geometry.profile(),
-                    sectors, sectorOrderVariant, geometryRevision, parameters.revision());
+                    sectors, sectorOrderVariant, geometryRevision, parameters.revision(),
+                    RadarTargetFilter.ELIGIBLE);
         }
         lastPreparedPlan = plan;
         RadarDiagnostics.log("radar_profile_published", networkId, endpoint, null, tick(level),

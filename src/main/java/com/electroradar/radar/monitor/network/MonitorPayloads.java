@@ -1,28 +1,32 @@
 package com.electroradar.radar.monitor.network;
 
+import java.util.List;
+
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.ChunkPos;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.event.level.ChunkWatchEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
+import net.neoforged.neoforge.network.handling.IPayloadContext;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 import com.electroradar.radar.monitor.MonitorSnapshotData;
-import com.electroradar.radar.monitor.RadarMonitorDiagnostics;
 import com.electroradar.radar.monitor.RadarDisplayBlockEntity;
+import com.electroradar.radar.monitor.RadarMonitorDiagnostics;
 
 /**
  * Регистрация пакетов и серверная маршрутизация снимков монитора.
  *
- * <p>Открытие GUI — отдельный признак только у первого адресного снимка. Части обычных обновлений
- * никогда не создают экран. Снимки поверхности уходят только игрокам, наблюдающим чанк корня;
- * полный серверный список не рассылается всем игрокам.</p>
+ * <p>Открытие GUI — отдельный пакет только перед адресным снимком. Рассылка уходит только
+ * игрокам, наблюдающим чанк корня. Новый наблюдатель получает адресный снимок с геометрией
+ * в момент передачи ему чанка, поэтому восстановление по запросу клиента не нужно.</p>
  */
 public final class MonitorPayloads {
-    public static final String PROTOCOL_VERSION = "3";
-    private static final java.util.Map<java.util.UUID, Long> LAST_RESYNC_REQUEST = new java.util.HashMap<>();
+    public static final String PROTOCOL_VERSION = "4";
+
     private MonitorPayloads() {
     }
 
@@ -30,13 +34,9 @@ public final class MonitorPayloads {
         PayloadRegistrar registrar = event.registrar(PROTOCOL_VERSION);
         registrar.playToServer(MonitorSelectPayload.TYPE, MonitorSelectPayload.STREAM_CODEC,
                 MonitorPayloads::handleSelection);
-        registrar.playToServer(MonitorResyncRequestPayload.TYPE, MonitorResyncRequestPayload.STREAM_CODEC,
-                MonitorPayloads::handleResyncRequest);
         if (FMLEnvironment.dist == Dist.DEDICATED_SERVER) {
             // Dedicated server регистрирует исходящие типы без ссылки на клиентские классы.
             registrar.playToClient(MonitorSnapshotPayload.TYPE, MonitorSnapshotPayload.STREAM_CODEC,
-                    (payload, context) -> { });
-            registrar.playToClient(MonitorDeltaPayload.TYPE, MonitorDeltaPayload.STREAM_CODEC,
                     (payload, context) -> { });
             registrar.playToClient(MonitorOpenPayload.TYPE, MonitorOpenPayload.STREAM_CODEC,
                     (payload, context) -> { });
@@ -48,44 +48,33 @@ public final class MonitorPayloads {
         ServerPlayer player = event.getPlayer();
         // sendTo может пересобрать конструкцию и вызвать setBlock в этом же чанке, поэтому
         // обходим копию, а не живую карту BlockEntity чанка.
-        for (var blockEntity : java.util.List.copyOf(event.getChunk().getBlockEntities().values())) {
+        for (var blockEntity : List.copyOf(event.getChunk().getBlockEntities().values())) {
             if (blockEntity instanceof RadarDisplayBlockEntity display && display.isRoot()) {
                 display.sendTo(player);
             }
         }
     }
 
-    /** Разбивает снимок на ограниченные части и отправляет конкретному игроку. */
+    /** Адресный снимок всегда несёт геометрию: у получателя её может ещё не быть. */
     public static void sendToPlayer(ServerPlayer player, MonitorSnapshotData snapshot, boolean openGui) {
         if (openGui) {
             PacketDistributor.sendToPlayer(player, new MonitorOpenPayload(snapshot.displayId(),
-                    snapshot.rootPosition(), snapshot.dimension(), snapshot.loadId(), snapshot.structureVersion()));
+                    snapshot.rootPosition(), snapshot.dimension(), snapshot.loadId()));
         }
-        for (MonitorSnapshotPayload part : MonitorSnapshotPayload.split(snapshot)) {
+        for (MonitorSnapshotPayload part : MonitorSnapshotPayload.split(snapshot, true)) {
             PacketDistributor.sendToPlayer(player, part);
         }
     }
 
-    /** Рассылает снимок только наблюдателям чанка корня. */
-    public static void sendToTracking(ServerLevel level, MonitorSnapshotData snapshot) {
-        for (MonitorSnapshotPayload part : MonitorSnapshotPayload.split(snapshot)) {
-            PacketDistributor.sendToPlayersTrackingChunk(level,
-                    new net.minecraft.world.level.ChunkPos(snapshot.rootPosition()), part);
+    /** Рассылает снимок наблюдателям чанка корня; геометрию — только когда она изменилась. */
+    public static void sendToTracking(ServerLevel level, MonitorSnapshotData snapshot, boolean includeGeometry) {
+        ChunkPos chunk = new ChunkPos(snapshot.rootPosition());
+        for (MonitorSnapshotPayload part : MonitorSnapshotPayload.split(snapshot, includeGeometry)) {
+            PacketDistributor.sendToPlayersTrackingChunk(level, chunk, part);
         }
     }
 
-    /** Рассылает один абсолютный delta интервал только наблюдателям чанка корня. */
-    public static void sendDeltaToTracking(ServerLevel level, MonitorSnapshotData snapshot, long fromSequence,
-                                           java.util.List<com.electroradar.radar.monitor.MonitorTargetData> upserts,
-                                           java.util.List<com.electroradar.radar.network.TargetRef> removes) {
-        for (MonitorDeltaPayload part : MonitorDeltaPayload.split(snapshot, fromSequence, upserts, removes)) {
-            PacketDistributor.sendToPlayersTrackingChunk(level,
-                    new net.minecraft.world.level.ChunkPos(snapshot.rootPosition()), part);
-        }
-    }
-
-    private static void handleSelection(MonitorSelectPayload payload,
-                                        net.neoforged.neoforge.network.handling.IPayloadContext context) {
+    private static void handleSelection(MonitorSelectPayload payload, IPayloadContext context) {
         if (!(context.player() instanceof ServerPlayer player)) return;
         ServerLevel level = player.serverLevel();
         if (!level.hasChunkAt(payload.rootPosition())) {
@@ -98,30 +87,6 @@ public final class MonitorPayloads {
         } else {
             RadarMonitorDiagnostics.selectionRejected(level, null, payload.rootPosition(),
                     payload.displayId(), player, payload.target(), "root_block_entity_missing");
-        }
-    }
-
-    private static void handleResyncRequest(MonitorResyncRequestPayload payload,
-                                            net.neoforged.neoforge.network.handling.IPayloadContext context) {
-        if (!(context.player() instanceof ServerPlayer player)) return;
-        ServerLevel level = player.serverLevel();
-        if (!level.dimension().location().equals(payload.dimension())
-                || !level.hasChunkAt(payload.rootPosition())) return;
-        long now = level.getGameTime();
-        Long previous = LAST_RESYNC_REQUEST.get(player.getUUID());
-        // Карта статическая и переживает смену мира во встроенном сервере. В новом мире
-        // gameTime может быть меньше сохранённого: отрицательная разница — это чужая запись,
-        // а не свежий запрос, иначе игрок навсегда лишился бы восстановления.
-        if (previous != null && now >= previous && now - previous < 20L) return;
-        LAST_RESYNC_REQUEST.put(player.getUUID(), now);
-        LAST_RESYNC_REQUEST.entrySet().removeIf(entry -> now - entry.getValue() > 1_200L
-                || entry.getValue() > now);
-        if (LAST_RESYNC_REQUEST.size() > 4_096) {
-            LAST_RESYNC_REQUEST.clear();
-            LAST_RESYNC_REQUEST.put(player.getUUID(), now);
-        }
-        if (level.getBlockEntity(payload.rootPosition()) instanceof RadarDisplayBlockEntity root) {
-            root.handleResyncRequest(player, payload.displayId(), payload.loadId());
         }
     }
 }
