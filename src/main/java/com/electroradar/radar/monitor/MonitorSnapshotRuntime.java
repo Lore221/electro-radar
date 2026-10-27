@@ -88,11 +88,11 @@ final class MonitorSnapshotRuntime {
         Selection selection = selection(connection, targets.targets());
         long observedTick = visualWindow.observedServerTick() < 0
                 ? serverLevel.getGameTime() : visualWindow.observedServerTick();
+        // Сравниваем только то, что видит клиент. Номера epoch/revision/measurementRevision
+        // растут каждый тик, пока хоть одна цель наблюдается, даже если отметки не сдвинулись;
+        // если считать их изменением, каждый тик уходит новая sequence и delta всем наблюдателям.
         boolean unchanged = latestSnapshot != null
                 && latestSnapshot.structureVersion() == owner.structureVersion()
-                && latestSnapshot.publishedEpoch() == targets.publishedEpoch()
-                && latestSnapshot.revision() == targets.revision()
-                && latestSnapshot.measurementRevision() == targets.measurementRevision()
                 && latestSnapshot.viewGeneration() == viewGeneration
                 && latestSnapshot.linked() == linked
                 && latestSnapshot.selectedTargetUnavailable() == selection.unavailable()
@@ -152,15 +152,18 @@ final class MonitorSnapshotRuntime {
     private void send(RadarDisplayBlockEntity owner, ServerLevel serverLevel,
                       boolean openGui, ServerPlayer recipient) {
         if (latestSnapshot == null) return;
+        // Снимок мог быть собран тиком раньше (адресная отправка при передаче чанка, или
+        // содержимое не менялось), а клиент пересчитывает freeze и фазу от observedServerTick.
+        // Поэтому любая отправка, не только адресная, несёт тик самой отправки.
+        long serverTick = RadarNetworkManager.forServer(serverLevel.getServer()).currentServerTick();
+        MonitorSnapshotData outgoing = latestSnapshot.withServerTiming(serverTick);
         if (recipient != null) {
-            long serverTick = RadarNetworkManager.forServer(serverLevel.getServer()).currentServerTick();
-            MonitorSnapshotData addressed = latestSnapshot.withServerTiming(serverTick);
-            MonitorPayloads.sendToPlayer(recipient, addressed, openGui);
-            RadarMonitorDiagnostics.snapshotSentAddressed(serverLevel, owner, addressed, recipient, openGui);
+            MonitorPayloads.sendToPlayer(recipient, outgoing, openGui);
+            RadarMonitorDiagnostics.snapshotSentAddressed(serverLevel, owner, outgoing, recipient, openGui);
             return;
         }
         if (baselineRequired || lastBroadcastSequence < 0L) {
-            MonitorPayloads.sendToTracking(serverLevel, latestSnapshot);
+            MonitorPayloads.sendToTracking(serverLevel, outgoing);
             RadarMonitorDiagnostics.snapshotBroadcast(serverLevel, owner, latestSnapshot);
             lastBroadcastSequence = latestSnapshot.sequence();
             changedTargetsSinceBroadcast.clear();
@@ -176,7 +179,7 @@ final class MonitorSnapshotRuntime {
             MonitorTargetData value = current.get(target);
             if (value == null) removes.add(target); else upserts.add(value);
         }
-        MonitorPayloads.sendDeltaToTracking(serverLevel, latestSnapshot, lastBroadcastSequence, upserts, removes);
+        MonitorPayloads.sendDeltaToTracking(serverLevel, outgoing, lastBroadcastSequence, upserts, removes);
         RadarMonitorDiagnostics.snapshotBroadcast(serverLevel, owner, latestSnapshot);
         lastBroadcastSequence = latestSnapshot.sequence();
         changedTargetsSinceBroadcast.clear();
@@ -191,8 +194,12 @@ final class MonitorSnapshotRuntime {
         }
         Vec3 position = live.position().orElseThrow();
         EntityType<?> type = live.entityType().orElseThrow();
+        // У наблюдаемой цели sample всегда равен текущему тику, клиенту он не нужен. Если его
+        // передавать, неподвижная цель (стойка, вагонетка, собственная апертура радара) меняет
+        // запись каждый тик и порождает upsert. Настоящий sampledTick уходит вместе с freeze.
+        long sampledTick = live.observing() ? 0L : live.sampledTick();
         return new MonitorTargetData(target, live.observing(), true, position.x, position.y, position.z,
-                BuiltInRegistries.ENTITY_TYPE.getKey(type).toString(), live.sampledTick(),
+                BuiltInRegistries.ENTITY_TYPE.getKey(type).toString(), sampledTick,
                 live.freezeTick(), live.fadeDurationTicks());
     }
 
