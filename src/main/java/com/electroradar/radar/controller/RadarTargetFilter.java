@@ -11,15 +11,20 @@ import net.minecraft.world.entity.ExperienceOrb;
 import net.minecraft.world.entity.Interaction;
 import net.minecraft.world.entity.Marker;
 import net.minecraft.world.entity.item.ItemEntity;
-import net.minecraft.world.entity.projectile.Projectile;
 
 /**
  * Какие сущности стационарный радар считает целями.
  *
- * <p>Исключаются объекты, которые не являются «телами» на карте: предметы на земле, опыт,
- * снаряды, облака эффектов, служебные display/interaction/marker и апертуры самих радаров
- * (иначе каждый радар видел бы свои панели как неподвижную цель). Остальное — мобы, игроки,
- * транспорт, прочие Create-конструкции — остаётся целями.</p>
+ * <p>Цель — физическое тело, которое имеет смысл показать на карте или передать прибору:
+ * мобы, игроки, транспорт, Create-конструкции и снаряды. Снаряды (стрелы, фаерболы, трезубцы,
+ * фейерверки) оставлены намеренно: это быстрые реальные объекты, и будущим боевым приборам
+ * нужно их видеть. Цена — воткнувшиеся стрелы видны, пока не исчезнут; отделять их стоит
+ * классификацией, а не фильтром поиска.</p>
+ *
+ * <p>Исключены только объекты, которые не являются телами: предметы на земле и опыт (их
+ * десятки у любой фермы), облака эффектов, служебные display/interaction/marker и апертуры
+ * радаров. Апертура — неподвижная часть самого прибора; без исключения каждый радар видел бы
+ * свои и соседние панели как вечную цель.</p>
  */
 final class RadarTargetFilter {
     static final Predicate<Entity> ELIGIBLE = RadarTargetFilter::isTarget;
@@ -28,7 +33,7 @@ final class RadarTargetFilter {
     }
 
     private static boolean isTarget(Entity entity) {
-        if (entity instanceof ItemEntity || entity instanceof ExperienceOrb || entity instanceof Projectile
+        if (entity instanceof ItemEntity || entity instanceof ExperienceOrb
                 || entity instanceof AreaEffectCloud || entity instanceof Display
                 || entity instanceof Interaction || entity instanceof Marker) {
             return false;
