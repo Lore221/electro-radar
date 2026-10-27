@@ -75,11 +75,18 @@ final class RadarNetworkState {
         OBSERVING
     }
 
-    /** Неизменяемые параметры одного посещения: какое окно и какой геометрический сектор. */
-    record Visit(long slotSerial, int sectorIndex, long startTick, long endTick,
-                 long fadeDurationTicks, long geometryRevision) {
-        boolean sameWindow(long slot, ObservationWindowSchedule.ObservationWindow window, long geometry) {
-            return slotSerial == slot && sectorIndex == window.activeSectorIndex()
+    /**
+     * Неизменяемые параметры одного посещения: окно самого источника и геометрический сектор.
+     *
+     * <p>Посещение определяется только окном источника, а не номером окна сети: собственное
+     * расписание может вернуть окно длиннее D (например [100,160) при сетевых [100,110),
+     * [110,120)...). Граница сети внутри такого окна не начинает новое посещение и не
+     * замораживает цели. Затухание тоже фиксируется в начале посещения, поэтому смена D
+     * посреди окна его не перезапускает.</p>
+     */
+    record Visit(int sectorIndex, long startTick, long endTick, long fadeDurationTicks, long geometryRevision) {
+        boolean sameWindow(ObservationWindowSchedule.ObservationWindow window, long geometry) {
+            return sectorIndex == window.activeSectorIndex()
                     && startTick == window.startTick() && endTick == window.endTick()
                     && geometryRevision == geometry;
         }

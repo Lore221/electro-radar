@@ -372,10 +372,10 @@ public final class RadarNetworkManager {
         if (window == null) return;
 
         boolean newVisit = state.visit == null
-                || !state.visit.sameWindow(network.slotSerial, window, state.plan.geometryRevision());
+                || !state.visit.sameWindow(window, state.plan.geometryRevision());
         if (newVisit) {
             endVisit(network, endpoint, state, changed);
-            state.visit = new Visit(network.slotSerial, window.activeSectorIndex(), window.startTick(),
+            state.visit = new Visit(window.activeSectorIndex(), window.startTick(),
                     window.endTick(), window.fadeDurationTicks(), state.plan.geometryRevision());
             state.metrics.reset();
             state.phase = VisitPhase.SKIPPED;
