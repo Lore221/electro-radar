@@ -3,28 +3,34 @@ package com.electroradar.radar.network;
 import java.util.Objects;
 import java.util.Optional;
 
+import com.electroradar.radar.visual.RadarVisualProfile;
+
 /** Доступная потребителю связь цели с одним радаром и вычисленный возраст обнаружения. */
 public record RadarSource(
         EndpointKey radar,
-        long age,
+        int sectorIndex,
+        int missedVisits,
+        boolean observing,
         long lastDetectedTick,
         Optional<ObservationClassification> classification
 ) {
     public RadarSource {
         Objects.requireNonNull(radar, "radar");
         Objects.requireNonNull(classification, "classification");
-        if (age < 0 || lastDetectedTick < 0) {
+        if (sectorIndex < 0 || sectorIndex >= RadarVisualProfile.MAX_SECTOR_COUNT
+                || missedVisits < 0 || lastDetectedTick < 0) {
             throw new IllegalArgumentException("Radar source time values must be non-negative");
         }
     }
 
-    /** Возвращает true, если радар снова обнаружил цель в последнем опубликованном окне. */
+    /** Сохранённое подтверждение текущего геометрического сектора. */
+    @Deprecated
     public boolean detectedThisWindow() {
-        return age == 0;
+        return observing;
     }
 
-    /** Возвращает true, если связь сохранена после одного или нескольких пропущенных проходов. */
+    /** Возвращает true, если цель остаётся в памяти, но сейчас этот радар её не наблюдает. */
     public boolean remembering() {
-        return age > 0;
+        return !observing;
     }
 }

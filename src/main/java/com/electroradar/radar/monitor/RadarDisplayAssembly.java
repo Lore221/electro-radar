@@ -28,6 +28,31 @@ final class RadarDisplayAssembly {
     private RadarDisplayAssembly() {
     }
 
+    /**
+     * Меняет привязку всей физической сборки, включая повернутые и неактивные панели.
+     * До первой записи проверяет чанки всего ограниченного объёма ±4: незагруженная панель
+     * с прежней копией NetworkId иначе могла бы вернуть отключённую сеть после смены корня.
+     * Чанки не загружаются, а отказ не изменяет ни панель, ни ConsumerConnection.
+     */
+    static boolean reconfigureNetwork(RadarDisplayBlockEntity root, NetworkId replacement) {
+        if (!(root.getLevel() instanceof ServerLevel level)) return false;
+        BlockPos anchor = root.getBlockPos();
+        for (int chunkX = Math.floorDiv(anchor.getX() - 4, 16);
+                chunkX <= Math.floorDiv(anchor.getX() + 4, 16); chunkX++) {
+            for (int chunkZ = Math.floorDiv(anchor.getZ() - 4, 16);
+                    chunkZ <= Math.floorDiv(anchor.getZ() + 4, 16); chunkZ++) {
+                if (!level.hasChunkAt(new BlockPos(chunkX * 16, anchor.getY(), chunkZ * 16))) return false;
+            }
+        }
+        List<RadarDisplayBlockEntity> panels = collectNearbyPanels(level, root.displayId(), anchor);
+        // Закрыть прежнего потребителя раньше изменения сохранённых копий остальных панелей.
+        root.applyNetworkIdFromLinker(replacement);
+        for (RadarDisplayBlockEntity panel : panels) {
+            if (panel != root) panel.applyNetworkIdFromLinker(replacement);
+        }
+        return true;
+    }
+
     /** Пересчитывает только полный прямоугольник до 5×5, содержащий текущий корень. */
     static void resolve(RadarDisplayBlockEntity root) {
         root.beginAssemblyResolution();

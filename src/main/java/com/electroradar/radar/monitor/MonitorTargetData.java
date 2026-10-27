@@ -4,31 +4,29 @@ import java.util.Objects;
 
 import com.electroradar.radar.network.TargetRef;
 
-/**
- * Минимальная, подтверждённая радаром запись цели для экранного снимка.
- *
- * <p>Сервер передаёт координаты и registry ID типа только для обнаружения текущего окна при
- * доступном {@code LiveResult}. Для помнимой или недоступной цели поля координат отсутствуют;
- * клиент может оставить последнюю подтверждённую точку из предыдущего снимка, но не получает
- * движение сущности за пределами нового наблюдения.</p>
- */
-public record MonitorTargetData(
-        TargetRef target,
-        boolean detectedThisWindow,
-        boolean hasPosition,
-        double x,
-        double y,
-        double z,
-        String entityTypeId
-) {
+/** Серверное состояние отметки: отдельные факт наблюдения, sample и зафиксированное затухание. */
+public record MonitorTargetData(TargetRef target, boolean observing, boolean hasPosition,
+                                double x, double y, double z, String entityTypeId,
+                                long sampledTick, long freezeTick, long fadeDurationTicks) {
     public MonitorTargetData {
         Objects.requireNonNull(target, "target");
         Objects.requireNonNull(entityTypeId, "entityTypeId");
-        if (hasPosition && !detectedThisWindow) {
-            throw new IllegalArgumentException("Only a current detection may carry a live position");
+        if (sampledTick < 0 || freezeTick < -1 || fadeDurationTicks < 0
+                || observing && (!hasPosition || freezeTick != -1)
+                || hasPosition && !observing && freezeTick < 0
+                || hasPosition && (!Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(z))
+                || !hasPosition && !entityTypeId.isEmpty()) {
+            throw new IllegalArgumentException("Invalid monitor target state");
         }
-        if (!hasPosition && !entityTypeId.isEmpty()) {
-            throw new IllegalArgumentException("A target without a live position cannot carry an entity type");
-        }
+    }
+
+    /** Сохраняет старое имя как алиас для экранных компонентов, переводимых на observing. */
+    @Deprecated
+    public boolean detectedThisWindow() { return observing; }
+
+    public MonitorTargetData(TargetRef target, boolean detectedThisWindow, boolean hasPosition,
+                             double x, double y, double z, String entityTypeId) {
+        this(target, detectedThisWindow, hasPosition, x, y, z, entityTypeId,
+                0, detectedThisWindow || !hasPosition ? -1 : 0, 0);
     }
 }

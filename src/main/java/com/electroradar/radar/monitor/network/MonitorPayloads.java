@@ -21,16 +21,22 @@ import com.electroradar.radar.monitor.RadarDisplayBlockEntity;
  * полный серверный список не рассылается всем игрокам.</p>
  */
 public final class MonitorPayloads {
+    public static final String PROTOCOL_VERSION = "3";
+    private static final java.util.Map<java.util.UUID, Long> LAST_RESYNC_REQUEST = new java.util.HashMap<>();
     private MonitorPayloads() {
     }
 
     public static void register(RegisterPayloadHandlersEvent event) {
-        PayloadRegistrar registrar = event.registrar("1");
+        PayloadRegistrar registrar = event.registrar(PROTOCOL_VERSION);
         registrar.playToServer(MonitorSelectPayload.TYPE, MonitorSelectPayload.STREAM_CODEC,
                 MonitorPayloads::handleSelection);
+        registrar.playToServer(MonitorResyncRequestPayload.TYPE, MonitorResyncRequestPayload.STREAM_CODEC,
+                MonitorPayloads::handleResyncRequest);
         if (FMLEnvironment.dist == Dist.DEDICATED_SERVER) {
             // Dedicated server регистрирует исходящие типы без ссылки на клиентские классы.
             registrar.playToClient(MonitorSnapshotPayload.TYPE, MonitorSnapshotPayload.STREAM_CODEC,
+                    (payload, context) -> { });
+            registrar.playToClient(MonitorDeltaPayload.TYPE, MonitorDeltaPayload.STREAM_CODEC,
                     (payload, context) -> { });
             registrar.playToClient(MonitorOpenPayload.TYPE, MonitorOpenPayload.STREAM_CODEC,
                     (payload, context) -> { });
@@ -68,6 +74,16 @@ public final class MonitorPayloads {
         }
     }
 
+    /** Рассылает один абсолютный delta интервал только наблюдателям чанка корня. */
+    public static void sendDeltaToTracking(ServerLevel level, MonitorSnapshotData snapshot, long fromSequence,
+                                           java.util.List<com.electroradar.radar.monitor.MonitorTargetData> upserts,
+                                           java.util.List<com.electroradar.radar.network.TargetRef> removes) {
+        for (MonitorDeltaPayload part : MonitorDeltaPayload.split(snapshot, fromSequence, upserts, removes)) {
+            PacketDistributor.sendToPlayersTrackingChunk(level,
+                    new net.minecraft.world.level.ChunkPos(snapshot.rootPosition()), part);
+        }
+    }
+
     private static void handleSelection(MonitorSelectPayload payload,
                                         net.neoforged.neoforge.network.handling.IPayloadContext context) {
         if (!(context.player() instanceof ServerPlayer player)) return;
@@ -82,6 +98,26 @@ public final class MonitorPayloads {
         } else {
             RadarMonitorDiagnostics.selectionRejected(level, null, payload.rootPosition(),
                     payload.displayId(), player, payload.target(), "root_block_entity_missing");
+        }
+    }
+
+    private static void handleResyncRequest(MonitorResyncRequestPayload payload,
+                                            net.neoforged.neoforge.network.handling.IPayloadContext context) {
+        if (!(context.player() instanceof ServerPlayer player)) return;
+        ServerLevel level = player.serverLevel();
+        if (!level.dimension().location().equals(payload.dimension())
+                || !level.hasChunkAt(payload.rootPosition())) return;
+        long now = level.getGameTime();
+        Long previous = LAST_RESYNC_REQUEST.get(player.getUUID());
+        if (previous != null && now - previous < 20L) return;
+        LAST_RESYNC_REQUEST.put(player.getUUID(), now);
+        LAST_RESYNC_REQUEST.entrySet().removeIf(entry -> now - entry.getValue() > 1_200L);
+        if (LAST_RESYNC_REQUEST.size() > 4_096) {
+            LAST_RESYNC_REQUEST.clear();
+            LAST_RESYNC_REQUEST.put(player.getUUID(), now);
+        }
+        if (level.getBlockEntity(payload.rootPosition()) instanceof RadarDisplayBlockEntity root) {
+            root.handleResyncRequest(player, payload.displayId(), payload.loadId());
         }
     }
 }

@@ -38,7 +38,7 @@ public final class RadarControllerBlockEntity extends BlockEntity
     @Override
     public void onLoad() {
         super.onLoad();
-        runtime.onLoad();
+        runtime.onLoad(this);
         assembly.onLoad(this);
     }
 
@@ -72,8 +72,7 @@ public final class RadarControllerBlockEntity extends BlockEntity
                                   RadarControllerBlockEntity controller) {
         if (!(level instanceof ServerLevel serverLevel) || controller.isRemoved()) return;
         controller.assembly.tick(controller, serverLevel);
-        controller.runtime.tick(controller, serverLevel, controller.mode(),
-                controller.assembly.panelCount(), controller.assembly.isReadyForScanning(controller));
+        controller.runtime.tick(controller, serverLevel);
     }
 
     public void toggleAssembly(net.minecraft.world.entity.player.Player player) {
@@ -130,6 +129,12 @@ public final class RadarControllerBlockEntity extends BlockEntity
     @Override
     public void applyNetworkIdFromItem(NetworkId networkId) {
         runtime.applyNetworkIdFromItem(this, networkId);
+    }
+
+    @Override
+    public boolean reconfigureNetwork(NetworkId networkId) {
+        runtime.reconfigureNetwork(this, networkId);
+        return true;
     }
 
     @Override

@@ -1,7 +1,13 @@
 package com.electroradar.radar.monitor;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerLevel;
@@ -13,151 +19,186 @@ import com.electroradar.radar.monitor.MonitorVisualProfileCollector.VisualWindow
 import com.electroradar.radar.monitor.network.MonitorPayloads;
 import com.electroradar.radar.network.ConsumerConnection;
 import com.electroradar.radar.network.LiveResult;
+import com.electroradar.radar.network.NetworkId;
 import com.electroradar.radar.network.TargetRef;
 import com.electroradar.radar.network.TargetSnapshot;
 import com.electroradar.radar.network.TargetView;
+import com.electroradar.radar.network.RadarNetworkManager;
 
-/**
- * Единственный владелец серверного снимка, sequence и расписания его отправки для корня.
- * BlockEntity управляет связью и передаёт сюда только проверенный открытый handle либо null.
- * Вызывается на основном серверном потоке; состояние не сохраняется в NBT.
- */
+/** Вычисляет версии корневого экрана и маршрутизирует baseline/delta без истории по потребителям. */
 final class MonitorSnapshotRuntime {
     private final MonitorVisualProfileCollector visualProfiles = new MonitorVisualProfileCollector();
-    private long nextSnapshotRefreshGameTime = -1L;
     private MonitorSnapshotData latestSnapshot;
-    /** Сбрасывается только одновременно с новым loadId владельца. */
     private long snapshotSequence;
-    private long lastSentSequence = -1L;
+    private long lastBroadcastSequence = -1L;
+    private long viewGeneration;
+    private NetworkId lastNetworkId;
+    private boolean networkContextInitialized;
+    private boolean baselineRequired = true;
+    private final Set<TargetRef> changedTargetsSinceBroadcast = new HashSet<>();
 
     void resetForLoad() {
-        invalidate();
-        clearSchedule();
+        latestSnapshot = null;
         snapshotSequence = 0L;
-        lastSentSequence = -1L;
+        lastBroadcastSequence = -1L;
+        viewGeneration = 0L;
+        lastNetworkId = null;
+        networkContextInitialized = false;
+        baselineRequired = true;
+        changedTargetsSinceBroadcast.clear();
         visualProfiles.reset();
     }
 
-    void invalidate() {
-        latestSnapshot = null;
-    }
-
-    boolean refreshDue(long gameTime) {
-        return nextSnapshotRefreshGameTime >= 0L && gameTime >= nextSnapshotRefreshGameTime;
-    }
+    void invalidate() { baselineRequired = true; }
 
     void refreshAndBroadcast(RadarDisplayBlockEntity owner, ServerLevel serverLevel,
                              ConsumerConnection connection, boolean openGui, ServerPlayer recipient) {
+        TargetSnapshot<TargetRef> identities = connection == null
+                ? TargetSnapshot.empty(0, 0) : connection.queryTargetRefs();
         TargetSnapshot<MonitorTargetData> targetSnapshot = connection == null
                 ? TargetSnapshot.empty(0, 0)
-                : connection.queryTargets(MonitorSnapshotRuntime::projectTarget);
+                : connection.queryTargetDetails(identities.targets(), MonitorSnapshotRuntime::projectTarget);
         VisualWindow visualWindow = connection == null ? VisualWindow.EMPTY
                 : visualProfiles.collect(serverLevel, owner.networkId(), owner.getBlockPos());
-        scheduleSnapshotRefresh(serverLevel, visualWindow);
-
         updateSnapshot(owner, serverLevel, connection, targetSnapshot, visualWindow);
-        send(owner, serverLevel, visualWindow, openGui, recipient);
+        send(owner, serverLevel, openGui, recipient);
     }
 
     private void updateSnapshot(RadarDisplayBlockEntity owner, ServerLevel serverLevel,
-                                ConsumerConnection connection, TargetSnapshot<MonitorTargetData> targetSnapshot,
+                                ConsumerConnection connection, TargetSnapshot<MonitorTargetData> targets,
                                 VisualWindow visualWindow) {
         boolean linked = owner.networkId() != null;
-        boolean sameVersion = latestSnapshot != null
-                && latestSnapshot.structureVersion() == owner.structureVersion()
-                && latestSnapshot.publishedEpoch() == targetSnapshot.publishedEpoch()
-                && latestSnapshot.revision() == targetSnapshot.revision()
-                && latestSnapshot.linked() == linked
-                && latestSnapshot.visualProfiles().equals(visualWindow.profiles())
-                && latestSnapshot.visualWindowPeriodTicks() == visualWindow.periodTicks();
-        if (sameVersion) return;
-        Selection selection = selection(connection, targetSnapshot.targets());
-
-        if (latestSnapshot == null
-                || !latestSnapshot.visualProfiles().equals(visualWindow.profiles())) {
-            RadarMonitorDiagnostics.visualGeometryChanged(serverLevel, owner,
-                    visualWindow.profiles());
+        NetworkId networkId = owner.networkId();
+        boolean networkChanged = networkContextInitialized && !Objects.equals(lastNetworkId, networkId);
+        boolean geometryChanged = latestSnapshot != null
+                && (!latestSnapshot.visualProfiles().equals(visualWindow.profiles())
+                || !sameGeometryGeneration(latestSnapshot.visualPhases(), visualWindow.phases()));
+        boolean structureChanged = latestSnapshot != null
+                && latestSnapshot.structureVersion() != owner.structureVersion();
+        if (latestSnapshot != null && (networkChanged || geometryChanged || structureChanged)) {
+            viewGeneration = Math.incrementExact(viewGeneration);
+            baselineRequired = true;
+        } else if (latestSnapshot == null) {
+            viewGeneration = 0L;
+            baselineRequired = true;
         }
-        latestSnapshot = new MonitorSnapshotData(owner.displayId(), owner.getBlockPos(),
+        lastNetworkId = networkId;
+        networkContextInitialized = true;
+
+        Selection selection = selection(connection, targets.targets());
+        long observedTick = visualWindow.observedServerTick() < 0
+                ? serverLevel.getGameTime() : visualWindow.observedServerTick();
+        boolean unchanged = latestSnapshot != null
+                && latestSnapshot.structureVersion() == owner.structureVersion()
+                && latestSnapshot.publishedEpoch() == targets.publishedEpoch()
+                && latestSnapshot.revision() == targets.revision()
+                && latestSnapshot.measurementRevision() == targets.measurementRevision()
+                && latestSnapshot.viewGeneration() == viewGeneration
+                && latestSnapshot.linked() == linked
+                && latestSnapshot.selectedTargetUnavailable() == selection.unavailable()
+                && Objects.equals(latestSnapshot.selectedTarget(), selection.target())
+                && latestSnapshot.targets().equals(targets.targets())
+                && latestSnapshot.visualProfiles().equals(visualWindow.profiles())
+                && latestSnapshot.visualPhases().equals(visualWindow.phases());
+        if (unchanged) return;
+
+        if (latestSnapshot == null || geometryChanged) {
+            RadarMonitorDiagnostics.visualGeometryChanged(serverLevel, owner, visualWindow.profiles());
+        }
+        MonitorSnapshotData next = new MonitorSnapshotData(owner.displayId(), owner.getBlockPos(),
                 serverLevel.dimension().location(), owner.loadId(), ++snapshotSequence, owner.structureVersion(),
-                targetSnapshot.publishedEpoch(), targetSnapshot.revision(), linked,
-                selection.unavailable(), selection.target(), targetSnapshot.targets(), visualWindow.profiles(),
-                visualWindow.periodTicks(), visualWindow.remainingTicks());
+                targets.publishedEpoch(), targets.revision(), linked, selection.unavailable(), selection.target(),
+                targets.targets(), visualWindow.profiles(),
+                targets.measurementRevision(), viewGeneration, observedTick, visualWindow.phases());
+        collectChangedTargets(latestSnapshot, next);
+        latestSnapshot = next;
         RadarMonitorDiagnostics.snapshotReceived(serverLevel, owner, latestSnapshot);
     }
 
-    /** Не передаёт клиенту даже идентичность выбранной цели, недоступной этому монитору. */
-    private static Selection selection(ConsumerConnection connection, List<MonitorTargetData> targets) {
-        TargetRef chosen = null;
-        boolean unavailable = false;
-        if (connection != null) {
-            Optional<TargetRef> networkSelection = connection.selectedTarget();
-            if (networkSelection.isPresent()) {
-                TargetRef requested = networkSelection.get();
-                if (targets.stream().anyMatch(target -> target.target().equals(requested))) {
-                    chosen = requested;
-                } else {
-                    unavailable = true;
-                }
+    private void collectChangedTargets(MonitorSnapshotData previous, MonitorSnapshotData next) {
+        Map<TargetRef, MonitorTargetData> oldTargets = new HashMap<>();
+        if (previous != null) for (MonitorTargetData target : previous.targets()) oldTargets.put(target.target(), target);
+        Map<TargetRef, MonitorTargetData> newTargets = new HashMap<>();
+        for (MonitorTargetData target : next.targets()) newTargets.put(target.target(), target);
+        Set<TargetRef> all = new HashSet<>(oldTargets.keySet());
+        all.addAll(newTargets.keySet());
+        for (TargetRef target : all) {
+            if (!Objects.equals(oldTargets.get(target), newTargets.get(target))) {
+                changedTargetsSinceBroadcast.add(target);
             }
         }
-
-        return new Selection(chosen, unavailable);
     }
 
-    private void send(RadarDisplayBlockEntity owner, ServerLevel serverLevel, VisualWindow visualWindow,
+    private static boolean sameGeometryGeneration(List<MonitorVisualPhase> left, List<MonitorVisualPhase> right) {
+        if (left.size() != right.size()) return false;
+        Map<net.minecraft.core.BlockPos, Long> revisions = new HashMap<>();
+        for (MonitorVisualPhase phase : left) revisions.put(phase.radarPosition(), phase.geometryRevision());
+        for (MonitorVisualPhase phase : right) {
+            if (!Objects.equals(revisions.get(phase.radarPosition()), phase.geometryRevision())) return false;
+        }
+        return true;
+    }
+
+    /** Не раскрывает выбранную цель, если текущая регистрация уже не может прочитать её. */
+    private static Selection selection(ConsumerConnection connection, List<MonitorTargetData> targets) {
+        if (connection == null) return new Selection(null, false);
+        Optional<TargetRef> requested = connection.selectedTarget();
+        if (requested.isEmpty()) return new Selection(null, false);
+        TargetRef target = requested.orElseThrow();
+        return targets.stream().anyMatch(value -> value.target().equals(target))
+                ? new Selection(target, false) : new Selection(null, true);
+    }
+
+    private void send(RadarDisplayBlockEntity owner, ServerLevel serverLevel,
                       boolean openGui, ServerPlayer recipient) {
+        if (latestSnapshot == null) return;
         if (recipient != null) {
-            MonitorSnapshotData addressedSnapshot = latestSnapshot.withWindowTiming(
-                    visualWindow.periodTicks(), visualWindow.remainingTicks());
-            MonitorPayloads.sendToPlayer(recipient, addressedSnapshot, openGui);
-            RadarMonitorDiagnostics.snapshotSentAddressed(
-                    serverLevel, owner, addressedSnapshot, recipient, openGui);
-            // Адресная отправка обслуживает только этого игрока и не подтверждает
-            // доставку остальным наблюдателям, подписанным на чанки дисплея.
+            long serverTick = RadarNetworkManager.forServer(serverLevel.getServer()).currentServerTick();
+            MonitorSnapshotData addressed = latestSnapshot.withServerTiming(serverTick);
+            MonitorPayloads.sendToPlayer(recipient, addressed, openGui);
+            RadarMonitorDiagnostics.snapshotSentAddressed(serverLevel, owner, addressed, recipient, openGui);
             return;
         }
-        if (openGui || latestSnapshot.sequence() != lastSentSequence) {
+        if (baselineRequired || lastBroadcastSequence < 0L) {
             MonitorPayloads.sendToTracking(serverLevel, latestSnapshot);
             RadarMonitorDiagnostics.snapshotBroadcast(serverLevel, owner, latestSnapshot);
-            lastSentSequence = latestSnapshot.sequence();
-        }
-    }
-
-    /**
-     * Переводит ближайшую границу часов менеджера в одноразовый дедлайн игровых тиков мира.
-     * Часы обоих механизмов продвигаются один раз за серверный тик; разница вычисляется при
-     * чтении расписания, поэтому не требуется запрашивать полный снимок на каждом тике.
-     * При отсутствии профилей или расписания дедлайн снимается, и остаётся обычный опрос.
-     */
-    private void scheduleSnapshotRefresh(ServerLevel serverLevel, VisualWindow visualWindow) {
-        if (visualWindow.profiles().isEmpty() || visualWindow.periodTicks() <= 0L
-                || visualWindow.nextBoundaryTick() < 0L || visualWindow.observedServerTick() < 0L) {
-            clearSchedule();
+            lastBroadcastSequence = latestSnapshot.sequence();
+            changedTargetsSinceBroadcast.clear();
+            baselineRequired = false;
             return;
         }
-        long ticksUntilBoundary = Math.max(
-                0L, visualWindow.nextBoundaryTick() - visualWindow.observedServerTick());
-        nextSnapshotRefreshGameTime = serverLevel.getGameTime() + ticksUntilBoundary;
-    }
-
-    /** Сбрасывает runtime-дедлайн при потере связи, корня или расписания. */
-    void clearSchedule() {
-        nextSnapshotRefreshGameTime = -1L;
+        if (latestSnapshot.sequence() == lastBroadcastSequence) return;
+        Map<TargetRef, MonitorTargetData> current = new HashMap<>();
+        for (MonitorTargetData target : latestSnapshot.targets()) current.put(target.target(), target);
+        List<MonitorTargetData> upserts = new ArrayList<>();
+        List<TargetRef> removes = new ArrayList<>();
+        for (TargetRef target : changedTargetsSinceBroadcast.stream()
+                .sorted(java.util.Comparator
+                        .comparing((TargetRef value) -> value.dimension().location().toString())
+                        .thenComparing(value -> value.sourceKind().name())
+                        .thenComparing(value -> value.id().toString())).toList()) {
+            MonitorTargetData value = current.get(target);
+            if (value == null) removes.add(target); else upserts.add(value);
+        }
+        MonitorPayloads.sendDeltaToTracking(serverLevel, latestSnapshot, lastBroadcastSequence, upserts, removes);
+        RadarMonitorDiagnostics.snapshotBroadcast(serverLevel, owner, latestSnapshot);
+        lastBroadcastSequence = latestSnapshot.sequence();
+        changedTargetsSinceBroadcast.clear();
     }
 
     private static MonitorTargetData projectTarget(TargetView view) {
         TargetRef target = view.target();
         LiveResult live = view.liveResult();
-        if (!view.detectedThisWindow() || live.position().isEmpty() || live.entityType().isEmpty()) {
-            return new MonitorTargetData(target, view.detectedThisWindow(), false, 0, 0, 0, "");
+        if (live.position().isEmpty() || live.entityType().isEmpty()) {
+            return new MonitorTargetData(target, false, false, 0, 0, 0, "",
+                    live.sampledTick(), live.freezeTick(), live.fadeDurationTicks());
         }
         Vec3 position = live.position().orElseThrow();
         EntityType<?> type = live.entityType().orElseThrow();
-        return new MonitorTargetData(target, true, true, position.x, position.y, position.z,
-                BuiltInRegistries.ENTITY_TYPE.getKey(type).toString());
+        return new MonitorTargetData(target, live.observing(), true, position.x, position.y, position.z,
+                BuiltInRegistries.ENTITY_TYPE.getKey(type).toString(), live.sampledTick(),
+                live.freezeTick(), live.fadeDurationTicks());
     }
 
-    private record Selection(TargetRef target, boolean unavailable) {
-    }
+    private record Selection(TargetRef target, boolean unavailable) { }
 }

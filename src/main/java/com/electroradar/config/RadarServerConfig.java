@@ -20,7 +20,7 @@ public final class RadarServerConfig {
             new RangeParameters(80, 20, 1_024, 1.0D),
             new ModeParameters(new VerticalRange(-20, 128), 90.0D, 1.0D),
             new ModeParameters(new VerticalRange(40, 1_500), 60.0D, 1.5D),
-            new ModeParameters(new VerticalRange(-1_500, -20), 120.0D, 1.0D), 8);
+            new ModeParameters(new VerticalRange(-1_500, -20), 120.0D, 1.0D), 10);
     /**
      * Один volatile-снимок — единственная точка чтения конфигурации для runtime.
      * До первого события загрузки доступен полный набор стандартных значений.
@@ -35,6 +35,7 @@ public final class RadarServerConfig {
     private static final ModeValues AIR;
     private static final ModeValues SURFACE;
     private static final ModConfigSpec.IntValue VISUAL_PARTS;
+    private static final ModConfigSpec.IntValue SECTOR_TICKS;
 
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
@@ -64,11 +65,16 @@ public final class RadarServerConfig {
         AIR = ModeValues.define(builder, "air", "Air radar scan geometry.", DEFAULT.air());
         SURFACE = ModeValues.define(builder, "surface", "Surface radar scan geometry.", DEFAULT.surface());
 
-        builder.comment("Display-only number of sweep parts; scan cadence remains fixed at 40 ticks.")
-                .push("visual");
-        VISUAL_PARTS = builder.comment("Number of animated sector parts, not scan slices.")
+        builder.comment("Duration of a sector visit in server ticks.").push("scanning");
+        SECTOR_TICKS = builder.comment("Ticks per sector; applied at the next scan boundary.")
+                .translation("electroradar.config.server.scanning.sector_ticks")
+                .defineInRange("sector_ticks", DEFAULT.sectorTicks(), 1, 200);
+        builder.pop();
+
+        builder.comment("Deprecated settings retained for existing configurations.").push("visual");
+        VISUAL_PARTS = builder.comment("Deprecated and ignored: current radars always use seven sectors.")
                 .translation("electroradar.config.server.visual.parts")
-                .defineInRange("parts", DEFAULT.visualParts(), 1, 64);
+                .defineInRange("parts", 7, 1, 64);
         builder.pop();
         SPEC = builder.build();
     }
@@ -108,10 +114,15 @@ public final class RadarServerConfig {
     private static Snapshot readSnapshot(long revision) {
         RangeParameters range = new RangeParameters(BASE_RANGE.get(), RANGE_PER_PANEL.get(), MAX_RANGE.get(),
                 positive(GLOBAL_MULTIPLIER.get(), DEFAULT.range().globalMultiplier()));
+        int legacyParts = VISUAL_PARTS.get();
+        if (legacyParts != 7) {
+            RadarDiagnostics.log("config_legacy_visual_parts_ignored", null, null, null, null,
+                    "configRevision=" + revision + " configured=" + legacyParts + " used=7");
+        }
         return new Snapshot(revision, MAX_PANELS.get(), range,
                 GROUND.read(DEFAULT.ground(), "ground", revision),
                 AIR.read(DEFAULT.air(), "air", revision),
-                SURFACE.read(DEFAULT.surface(), "surface", revision), VISUAL_PARTS.get());
+                SURFACE.read(DEFAULT.surface(), "surface", revision), SECTOR_TICKS.get());
     }
 
     /** Одна схема TOML для трёх режимов; ключи и ограничения остаются одинаковыми. */
@@ -179,9 +190,9 @@ public final class RadarServerConfig {
     }
 
     public record Snapshot(long revision, int maxPanels, RangeParameters range,
-                           ModeParameters ground, ModeParameters air, ModeParameters surface, int visualParts) {
+                           ModeParameters ground, ModeParameters air, ModeParameters surface, int sectorTicks) {
         public Snapshot {
-            if (maxPanels < 1 || maxPanels > 20 || visualParts < 1 || visualParts > 64) {
+            if (maxPanels < 1 || maxPanels > 20 || sectorTicks < 1 || sectorTicks > 200) {
                 throw new IllegalArgumentException("Invalid server radar configuration snapshot");
             }
         }

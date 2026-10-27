@@ -15,16 +15,20 @@ import java.util.List;
  * @param revision ревизия видимого состояния сети
  * @param targets все уникальные цели, имеющие источник среди доступных радаров
  */
-public record TargetSnapshot<T>(long publishedEpoch, long revision, List<T> targets) {
+public record TargetSnapshot<T>(long publishedEpoch, long revision, long measurementRevision, List<T> targets) {
     public TargetSnapshot {
-        if (publishedEpoch < 0 || revision < 0) {
+        if (publishedEpoch < 0 || revision < 0 || measurementRevision < 0) {
             throw new IllegalArgumentException("Snapshot version values must be non-negative");
         }
         targets = List.copyOf(targets);
     }
 
+    public TargetSnapshot(long publishedEpoch, long revision, List<T> targets) {
+        this(publishedEpoch, revision, 0L, targets);
+    }
+
     /** Создаёт пустой неизменяемый ответ, например для закрытой или неактуальной связи. */
     public static <T> TargetSnapshot<T> empty(long publishedEpoch, long revision) {
-        return new TargetSnapshot<>(publishedEpoch, revision, List.of());
+        return new TargetSnapshot<>(publishedEpoch, revision, 0L, List.of());
     }
 }

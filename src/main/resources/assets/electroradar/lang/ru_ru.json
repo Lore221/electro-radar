@@ -1,4 +1,17 @@
 {
+  "message.electroradar.network.item_bound": "Предмет привязан к этой радарной сети",
+  "item.electroradar.linker": "Коммутатор",
+  "item.electroradar.linker.description": "Позволяет перенастраивать радарные сети.",
+  "item.electroradar.linker.configure": "ПКМ по устройству: скопировать или применить сеть",
+  "item.electroradar.linker.disconnect": "Shift + ПКМ по устройству: отключить",
+  "item.electroradar.linker.clear": "Shift + ПКМ в воздух: очистить выбор",
+  "message.electroradar.linker.radar_missing": "Этот блок не подключён к радарной сети",
+  "message.electroradar.linker.radar_copied": "Радарная сеть скопирована",
+  "message.electroradar.linker.radar_applied": "Подключено к выбранной радарной сети",
+  "message.electroradar.linker.radar_already_connected": "Уже подключено к выбранной радарной сети",
+  "message.electroradar.linker.radar_disconnected": "Блок отключён от радарной сети",
+  "message.electroradar.linker.cleared": "Выбор сети коммутатором сброшен",
+  "message.electroradar.linker.unloaded": "Сначала загрузите всю сборку монитора и окружающие её чанки",
   "block.electroradar.radar_display": "Панель монитора радара",
   "item.electroradar.radar_display": "Панель монитора радара",
   "screen.electroradar.monitor.title": "РАДАРНЫЙ МОНИТОР",
@@ -73,5 +86,6 @@
   "electroradar.config.server.surface.max_y": "Верхнее смещение Y нижнего радара",
   "electroradar.config.server.surface.horizontal_angle_degrees": "Горизонтальный угол обзора нижнего радара в градусах",
   "electroradar.config.server.surface.range_multiplier": "Множитель дальности нижнего радара",
-  "electroradar.config.server.visual.parts": "Число частей анимации сектора (только отображение)"
+  "electroradar.config.server.visual.parts": "Устаревшее значение: число секторов игнорируется",
+  "electroradar.config.server.scanning.sector_ticks": "Тиков на сектор радара"
 }

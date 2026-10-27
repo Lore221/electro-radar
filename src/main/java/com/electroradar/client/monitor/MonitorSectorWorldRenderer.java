@@ -37,7 +37,7 @@ final class MonitorSectorWorldRenderer {
      */
     static void draw(RadarDisplayBlockEntity display, PoseStack poseStack, MultiBufferSource buffers,
                      Direction facing, BlockPos origin, MonitorClientState.View view,
-                     MonitorSnapshotData snapshot, double worldCenterX, double worldCenterZ,
+                     MonitorSnapshotData snapshot, double worldCenterX, double worldCenterZ, double mapDiameter,
                      double centerU, double centerV, double contentLeft, double contentBottom,
                      double contentSide, double mapRadius, int packedOverlay) {
         if (snapshot.visualProfiles().isEmpty()) return;
@@ -63,7 +63,7 @@ final class MonitorSectorWorldRenderer {
         for (RadarVisualProfile profile : snapshot.visualProfiles()) {
             MonitorSectorProjection.ProjectedCoverage coverage = MonitorSectorProjection.project(
                     profile, snapshot.dimension(), worldCenterX, worldCenterZ, facing,
-                    0.0D, 0.0D, RadarDisplayRenderer.MAP_DIAMETER_BLOCKS);
+                    0.0D, 0.0D, mapDiameter);
             MonitorSectorAnimationState.ProfileFrame frame = frameByProfile.get(profile.key());
             if (profile.animation() == RadarVisualAnimation.FULL_FLASH) {
                 float strength = frame == null ? 0.0F : frame.flashStrength();

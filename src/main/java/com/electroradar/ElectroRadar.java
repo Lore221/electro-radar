@@ -12,6 +12,7 @@ import com.electroradar.radar.controller.RadarControllerBlockEntity;
 import com.electroradar.radar.controller.RadarPanelTiltPayloads;
 import com.electroradar.radar.controller.RadarPanelContraption;
 import com.electroradar.radar.monitor.RadarDisplayContent;
+import com.electroradar.radar.linker.LinkerContent;
 import com.electroradar.radar.monitor.network.MonitorPayloads;
 import com.electroradar.radar.network.RadarNetworkManager;
 import com.electroradar.radar.network.NetworkOutlinePayloads;
@@ -26,6 +27,7 @@ public final class ElectroRadar {
         RadarControllerContent.register(modEventBus);
         RadarControllerContent.registerCreateMovementPolicy();
         RadarDisplayContent.register(modEventBus);
+        LinkerContent.register(modEventBus);
         modContainer.registerConfig(net.neoforged.fml.config.ModConfig.Type.CLIENT, RadarClientConfig.SPEC,
                 "electroradar-client.toml");
         modContainer.registerConfig(net.neoforged.fml.config.ModConfig.Type.SERVER, RadarServerConfig.SPEC,

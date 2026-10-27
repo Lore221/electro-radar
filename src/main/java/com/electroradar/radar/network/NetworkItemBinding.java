@@ -21,7 +21,9 @@ public final class NetworkItemBinding {
 
     /** Возвращает корректный UUID из ключа Electro Radar либо {@code null}, если предмет не привязан. */
     public static NetworkId read(ItemStack stack) {
-        CompoundTag customData = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).copyTag();
+        CustomData data = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY);
+        if (!data.contains(NETWORK_ID_TAG)) return null;
+        CompoundTag customData = data.copyTag();
         return customData.hasUUID(NETWORK_ID_TAG)
                 ? new NetworkId(customData.getUUID(NETWORK_ID_TAG))
                 : null;
@@ -31,5 +33,11 @@ public final class NetworkItemBinding {
     public static void write(ItemStack stack, NetworkId networkId) {
         CustomData.update(DataComponents.CUSTOM_DATA, stack,
                 customData -> customData.putUUID(NETWORK_ID_TAG, networkId.value()));
+    }
+
+    /** Очищает только выбор сети; имя, компоненты и чужие поля CUSTOM_DATA сохраняются. */
+    public static void clear(ItemStack stack) {
+        CustomData.update(DataComponents.CUSTOM_DATA, stack,
+                customData -> customData.remove(NETWORK_ID_TAG));
     }
 }

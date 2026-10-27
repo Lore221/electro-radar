@@ -16,7 +16,9 @@ import com.electroradar.radar.monitor.RadarDisplayContent;
 import com.electroradar.radar.controller.RadarControllerContent;
 import com.electroradar.client.controller.RadarPanelCTBehaviour;
 import com.electroradar.radar.monitor.network.MonitorOpenPayload;
+import com.electroradar.radar.monitor.network.MonitorPayloads;
 import com.electroradar.radar.monitor.network.MonitorSnapshotPayload;
+import com.electroradar.radar.monitor.network.MonitorDeltaPayload;
 
 /** Только клиентские регистрации: Create CT, корневой рендерер и обслуживание временного кэша. */
 @EventBusSubscriber(modid = ElectroRadar.MOD_ID, value = Dist.CLIENT)
@@ -27,8 +29,10 @@ public final class MonitorClientEvents {
     /** Регистрирует обработчики server-to-client только в физическом клиенте. */
     @SubscribeEvent
     public static void registerPayloads(RegisterPayloadHandlersEvent event) {
-        PayloadRegistrar registrar = event.registrar("1");
+        PayloadRegistrar registrar = event.registrar(MonitorPayloads.PROTOCOL_VERSION);
         registrar.playToClient(MonitorSnapshotPayload.TYPE, MonitorSnapshotPayload.STREAM_CODEC,
+                (payload, context) -> MonitorClientPayloadHandler.handle(payload));
+        registrar.playToClient(MonitorDeltaPayload.TYPE, MonitorDeltaPayload.STREAM_CODEC,
                 (payload, context) -> MonitorClientPayloadHandler.handle(payload));
         registrar.playToClient(MonitorOpenPayload.TYPE, MonitorOpenPayload.STREAM_CODEC,
                 (payload, context) -> MonitorClientPayloadHandler.handle(payload));
