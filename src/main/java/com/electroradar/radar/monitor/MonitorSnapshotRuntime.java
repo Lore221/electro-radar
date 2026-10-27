@@ -152,6 +152,11 @@ final class MonitorSnapshotRuntime {
     private void send(RadarDisplayBlockEntity owner, ServerLevel serverLevel,
                       boolean openGui, ServerPlayer recipient) {
         if (latestSnapshot == null) return;
+        boolean needsBaseline = baselineRequired || lastBroadcastSequence < 0L;
+        // Тихий тик не требует пересоздания и полной валидации исходящего снимка.
+        // Адресный baseline и обязательная рассылка нужны даже без новой sequence.
+        if (recipient == null && !needsBaseline
+                && latestSnapshot.sequence() == lastBroadcastSequence) return;
         // Снимок мог быть собран тиком раньше (адресная отправка при передаче чанка, или
         // содержимое не менялось), а клиент пересчитывает freeze и фазу от observedServerTick.
         // Поэтому любая отправка, не только адресная, несёт тик самой отправки.
@@ -162,7 +167,7 @@ final class MonitorSnapshotRuntime {
             RadarMonitorDiagnostics.snapshotSentAddressed(serverLevel, owner, outgoing, recipient, openGui);
             return;
         }
-        if (baselineRequired || lastBroadcastSequence < 0L) {
+        if (needsBaseline) {
             MonitorPayloads.sendToTracking(serverLevel, outgoing);
             RadarMonitorDiagnostics.snapshotBroadcast(serverLevel, owner, latestSnapshot);
             lastBroadcastSequence = latestSnapshot.sequence();
@@ -170,7 +175,6 @@ final class MonitorSnapshotRuntime {
             baselineRequired = false;
             return;
         }
-        if (latestSnapshot.sequence() == lastBroadcastSequence) return;
         Map<TargetRef, MonitorTargetData> current = new HashMap<>();
         for (MonitorTargetData target : latestSnapshot.targets()) current.put(target.target(), target);
         List<MonitorTargetData> upserts = new ArrayList<>();
