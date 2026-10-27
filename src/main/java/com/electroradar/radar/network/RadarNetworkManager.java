@@ -419,10 +419,15 @@ public final class RadarNetworkManager {
     }
 
     /**
-     * На границе окна пересобирает план источника. Если плана нет (апертуру разобрали,
-     * контроллер повернули, блок не готов), источник перестаёт наблюдать и забывает свои
-     * подтверждения: без плана поиска больше не будет, и память иначе висела бы бессрочно.
-     * Исключение при сборке плана памяти не стирает — это сбой, а не разборка.
+     * На границе окна пересобирает план источника.
+     *
+     * <p><b>Память без плана.</b> Пустой план означает любую неготовность: апертуру разобрали,
+     * контроллер повернули или блок временно не готов. Различать эти причины ядро не берётся,
+     * поэтому политика одна: источник перестаёт наблюдать, текущие цели замораживаются, а
+     * память живёт до конца своего затухания и снимается на первой границе после него.
+     * Так временная неготовность не стирает картину мгновенно, затухание не обрывается раньше
+     * срока, и бессрочной памяти у выключенного радара тоже нет. Исключение при сборке плана
+     * памяти не трогает: это сбой, а не выключение.</p>
      *
      * @return true, если план есть и обработку тика нужно продолжить
      */
@@ -442,10 +447,11 @@ public final class RadarNetworkManager {
             boolean hadPlan = state.plan != null;
             endVisit(network, endpoint, state, changed);
             becomeIdle(state);
-            int forgotten = forgetAllConfirmations(network, endpoint, state, changed);
+            int forgotten = forgetFadedConfirmations(network, endpoint, state, changed);
             if (hadPlan || forgotten > 0) {
                 RadarDiagnostics.log("observation_plan_unavailable", network.id, endpoint, network.slotSerial,
-                        serverTick, () -> "action=forget_confirmations forgotten=" + forgotten);
+                        serverTick, () -> "action=keep_until_faded forgotten=" + forgotten
+                                + " remaining=" + state.detections.size());
             }
             return false;
         }
@@ -645,6 +651,36 @@ public final class RadarNetworkManager {
         state.detections.remove(target);
         removeTargetSource(network, endpoint, target, link);
         changed.add(network.id);
+    }
+
+    /**
+     * Снимает подтверждения, у которых закончилось затухание (или которые так и не получили
+     * измерения). Наблюдаемых здесь нет: источник без плана уже заморозил свой набор.
+     */
+    private int forgetFadedConfirmations(NetworkRuntime network, EndpointKey endpoint, RadarState state,
+                                         Set<NetworkId> changed) {
+        int forgotten = 0;
+        java.util.Iterator<Map.Entry<TargetRef, SourceLink>> detections = state.detections.entrySet().iterator();
+        while (detections.hasNext()) {
+            Map.Entry<TargetRef, SourceLink> detection = detections.next();
+            SourceLink link = detection.getValue();
+            int before = link.sectors.size();
+            link.sectors.values().removeIf(this::faded);
+            forgotten += before - link.sectors.size();
+            if (link.sectors.isEmpty()) {
+                detections.remove();
+                removeTargetSource(network, endpoint, detection.getKey(), link);
+            }
+        }
+        if (forgotten > 0) changed.add(network.id);
+        return forgotten;
+    }
+
+    private boolean faded(SectorConfirmation confirmation) {
+        LiveResult measurement = confirmation.measurement;
+        if (measurement == null) return true;
+        if (measurement.observing() || measurement.freezeTick() < 0) return false;
+        return serverTick - measurement.freezeTick() >= measurement.fadeDurationTicks();
     }
 
     /** Снимает все подтверждения источника с обеих сторон индекса. */
