@@ -11,12 +11,14 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.neoforged.neoforge.network.PacketDistributor;
 
 import com.electroradar.radar.RadarDiagnostics;
 import com.electroradar.radar.monitor.MonitorSnapshotData;
 import com.electroradar.radar.monitor.MonitorTargetData;
 import com.electroradar.radar.monitor.MonitorVisualPhase;
 import com.electroradar.radar.monitor.RadarDisplayBlockEntity;
+import com.electroradar.radar.monitor.network.MonitorGeometryRequestPayload;
 import com.electroradar.radar.monitor.network.MonitorOpenPayload;
 import com.electroradar.radar.monitor.network.MonitorSnapshotPayload;
 import com.electroradar.radar.network.TargetRef;
@@ -37,6 +39,8 @@ public final class MonitorClientState {
     private static final Map<MonitorDisplayKey, View> VIEWS = new HashMap<>();
     private static final Map<MonitorDisplayKey, Geometry> GEOMETRY = new HashMap<>();
     private static final Map<MonitorDisplayKey, PendingSeries> PENDING = new HashMap<>();
+    private static final long GEOMETRY_REQUEST_COOLDOWN_TICKS = 20L;
+    private static final Map<MonitorDisplayKey, Long> GEOMETRY_REQUESTS = new HashMap<>();
     private static ClientLevel currentLevel;
     private static long clientTickTime;
     private static double lastRenderTime;
@@ -104,8 +108,10 @@ public final class MonitorClientState {
             profiles = stored != null && stored.version() == header.geometryVersion() ? stored.profiles() : null;
         }
         if (profiles == null) {
+            // Геометрии этой версии нет: показываем цели без секторов и просим её у сервера.
             profiles = List.of();
             phases = List.of();
+            requestGeometry(key, header.geometryVersion());
         }
         MonitorSnapshotData snapshot;
         try {
@@ -130,6 +136,19 @@ public final class MonitorClientState {
         if (part.sequence() < current.snapshot().sequence() || !part.includesGeometry()) return false;
         Geometry stored = GEOMETRY.get(key);
         return stored == null || stored.version() != part.geometryVersion();
+    }
+
+    /**
+     * Просит недостающую геометрию не чаще раза в {@link #GEOMETRY_REQUEST_COOLDOWN_TICKS} на экран.
+     * Снимки без геометрии приходят минимум каждое окно сети, поэтому повтор после отказа
+     * или потери ответа происходит сам; отдельная очередь не нужна.
+     */
+    private static void requestGeometry(MonitorDisplayKey key, long geometryVersion) {
+        Long last = GEOMETRY_REQUESTS.get(key);
+        if (last != null && clientTickTime - last < GEOMETRY_REQUEST_COOLDOWN_TICKS) return;
+        GEOMETRY_REQUESTS.put(key, clientTickTime);
+        PacketDistributor.sendToServer(new MonitorGeometryRequestPayload(key.rootPosition(), key.dimension(),
+                key.displayId(), key.loadId(), geometryVersion));
     }
 
     public static void handle(MonitorOpenPayload payload) {
@@ -160,6 +179,7 @@ public final class MonitorClientState {
         VIEWS.clear();
         GEOMETRY.clear();
         PENDING.clear();
+        GEOMETRY_REQUESTS.clear();
         MonitorSectorAnimationState.clear();
         currentLevel = null;
         clientTickTime = 0L;
@@ -174,6 +194,7 @@ public final class MonitorClientState {
         for (MonitorDisplayKey key : VIEWS.keySet()) if (!matchesRoot(level, key)) invalid.add(key);
         for (MonitorDisplayKey key : GEOMETRY.keySet()) if (!matchesRoot(level, key)) invalid.add(key);
         for (MonitorDisplayKey key : invalid) forget(key);
+        GEOMETRY_REQUESTS.keySet().removeIf(key -> !matchesRoot(level, key));
         PENDING.entrySet().removeIf(entry -> clientTickTime - entry.getValue().createdAt >= PENDING_TIMEOUT_TICKS
                 || !matchesRoot(level, entry.getKey()));
     }
@@ -182,6 +203,7 @@ public final class MonitorClientState {
         VIEWS.remove(key);
         GEOMETRY.remove(key);
         PENDING.remove(key);
+        GEOMETRY_REQUESTS.remove(key);
         MonitorSectorAnimationState.remove(key);
     }
 
@@ -243,6 +265,7 @@ public final class MonitorClientState {
             VIEWS.clear();
             GEOMETRY.clear();
             PENDING.clear();
+            GEOMETRY_REQUESTS.clear();
             MonitorSectorAnimationState.clear();
             currentLevel = level;
             clientTickTime = 0L;

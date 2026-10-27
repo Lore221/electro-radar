@@ -43,6 +43,10 @@ public final class RadarDisplayBlockEntity extends BlockEntity implements Networ
     private static final String STRUCTURE_VERSION_TAG = "electroradar_structure_version";
     private static final String LOAD_ID_TAG = "electroradar_load_id";
     private final MonitorSnapshotRuntime snapshots = new MonitorSnapshotRuntime();
+    /** Не чаще одного ответа на запрос геометрии в секунду на игрока. */
+    private static final long GEOMETRY_REQUEST_COOLDOWN_TICKS = 20L;
+    /** Тик последнего обслуженного запроса геометрии по игроку; только runtime этой загрузки корня. */
+    private final java.util.Map<UUID, Long> geometryRequests = new java.util.HashMap<>();
 
     private UUID displayId;
     private BlockPos rootPosition;
@@ -381,6 +385,25 @@ public final class RadarDisplayBlockEntity extends BlockEntity implements Networ
     public void sendTo(ServerPlayer player) {
         if (!isRoot() || !(level instanceof ServerLevel)) return;
         ensureIdentity();
+        if (assemblyDirty) RadarDisplayAssembly.resolve(this);
+        refreshAndBroadcast(false, player);
+    }
+
+    /**
+     * Отвечает адресным снимком с геометрией игроку, у которого её нет.
+     * Право то же, что у рассылки: игрок наблюдает чанк корня (дистанция GUI здесь не нужна).
+     * Частота ограничена на игрока; запись живёт в этом корне и исчезает вместе с ним.
+     */
+    public void handleGeometryRequest(ServerPlayer player, UUID requestedDisplayId, UUID requestedLoadId) {
+        if (!(level instanceof ServerLevel serverLevel) || !isRoot() || displayId == null || loadId == null
+                || !displayId.equals(requestedDisplayId) || !loadId.equals(requestedLoadId)) return;
+        if (!serverLevel.getChunkSource().chunkMap
+                .getPlayers(new net.minecraft.world.level.ChunkPos(worldPosition), false).contains(player)) return;
+        long now = serverLevel.getGameTime();
+        Long previous = geometryRequests.get(player.getUUID());
+        if (previous != null && now >= previous && now - previous < GEOMETRY_REQUEST_COOLDOWN_TICKS) return;
+        geometryRequests.put(player.getUUID(), now);
+        geometryRequests.values().removeIf(tick -> tick > now || now - tick > GEOMETRY_REQUEST_COOLDOWN_TICKS * 60L);
         if (assemblyDirty) RadarDisplayAssembly.resolve(this);
         refreshAndBroadcast(false, player);
     }
