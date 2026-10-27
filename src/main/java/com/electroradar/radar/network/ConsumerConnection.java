@@ -79,15 +79,16 @@ public final class ConsumerConnection implements AutoCloseable {
     }
 
     /**
-     * Дешёвая проверка изменений: версия видимого состояния сети или {@code -1}, если связь
-     * закрыта или регистрацию уже заменили. Пока версия прежняя, повторный запрос целей вернёт
-     * те же данные, поэтому потребитель может его пропустить.
+     * Дешёвая проверка изменений: версия видимого содержимого сети или {@code -1}, если связь
+     * закрыта или регистрацию уже заменили. Пока номер прежний, повторный запрос вернёт то же
+     * видимое содержимое, и потребитель изображения может его пропустить. Свежесть времён
+     * измерения номер не отражает; гарантии и их границы описаны в {@link TargetSnapshot}.
      */
-    public long networkVersion() {
+    public long contentVersion() {
         checkServerThread();
         RegistrationToken current = currentToken();
         if (current == null) return -1L;
-        return manager.networkVersion(endpoint, networkId, current);
+        return manager.contentVersion(endpoint, networkId, current);
     }
     /** Читает только идентичности и discovery metadata; координатные DTO не создаются. */
     public TargetSnapshot<TargetRef> queryTargetRefs() {
