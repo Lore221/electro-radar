@@ -98,20 +98,20 @@ public final class RadarMonitorDiagnostics {
     /** Фиксирует только новый снимок и считает свежие/помнимые записи одним проходом. */
     static void snapshotReceived(ServerLevel level, RadarDisplayBlockEntity display,
                                  MonitorSnapshotData snapshot) {
+        if (!RadarDiagnostics.enabled()) return;
         long freshTargets = snapshot.targets().stream()
-                .filter(MonitorTargetData::detectedThisWindow).count();
+                .filter(MonitorTargetData::observing).count();
         long rememberedTargets = snapshot.targets().size() - freshTargets;
-        event(level, display, "monitor_snapshot_received", snapshot.publishedEpoch(),
-                "revision=" + snapshot.revision() + " freshTargets=" + freshTargets
-                        + " rememberedTargets=" + rememberedTargets
-                        + " totalTargets=" + snapshot.targets().size()
-                        + " structureVersion=" + snapshot.structureVersion()
-                        + " linked=" + snapshot.linked());
+        event(level, display, "monitor_snapshot_received", null,
+                "sequence=" + snapshot.sequence() + " geometryVersion=" + snapshot.geometryVersion()
+                        + " freshTargets=" + freshTargets + " rememberedTargets=" + rememberedTargets
+                        + " totalTargets=" + snapshot.targets().size() + " linked=" + snapshot.linked());
     }
 
     /** Новая геометрия пишется один раз при изменении списка профилей, а не каждый опрос. */
     static void visualGeometryChanged(ServerLevel level, RadarDisplayBlockEntity display,
                                       java.util.List<RadarVisualProfile> profiles) {
+        if (!RadarDiagnostics.enabled()) return;
         int sectors = profiles.stream().mapToInt(RadarVisualProfile::sectorCount).sum();
         int triangles = profiles.stream().mapToInt(profile -> profile.coverage().sectors().stream()
                 .mapToInt(sector -> sector.triangles().size()).sum()).sum();
@@ -124,16 +124,19 @@ public final class RadarMonitorDiagnostics {
     static void snapshotSentAddressed(ServerLevel level, RadarDisplayBlockEntity display,
                                       MonitorSnapshotData snapshot, ServerPlayer player,
                                       boolean openGui) {
-        event(level, display, "monitor_snapshot_sent_addressed", snapshot.publishedEpoch(),
-                "revision=" + snapshot.revision() + " recipient=" + player.getUUID()
+        if (!RadarDiagnostics.enabled()) return;
+        event(level, display, "monitor_snapshot_sent_addressed", null,
+                "sequence=" + snapshot.sequence() + " recipient=" + player.getUUID()
                         + " openGui=" + openGui + " targets=" + snapshot.targets().size());
     }
 
-    /** Фиксирует одну рассылку наблюдателям чанка после изменения версии снимка. */
+    /** Фиксирует одну рассылку наблюдателям чанка после изменения снимка. */
     static void snapshotBroadcast(ServerLevel level, RadarDisplayBlockEntity display,
-                                  MonitorSnapshotData snapshot) {
-        event(level, display, "monitor_snapshot_broadcast", snapshot.publishedEpoch(),
-                "revision=" + snapshot.revision() + " targets=" + snapshot.targets().size());
+                                  MonitorSnapshotData snapshot, boolean includesGeometry) {
+        if (!RadarDiagnostics.enabled()) return;
+        event(level, display, "monitor_snapshot_broadcast", null,
+                "sequence=" + snapshot.sequence() + " geometry=" + includesGeometry
+                        + " targets=" + snapshot.targets().size());
     }
 
     /** Фиксирует результат принятой сервером команды выбора или снятия выбора. */
@@ -170,6 +173,7 @@ public final class RadarMonitorDiagnostics {
 
     private static void event(ServerLevel level, RadarDisplayBlockEntity display,
                               String name, Object epoch, String details) {
+        if (!RadarDiagnostics.enabled()) return;
         RadarDiagnostics.log(name, display.networkId(), endpoint(level, display.getBlockPos()),
                 epoch, level.getGameTime(), "displayId=" + display.displayId() + " " + details);
     }

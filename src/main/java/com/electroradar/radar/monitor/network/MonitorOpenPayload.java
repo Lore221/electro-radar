@@ -12,7 +12,7 @@ import com.electroradar.ElectroRadar;
 
 /** Отдельная серверная команда открыть GUI; поздние payload обновления не открывают экран повторно. */
 public record MonitorOpenPayload(UUID displayId, BlockPos rootPosition, ResourceLocation dimension,
-                                 UUID loadId, long structureVersion) implements CustomPacketPayload {
+                                 UUID loadId) implements CustomPacketPayload {
     public static final Type<MonitorOpenPayload> TYPE = new Type<>(
             ResourceLocation.fromNamespaceAndPath(ElectroRadar.MOD_ID, "monitor_open"));
     public static final StreamCodec<RegistryFriendlyByteBuf, MonitorOpenPayload> STREAM_CODEC =
@@ -32,11 +32,10 @@ public record MonitorOpenPayload(UUID displayId, BlockPos rootPosition, Resource
         buffer.writeBlockPos(payload.rootPosition);
         buffer.writeResourceLocation(payload.dimension);
         buffer.writeUUID(payload.loadId);
-        buffer.writeVarLong(payload.structureVersion);
     }
 
     private static MonitorOpenPayload read(RegistryFriendlyByteBuf buffer) {
         return new MonitorOpenPayload(buffer.readUUID(), buffer.readBlockPos(),
-                buffer.readResourceLocation(), buffer.readUUID(), buffer.readVarLong());
+                buffer.readResourceLocation(), buffer.readUUID());
     }
 }

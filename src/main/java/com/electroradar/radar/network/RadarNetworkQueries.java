@@ -28,16 +28,15 @@ final class RadarNetworkQueries {
                                                       Map<EndpointKey, Registration> endpointIndex,
                                                       Map<NetworkId, NetworkRuntime> networks) {
         NetworkRuntime network = networks.get(registration.networkId);
-        if (network == null) return TargetSnapshot.empty(0, 0);
+        if (network == null) return TargetSnapshot.empty();
         List<AccessibleRadar> radars = accessibleRadars(consumer, registration, network, endpointIndex);
         Set<TargetRef> targets = new HashSet<>();
         for (AccessibleRadar radar : radars) targets.addAll(radar.state().detections.keySet());
         List<TargetRef> ordered = targets.stream().filter(target -> target.dimension().equals(consumer.dimension()))
                 .sorted(RadarNetworkState.TARGET_ORDER).toList();
-        logQuery("target_identity_query", registration.networkId, consumer, network.publishedEpoch, serverTick,
-                "targets=" + ordered.size() + " accessibleRadars=" + radars.size());
-        return new TargetSnapshot<>(network.publishedEpoch, network.revision,
-                network.measurementRevision, ordered);
+        logQuery("target_identity_query", registration.networkId, consumer, network.version, serverTick,
+                () -> "targets=" + ordered.size() + " accessibleRadars=" + radars.size());
+        return new TargetSnapshot<>(network.version, ordered);
     }
 
     /**
@@ -52,8 +51,8 @@ final class RadarNetworkQueries {
         Objects.requireNonNull(requestedTargets, "requestedTargets");
         Objects.requireNonNull(projection, "projection");
         NetworkRuntime network = networks.get(registration.networkId);
-        if (network == null) return TargetSnapshot.empty(0, 0);
-        long epoch = network.publishedEpoch;
+        if (network == null) return TargetSnapshot.empty();
+        long version = network.version;
         List<AccessibleRadar> radars = accessibleRadars(consumer, registration, network, endpointIndex);
         Set<EndpointKey> accessible = accessibleEndpoints(radars);
         List<TargetRef> ordered = requestedTargets.stream().filter(Objects::nonNull)
@@ -64,7 +63,7 @@ final class RadarNetworkQueries {
             TargetEntry entry = network.targets.get(ref);
             if (entry == null || entry.sources.keySet().stream().noneMatch(accessible::contains)) continue;
             Optional<LiveResult> live = latestAccessibleMeasurement(entry, accessible);
-            LiveResult result = live.orElseGet(() -> LiveResult.unavailable(epoch, 0L, -1L, 0L));
+            LiveResult result = live.orElseGet(() -> LiveResult.unavailable(0L, -1L, 0L));
             boolean observing = result.observing();
             TargetView view = new TargetView(ref, observing, result,
                     () -> accessibleSources(entry, accessible));
@@ -75,10 +74,10 @@ final class RadarNetworkQueries {
                 view.expire();
             }
         }
-        logQuery("target_details_query", registration.networkId, consumer, epoch, serverTick,
-                "requested=" + ordered.size() + " returned=" + results.size()
+        logQuery("target_details_query", registration.networkId, consumer, version, serverTick,
+                () -> "requested=" + ordered.size() + " returned=" + results.size()
                         + " accessibleRadars=" + radars.size());
-        return new TargetSnapshot<>(epoch, network.revision, network.measurementRevision, results);
+        return new TargetSnapshot<>(version, results);
     }
 
     static <T> TargetSnapshot<T> queryTargets(EndpointKey consumer, Registration registration,
@@ -96,21 +95,20 @@ final class RadarNetworkQueries {
                                           Map<EndpointKey, Registration> endpointIndex,
                                           Map<NetworkId, NetworkRuntime> networks) {
         NetworkRuntime network = networks.get(registration.networkId);
-        long epoch = network == null ? 0 : network.publishedEpoch;
-        long revision = network == null ? 0 : network.revision;
+        long version = network == null ? 0 : network.version;
         if (network == null || !target.dimension().equals(consumer.dimension())) {
-            return new TargetSources(target, epoch, revision, List.of(), Optional.empty());
+            return new TargetSources(target, version, List.of(), Optional.empty());
         }
         TargetEntry entry = network.targets.get(target);
-        if (entry == null) return new TargetSources(target, epoch, revision, List.of(), Optional.empty());
+        if (entry == null) return new TargetSources(target, version, List.of(), Optional.empty());
         List<AccessibleRadar> radars = accessibleRadars(consumer, registration, network, endpointIndex);
         Set<EndpointKey> endpoints = accessibleEndpoints(radars);
         List<RadarSource> sources = accessibleSources(entry, endpoints);
         Optional<LiveResult> live = latestAccessibleMeasurement(entry, endpoints);
-        logQuery("target_sources_query", registration.networkId, consumer, epoch, serverTick,
-                "target=" + target + " sources=" + sources.size() + " observing="
+        logQuery("target_sources_query", registration.networkId, consumer, version, serverTick,
+                () -> "target=" + target + " sources=" + sources.size() + " observing="
                         + sources.stream().anyMatch(RadarSource::observing));
-        return new TargetSources(target, epoch, revision, sources, live);
+        return new TargetSources(target, version, sources, live);
     }
 
     static Optional<TargetRef> selectedTarget(EndpointKey consumer, Registration registration,
@@ -120,8 +118,8 @@ final class RadarNetworkQueries {
         Optional<TargetRef> selected = current != null && current.dimension().equals(consumer.dimension())
                 ? Optional.of(current) : Optional.empty();
         logQuery("selected_target_query", registration.networkId, consumer,
-                network == null ? 0 : network.publishedEpoch, serverTick,
-                "accepted=true selected=" + selected.map(Object::toString).orElse("none"));
+                network == null ? 0 : network.version, serverTick,
+                () -> "accepted=true selected=" + selected.map(Object::toString).orElse("none"));
         return selected;
     }
 
@@ -197,11 +195,6 @@ final class RadarNetworkQueries {
         return List.copyOf(sources);
     }
 
-    private static List<RadarSource> accessibleSources(TargetEntry target, Set<EndpointKey> endpoints,
-                                                       long ignoredPublishedEpoch) {
-        return accessibleSources(target, endpoints);
-    }
-
     private static Optional<Map.Entry<Integer, SectorConfirmation>> bestConfirmation(SourceLink link) {
         Map.Entry<Integer, SectorConfirmation> selected = null;
         for (Map.Entry<Integer, SectorConfirmation> entry : link.sectors.entrySet()) {
@@ -216,9 +209,10 @@ final class RadarNetworkQueries {
     }
 
     private static void logQuery(String event, NetworkId networkId, EndpointKey consumer,
-                                 long epoch, long serverTick, String details) {
+                                 long version, long serverTick,
+                                 java.util.function.Supplier<String> details) {
         if (RadarDiagnostics.queryDiagnosticsEnabled()) {
-            RadarDiagnostics.log(event, networkId, consumer, epoch, serverTick, details);
+            RadarDiagnostics.log(event, networkId, consumer, version, serverTick, details.get());
         }
     }
 }

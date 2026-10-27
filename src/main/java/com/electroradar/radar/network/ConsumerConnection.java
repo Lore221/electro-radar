@@ -65,7 +65,7 @@ public final class ConsumerConnection implements AutoCloseable {
      *
      * @param projection типизированное преобразование опубликованной цели в запись потребителя
      * @param <T> тип записи результата
-     * @return снимок всех доступных целей вместе с опубликованными epoch и revision
+     * @return снимок всех доступных целей вместе с версией видимого состояния сети
      */
     public <T> TargetSnapshot<T> queryTargets(TargetProjection<T> projection) {
         Objects.requireNonNull(projection, "projection");
@@ -73,18 +73,29 @@ public final class ConsumerConnection implements AutoCloseable {
         RegistrationToken current = currentToken();
         if (current == null) {
             logClosedAccess("query_targets");
-            return TargetSnapshot.empty(0, 0);
+            return TargetSnapshot.empty();
         }
         return manager.queryTargets(endpoint, networkId, current, projection);
     }
 
+    /**
+     * Дешёвая проверка изменений: версия видимого состояния сети или {@code -1}, если связь
+     * закрыта или регистрацию уже заменили. Пока версия прежняя, повторный запрос целей вернёт
+     * те же данные, поэтому потребитель может его пропустить.
+     */
+    public long networkVersion() {
+        checkServerThread();
+        RegistrationToken current = currentToken();
+        if (current == null) return -1L;
+        return manager.networkVersion(endpoint, networkId, current);
+    }
     /** Читает только идентичности и discovery metadata; координатные DTO не создаются. */
     public TargetSnapshot<TargetRef> queryTargetRefs() {
         checkServerThread();
         RegistrationToken current = currentToken();
         if (current == null) {
             logClosedAccess("query_target_refs");
-            return TargetSnapshot.empty(0, 0);
+            return TargetSnapshot.empty();
         }
         return manager.queryTargetRefs(endpoint, networkId, current);
     }
@@ -98,7 +109,7 @@ public final class ConsumerConnection implements AutoCloseable {
         RegistrationToken current = currentToken();
         if (current == null) {
             logClosedAccess("query_target_details");
-            return TargetSnapshot.empty(0, 0);
+            return TargetSnapshot.empty();
         }
         return manager.queryTargetDetails(endpoint, networkId, current, targets, projection);
     }
@@ -115,7 +126,7 @@ public final class ConsumerConnection implements AutoCloseable {
         RegistrationToken current = currentToken();
         if (current == null) {
             logClosedAccess("sources_for_target");
-            return new TargetSources(target, 0, 0, List.of(), Optional.empty());
+            return new TargetSources(target, 0, List.of(), Optional.empty());
         }
         return manager.sourcesForTarget(endpoint, networkId, current, target);
     }
