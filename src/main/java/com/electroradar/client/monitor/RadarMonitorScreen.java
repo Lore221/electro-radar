@@ -244,21 +244,30 @@ public final class RadarMonitorScreen extends Screen {
             MonitorSectorGuiRenderer.draw(graphics, view, snapshot.dimension(),
                     center.x(), center.z(), facing, centerOffsetX, centerOffsetZ,
                     mapDiameterBlocks, contentX, contentY, contentSize);
-            graphics.flush();
-            VertexConsumer sprites = graphics.bufferSource().getBuffer(MonitorGuiRenderTypes.BLIPS);
-            Matrix4f pose = graphics.pose().last().pose();
-            try {
-                // Порядок вершин сохраняет рамки поверх всех меток в том же пакете атласа.
-                drawTargets(sprites, pose, view, snapshot, partialTick);
-                drawTargetFrames(sprites, pose, view, snapshot, hovered, partialTick);
-            } finally {
-                graphics.flush();
-            }
+            drawTargetLayer(graphics, view, snapshot, hovered, partialTick);
         }
         drawGrid(graphics);
         graphics.disableScissor();
         drawGridScaleOverlay(graphics);
         drawStatus(graphics);
+    }
+
+    /** Один пакет меток и рамок, доступный только после успешной загрузки программы. */
+    private void drawTargetLayer(GuiGraphics graphics, MonitorClientState.View view,
+                                 MonitorSnapshotData snapshot,
+                                 Optional<MonitorClientState.DisplayTarget> hovered, float partialTick) {
+        RenderType layer = MonitorGuiRenderTypes.blipsIfReady();
+        if (layer == null) return;
+        graphics.flush();
+        VertexConsumer sprites = graphics.bufferSource().getBuffer(layer);
+        Matrix4f pose = graphics.pose().last().pose();
+        try {
+            // Порядок вершин сохраняет рамки поверх всех меток в том же пакете атласа.
+            drawTargets(sprites, pose, view, snapshot, partialTick);
+            drawTargetFrames(sprites, pose, view, snapshot, hovered, partialTick);
+        } finally {
+            graphics.flush();
+        }
     }
 
     /** Выводит только те цели, для которых клиентский снимок содержит безопасную позицию. */

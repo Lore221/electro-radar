@@ -10,7 +10,8 @@ out vec4 fragColor;
 
 void main() {
     vec4 texel = texture(Sampler0, texCoord0);
-    // Match the original GUI blit: discard only transparent atlas pixels, before fading.
+    // Как в исходном GUI blit: отсекаем только прозрачные тексели атласа до затухания.
+    // Проверка итоговой alpha < 0.1, как в position_tex_color, обрывала бы конец затухания.
     if (texel.a == 0.0) {
         discard;
     }
