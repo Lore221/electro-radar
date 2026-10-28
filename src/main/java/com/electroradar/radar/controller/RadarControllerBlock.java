@@ -104,7 +104,7 @@ public final class RadarControllerBlock extends BaseEntityBlock implements IRota
         builder.add(FACING);
     }
 
-    /** Нельзя повернуть блок раньше успешной разборки его старой апертуры. */
+    /** Направленная панельная апертура должна быть разобрана перед поворотом корпуса. */
     @Override
     public InteractionResult onWrenched(BlockState state, UseOnContext context) {
         Level level = context.getLevel();

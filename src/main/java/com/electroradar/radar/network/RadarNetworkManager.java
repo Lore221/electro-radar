@@ -900,10 +900,5 @@ public final class RadarNetworkManager {
                 throw new IllegalArgumentException("Invalid radar visual window");
             }
         }
-
-        public RadarVisualWindow(com.electroradar.radar.visual.RadarVisualProfile profile,
-                                 int activeSectorIndex, long startTick, long endTick) {
-            this(profile, List.of(activeSectorIndex), startTick, endTick);
-        }
     }
 }

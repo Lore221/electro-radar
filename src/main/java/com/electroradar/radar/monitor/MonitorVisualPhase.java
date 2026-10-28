@@ -9,7 +9,7 @@ import net.minecraft.core.BlockPos;
 import com.electroradar.radar.visual.RadarVisualProfile;
 
 /**
- * Текущее посещение одного радара: какой сектор активен и в каком окне серверных тиков.
+ * Текущее посещение одного радара: какие зоны активны и в каком окне серверных тиков.
  * Начало окна однозначно отличает одно посещение от следующего, отдельный номер слота не нужен.
  */
 public record MonitorVisualPhase(BlockPos radarPosition, List<Integer> activeSectorIndices,
@@ -24,10 +24,5 @@ public record MonitorVisualPhase(BlockPos radarPosition, List<Integer> activeSec
                 || windowStartTick < 0 || windowEndTick <= windowStartTick) {
             throw new IllegalArgumentException("Invalid monitor visual phase");
         }
-    }
-
-    public MonitorVisualPhase(BlockPos radarPosition, int activeSectorIndex,
-                              long windowStartTick, long windowEndTick) {
-        this(radarPosition, List.of(activeSectorIndex), windowStartTick, windowEndTick);
     }
 }

@@ -219,10 +219,5 @@ public final class RadarServerConfig {
                 throw new IllegalArgumentException("Invalid server radar configuration snapshot");
             }
         }
-
-        public Snapshot(long revision, int maxPanels, RangeParameters range,
-                        ModeParameters ground, ModeParameters air, ModeParameters surface, int sectorTicks) {
-            this(revision, maxPanels, range, ground, air, surface, sectorTicks, new OverviewParameters(5, 50));
-        }
     }
 }

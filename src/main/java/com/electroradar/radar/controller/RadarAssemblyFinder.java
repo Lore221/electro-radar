@@ -65,8 +65,12 @@ final class RadarAssemblyFinder {
                 if (!inPanelPlane(first, next, controllerFacing)) continue;
                 BlockState nextState = level.getBlockState(next);
                 if (OverviewModuleBlock.isOverviewModule(nextState)) {
-                    return new Discovery(false, Failure.MIXED_APERTURE, RadarApertureKind.PANEL,
-                            positions, states, next.immutable(), controllerFacing);
+                    Failure failure = neighboringOverviewFailure(level, next, controllerPos);
+                    if (failure != Failure.NONE) {
+                        return new Discovery(false, failure, RadarApertureKind.PANEL,
+                                positions, states, next.immutable(), controllerFacing);
+                    }
+                    continue;
                 }
                 if (!RadarPanelBlock.isPanel(nextState)) continue;
                 if (nextState.getValue(RadarPanelBlock.FACING) != controllerFacing) {
@@ -87,6 +91,24 @@ final class RadarAssemblyFinder {
         }
         return new Discovery(true, Failure.NONE, RadarApertureKind.PANEL,
                 positions, states, first, controllerFacing);
+    }
+
+    /** Самостоятельный столбик соседнего контроллера не входит в панельную апертуру. */
+    private static Failure neighboringOverviewFailure(ServerLevel level, BlockPos modulePos,
+                                                       BlockPos controllerPos) {
+        BlockPos.MutableBlockPos below = modulePos.mutable().move(Direction.DOWN);
+        // Обход ограничен высотой мира, а не текущим max_modules: после reload рядом
+        // может остаться столбик длиннее нового лимита. Чужие блоки только читаются.
+        while (!level.isOutsideBuildHeight(below)) {
+            if (!level.hasChunkAt(below)) return Failure.UNLOADED_AREA;
+            BlockState state = level.getBlockState(below);
+            if (!OverviewModuleBlock.isOverviewModule(state)) {
+                return state.getBlock() instanceof RadarControllerBlock && !below.equals(controllerPos)
+                        ? Failure.NONE : Failure.MIXED_APERTURE;
+            }
+            below.move(Direction.DOWN);
+        }
+        return Failure.MIXED_APERTURE;
     }
 
     /** Находит только непрерывный столбик одного X/Z и проверяет лимит дополнительным блоком. */
@@ -166,10 +188,6 @@ final class RadarAssemblyFinder {
             positions = positions.stream().map(BlockPos::immutable).toList();
             sourceStates = Map.copyOf(sourceStates);
             firstPanel = firstPanel.immutable();
-        }
-
-        public int panelCount() {
-            return positions.size();
         }
 
         public int apertureCount() { return positions.size(); }

@@ -199,8 +199,7 @@ final class RadarServerRuntime implements RadarObservationSource {
                 || !controller.assembly().isReadyForScanning(controller)
                 || networkId == null || endpoint == null
                 || !endpoint.equals(endpoint(level, controller.getBlockPos()))) return false;
-        Direction currentFacing = controller.getBlockState().getValue(RadarControllerBlock.FACING);
-        return cachedKey != null && currentFacing == cachedKey.facing()
+        return cachedKey != null && scanFacing(controller) == cachedKey.scanFacing()
                 && plan.geometryRevision() == geometryRevision;
     }
 
@@ -218,15 +217,20 @@ final class RadarServerRuntime implements RadarObservationSource {
         int boundedCount = Math.min(Math.max(0, apertureCount), activeLimit);
         RadarServerConfig.ModeParameters modeParameters = mode.parameters(parameters);
         GeometryKey key = new GeometryKey(parameters.range(), parameters.overview(), modeParameters,
-                kind, boundedCount, mode,
-                owner.getBlockState().getValue(RadarControllerBlock.FACING), owner.getBlockPos().immutable(),
+                kind, boundedCount, mode, scanFacing(owner), owner.getBlockPos().immutable(),
                 sectorOrderVariant);
         if (cachedGeometry != null && key.equals(cachedKey)) return cachedGeometry;
-        cachedGeometry = RadarAreaGeometry.create(level.dimension().location(), key.position(), key.facing(),
+        cachedGeometry = RadarAreaGeometry.create(level.dimension().location(), key.position(), key.scanFacing(),
                 mode, kind, apertureCount, parameters, sectorOrderVariant);
         cachedKey = key;
         geometryRevision = Math.incrementExact(geometryRevision);
         return cachedGeometry;
+    }
+
+    /** OVERVIEW закреплён относительно севера независимо от декоративного поворота корпуса. */
+    private static Direction scanFacing(RadarControllerBlockEntity controller) {
+        return controller.assembly().apertureKind() == RadarApertureKind.OVERVIEW
+                ? Direction.NORTH : controller.getBlockState().getValue(RadarControllerBlock.FACING);
     }
 
     public void invalidateProfile() {
@@ -331,6 +335,6 @@ final class RadarServerRuntime implements RadarObservationSource {
                                RadarServerConfig.OverviewParameters overviewParameters,
                                RadarServerConfig.ModeParameters modeParameters,
                                RadarApertureKind apertureKind, int countedAperture,
-                               RadarMode mode, Direction facing, BlockPos position,
+                               RadarMode mode, Direction scanFacing, BlockPos position,
                                int sectorOrderVariant) { }
 }

@@ -6,6 +6,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 import com.electroradar.radar.visual.RadarSectorOrder;
+import com.electroradar.radar.visual.RadarVisualProfile;
 
 /**
  * Источнико-независимое описание того, какое окно действует в серверный тик.
@@ -37,25 +38,13 @@ public interface ObservationWindowSchedule {
                              long endTick, long fadeDurationTicks) {
         public ObservationWindow {
             activeSectorIndices = List.copyOf(activeSectorIndices);
-            if (activeSectorIndices.isEmpty() || activeSectorIndices.size() > 64
+            if (activeSectorIndices.isEmpty() || activeSectorIndices.size() > RadarVisualProfile.MAX_SECTOR_COUNT
                     || startTick < 0 || endTick <= startTick || fadeDurationTicks < 0
                     || new HashSet<>(activeSectorIndices).size() != activeSectorIndices.size()
-                    || activeSectorIndices.stream().anyMatch(index -> index == null || index < 0 || index >= 64)) {
+                    || activeSectorIndices.stream().anyMatch(index -> index < 0
+                            || index >= RadarVisualProfile.MAX_SECTOR_COUNT)) {
                 throw new IllegalArgumentException("Invalid source observation window");
             }
-        }
-
-        public ObservationWindow(int activeSectorIndex, long startTick, long endTick,
-                                 long fadeDurationTicks) {
-            this(List.of(activeSectorIndex), startTick, endTick, fadeDurationTicks);
-        }
-
-        /** Singleton compatibility accessor for ordinary one-zone radar schedules. */
-        public int activeSectorIndex() {
-            if (activeSectorIndices.size() != 1) {
-                throw new IllegalStateException("Observation window contains multiple active sectors");
-            }
-            return activeSectorIndices.getFirst();
         }
     }
 

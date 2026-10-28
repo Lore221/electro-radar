@@ -94,9 +94,10 @@ final class RadarAssemblyController {
         lastFacing = owner.getBlockState().getValue(RadarControllerBlock.FACING);
     }
 
-    /** При необработанном повороте панели и область скана ещё не согласованы. */
+    /** PANEL зависит от ориентации корпуса; OVERVIEW сохраняет фиксированную ориентацию. */
     public boolean isReadyForScanning(RadarControllerBlockEntity owner) {
-        return assembled && apertureCount > 0 && (lastFacing == null
+        return assembled && apertureCount > 0 && (apertureKind == RadarApertureKind.OVERVIEW
+                || lastFacing == null
                 || lastFacing == owner.getBlockState().getValue(RadarControllerBlock.FACING));
     }
 
@@ -105,7 +106,6 @@ final class RadarAssemblyController {
         return assembled || entityUuid != null;
     }
 
-    public int panelCount() { return apertureKind == RadarApertureKind.PANEL ? apertureCount : 0; }
     public int apertureCount() { return apertureCount; }
     public RadarApertureKind apertureKind() { return apertureKind; }
 
@@ -249,9 +249,10 @@ final class RadarAssemblyController {
         }
     }
 
-    /** Ключ меняет FACING только после успешного возврата захваченных панелей. */
+    /** Поворот корпуса OVERVIEW не меняет апертуру; PANEL сначала возвращается в мир. */
     public boolean prepareForControllerRotation(RadarControllerBlockEntity owner, ServerLevel level) {
-        return !hasActiveAssembly() || disassemble(owner, level, "controller_rotated");
+        return apertureKind == RadarApertureKind.OVERVIEW || !hasActiveAssembly()
+                || disassemble(owner, level, "controller_rotated");
     }
 
     private boolean disassemble(RadarControllerBlockEntity owner, ServerLevel level, String reason) {
