@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Set;
 
 import net.minecraft.client.Minecraft;
+import org.jetbrains.annotations.Nullable;
 
 import com.electroradar.radar.RadarDiagnostics;
 import com.electroradar.radar.monitor.MonitorSnapshotData;
@@ -15,7 +16,7 @@ import com.electroradar.radar.monitor.MonitorVisualPhase;
 import com.electroradar.radar.visual.RadarVisualAnimation;
 import com.electroradar.radar.visual.RadarVisualProfile;
 
-/** Отображает серверный слот и геометрию, не выводя расписание из момента прихода пакета. */
+/** Берёт активные зоны из серверной фазы и хранит отдельный визуальный след выключенных зон. */
 final class MonitorSectorAnimationState {
     private static final double FULL_FLASH_DURATION_TICKS = 6.0D;
     private static final Map<MonitorDisplayKey, Map<RadarVisualProfile.Key, ProfileCycle>> CYCLES = new HashMap<>();
@@ -36,23 +37,21 @@ final class MonitorSectorAnimationState {
 
         for (RadarVisualProfile profile : current.visualProfiles()) {
             MonitorVisualPhase phase = phases.get(profile.radarPosition());
-            if (phase == null) {
-                // Профиль может остаться доступен, когда источник временно не публикует
-                // активную фазу. Не сохраняем подсветку предыдущего окна.
+            ProfileCycle old = cycles.get(profile.key());
+            // След старой геометрии нельзя переносить на новые индексы того же источника.
+            if (old != null && !old.profile.equals(profile)) old = null;
+            if (phase == null && old == null) {
                 cycles.remove(profile.key());
                 continue;
             }
-            ProfileCycle old = cycles.get(profile.key());
-            // Новое посещение — другое начало окна; новая геометрия — другой профиль.
-            boolean newSlot = old == null || old.phase.windowStartTick() != phase.windowStartTick()
-                    || !old.phase.activeSectorIndices().equals(phase.activeSectorIndices())
-                    || !old.profile.equals(profile);
-            double mappedWindowStart = clientTickTime + phase.windowStartTick() - current.observedServerTick();
+            boolean samePhase = old != null && phase != null && phase.equals(old.phase);
             // Повторный sample не сдвигает привязку начала окна к клиентскому времени.
-            ProfileCycle cycle = new ProfileCycle(profile, phase,
-                    newSlot ? mappedWindowStart : old.windowStartClientTick);
+            double windowStart = phase == null ? 0.0D : samePhase ? old.windowStartClientTick
+                    : clientTickTime + phase.windowStartTick() - current.observedServerTick();
+            ProfileCycle cycle = new ProfileCycle(profile, phase, windowStart, old,
+                    clientTickTime, current.observedServerTick());
             cycles.put(profile.key(), cycle);
-            if (newSlot && RadarDiagnostics.visualDiagnosticsEnabled()) {
+            if (!samePhase && phase != null && RadarDiagnostics.visualDiagnosticsEnabled()) {
                 RadarDiagnostics.log("monitor_visual_server_slot", null, null, null, (long) clientTickTime,
                         "displayId=" + key.displayId() + " radar=" + profile.radarPosition()
                                 + " sectors=" + phase.activeSectorIndices() + " window=[" + phase.windowStartTick()
@@ -67,11 +66,7 @@ final class MonitorSectorAnimationState {
         double renderTime = MonitorClientState.renderTime(partialTick);
         ArrayList<ProfileFrame> active = new ArrayList<>(cycles.size());
         for (ProfileCycle cycle : cycles.values()) {
-            if (cycle.profile.animation() == RadarVisualAnimation.FULL_FLASH) {
-                active.add(new ProfileFrame(cycle.profile, List.of(), cycle.flashStrength(renderTime)));
-            } else {
-                active.add(new ProfileFrame(cycle.profile, cycle.phase.activeSectorIndices(), 0.0F));
-            }
+            active.add(cycle.frame(renderTime));
         }
         return List.copyOf(active);
     }
@@ -84,34 +79,87 @@ final class MonitorSectorAnimationState {
         CYCLES.clear();
     }
 
-    record ProfileFrame(RadarVisualProfile profile, List<Integer> activeSectorIndices, float flashStrength) {
+    record ProfileFrame(RadarVisualProfile profile, List<Integer> activeSectorIndices,
+                        Map<Integer, Float> fadingSectorStrengths, float flashStrength) {
         ProfileFrame {
             activeSectorIndices = List.copyOf(activeSectorIndices);
+            fadingSectorStrengths = Map.copyOf(fadingSectorStrengths);
+        }
+
+        float sectorStrength(int sectorIndex) {
+            return activeSectorIndices.contains(sectorIndex) ? 1.0F
+                    : fadingSectorStrengths.getOrDefault(sectorIndex, 0.0F);
         }
     }
 
     private static final class ProfileCycle {
         final RadarVisualProfile profile;
+        @Nullable
         final MonitorVisualPhase phase;
         final double windowStartClientTick;
         final long periodTicks;
+        final Map<Integer, SectorFade> fadingSectors = new HashMap<>();
 
-        ProfileCycle(RadarVisualProfile profile, MonitorVisualPhase phase,
-                     double windowStartClientTick) {
+        ProfileCycle(RadarVisualProfile profile, @Nullable MonitorVisualPhase phase,
+                     double windowStartClientTick, @Nullable ProfileCycle old,
+                     double receivedAt, long observedServerTick) {
             this.profile = profile;
             this.phase = phase;
             this.windowStartClientTick = windowStartClientTick;
-            this.periodTicks = phase.windowEndTick() - phase.windowStartTick();
+            this.periodTicks = phase == null ? 0L : phase.windowEndTick() - phase.windowStartTick();
+            if (old != null && profile.animation() == RadarVisualAnimation.SECTOR_SWEEP) {
+                fadingSectors.putAll(old.fadingSectors);
+                if (old.phase != null) {
+                    // Используем серверный конец посещения в шкале текущего снимка.
+                    // Медленный сервер не должен гасить ещё активную зону по часам клиента.
+                    double stoppedAt = receivedAt + old.phase.windowEndTick() - observedServerTick;
+                    // Исчезновение зоны внутри того же посещения — частичный отказ, а не
+                    // конец всего окна. Наблюдаем его по пришедшему снимку.
+                    if (phase == null || phase.windowStartTick() == old.phase.windowStartTick()) {
+                        stoppedAt = Math.min(stoppedAt, receivedAt);
+                    }
+                    for (int sectorIndex : old.phase.activeSectorIndices()) {
+                        if (phase == null || !phase.activeSectorIndices().contains(sectorIndex)) {
+                            fadingSectors.put(sectorIndex, new SectorFade(stoppedAt, profile.inactiveSectorFadeTicks()));
+                        }
+                    }
+                }
+            }
+            // Повторная активация всегда яркая; повторные пакеты не перезапускают старые следы.
+            if (phase != null) phase.activeSectorIndices().forEach(fadingSectors::remove);
+            fadingSectors.values().removeIf(fade -> fade.strength(receivedAt) <= 0.0F);
         }
 
         double windowAge(double now) { return Math.max(0.0D, now - windowStartClientTick); }
 
+        ProfileFrame frame(double now) {
+            if (profile.animation() == RadarVisualAnimation.FULL_FLASH) {
+                return new ProfileFrame(profile, List.of(), Map.of(), flashStrength(now));
+            }
+            List<Integer> active = phase == null ? List.of() : phase.activeSectorIndices();
+            Map<Integer, Float> fading = new HashMap<>();
+            for (Map.Entry<Integer, SectorFade> entry : fadingSectors.entrySet()) {
+                float strength = entry.getValue().strength(now);
+                if (strength > 0.0F) fading.put(entry.getKey(), strength);
+            }
+            return new ProfileFrame(profile, active, fading, 0.0F);
+        }
+
         float flashStrength(double now) {
+            if (phase == null) return 0.0F;
             double duration = Math.min(FULL_FLASH_DURATION_TICKS, periodTicks);
             double age = windowAge(now);
             if (duration <= 0.0D || age >= duration) return 0.0F;
             double remaining = 1.0D - age / duration;
             return (float) (remaining * remaining);
+        }
+    }
+
+    private record SectorFade(double startClientTick, int durationTicks) {
+        float strength(double now) {
+            if (durationTicks <= 0) return 0.0F;
+            double age = Math.max(0.0D, now - startClientTick);
+            return (float) Math.clamp(1.0D - age / durationTicks, 0.0D, 1.0D);
         }
     }
 }

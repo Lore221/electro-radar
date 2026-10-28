@@ -35,9 +35,10 @@ final class MonitorSectorMesh {
                      MonitorSectorAnimationState.ProfileFrame frame, Style colors, Sink sink) {
         boolean flash = animation == RadarVisualAnimation.FULL_FLASH;
         float strength = frame == null ? 0.0F : frame.flashStrength();
-        int fill = flash ? MonitorSectorPalette.scaleAlpha(colors.flashFill(), strength) : colors.activeFill();
         for (MonitorSectorProjection.ProjectedSector sector : coverage.sectors()) {
-            if ((fill >>> 24) == 0 || !flash && !active(frame, sector.index())) continue;
+            float sectorStrength = flash ? strength : sectorStrength(frame, sector.index());
+            int fill = MonitorSectorPalette.scaleAlpha(flash ? colors.flashFill() : colors.activeFill(), sectorStrength);
+            if ((fill >>> 24) == 0) continue;
             for (List<MonitorSectorProjection.MapPoint> polygon : sector.polygons()) {
                 fillPolygon(polygon, fill, sink);
             }
@@ -50,9 +51,10 @@ final class MonitorSectorMesh {
                 sink.line(line, colors.baseLine(), LineStyle.BASE);
             }
             for (MonitorSectorProjection.ProjectedSector sector : coverage.sectors()) {
-                if (!active(frame, sector.index())) continue;
+                int edge = MonitorSectorPalette.scaleAlpha(colors.activeEdge(), sectorStrength(frame, sector.index()));
+                if ((edge >>> 24) == 0) continue;
                 for (MonitorSectorProjection.ProjectedSegment line : sector.boundary()) {
-                    sink.line(line, colors.activeEdge(), LineStyle.ACTIVE);
+                    sink.line(line, edge, LineStyle.ACTIVE);
                 }
             }
         } else if (strength > 0.0F) {
@@ -63,8 +65,8 @@ final class MonitorSectorMesh {
         }
     }
 
-    private static boolean active(MonitorSectorAnimationState.ProfileFrame frame, int sectorIndex) {
-        return frame != null && frame.activeSectorIndices().contains(sectorIndex);
+    private static float sectorStrength(MonitorSectorAnimationState.ProfileFrame frame, int sectorIndex) {
+        return frame == null ? 0.0F : frame.sectorStrength(sectorIndex);
     }
 
     /** Каждый полигон — пересечение исходного треугольника с квадратом, то есть выпуклый. */

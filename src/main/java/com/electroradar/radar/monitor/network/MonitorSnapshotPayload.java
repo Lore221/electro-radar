@@ -238,6 +238,7 @@ public record MonitorSnapshotPayload(
         // Явный ограниченный ID сохраняет wire-контракт независимым от enum.ordinal().
         buffer.writeVarInt(profile.animation().wireId());
         buffer.writeVarInt(profile.sectorOrderVariant());
+        buffer.writeVarInt(profile.inactiveSectorFadeTicks());
         buffer.writeDouble(profile.centerX());
         buffer.writeDouble(profile.centerY());
         buffer.writeDouble(profile.centerZ());
@@ -262,6 +263,7 @@ public record MonitorSnapshotPayload(
         BlockPos position = buffer.readBlockPos();
         RadarVisualAnimation animation = RadarVisualAnimation.fromWireId(buffer.readVarInt());
         int orderVariant = buffer.readVarInt();
+        int inactiveSectorFadeTicks = buffer.readVarInt();
         if (!RadarSectorOrder.validVariant(orderVariant)) {
             throw new IllegalArgumentException("Invalid radar sector order variant");
         }
@@ -294,7 +296,8 @@ public record MonitorSnapshotPayload(
         }
         // Общие инварианты пустых частей и покрытия проверяет Coverage также при создании на сервере.
         return new RadarVisualProfile(dimension, position, centerX, centerY, centerZ,
-                new RadarVisualGeometry.Coverage(outline, separators, sectors), animation, orderVariant);
+                new RadarVisualGeometry.Coverage(outline, separators, sectors), animation, orderVariant,
+                inactiveSectorFadeTicks);
     }
 
     private static void writePoint(RegistryFriendlyByteBuf buffer, RadarVisualGeometry.Point point) {
