@@ -17,8 +17,37 @@ import com.electroradar.radar.visual.RadarVisualProfile;
 public interface ObservationWindowSchedule {
     Optional<ObservationWindow> windowAt(long serverTick, NetworkWindow networkWindow);
 
+    /** Число базовых окон в группе; длительность сети меняется только на границе всей группы. */
+    default int networkWindowMultiple() { return 1; }
+
+    /** Объединяет соседние окна сети, сохраняя общие границы и порядок шагов источника. */
+    static ObservationWindowSchedule everyNetworkWindows(int windows, ObservationWindowSchedule schedule) {
+        Objects.requireNonNull(schedule, "schedule");
+        int sourceMultiple = schedule.networkWindowMultiple();
+        if (windows <= 0 || sourceMultiple <= 0) {
+            throw new IllegalArgumentException("Network window multiple must be positive");
+        }
+        int multiple = Math.multiplyExact(windows, sourceMultiple);
+        return new ObservationWindowSchedule() {
+            @Override
+            public int networkWindowMultiple() { return multiple; }
+
+            @Override
+            public Optional<ObservationWindow> windowAt(long serverTick, NetworkWindow window) {
+                long duration = window.durationTicks();
+                long start = Math.subtractExact(window.startTick(),
+                        Math.multiplyExact(window.slotSerial() % windows, duration));
+                // Новый источник может присоединиться посреди группы после смены D.
+                // Если её расчётное начало раньше нуля, ждём следующую полную группу.
+                if (start < 0L) return Optional.empty();
+                long end = Math.addExact(start, Math.multiplyExact(duration, windows));
+                return schedule.windowAt(serverTick, new NetworkWindow(window.slotSerial() / windows, start, end));
+            }
+        };
+    }
+
     /**
-     * Текущее окно одной радарной сети. Внутри сети все радары меняют сектор синхронно;
+     * Текущее окно одной радарной сети. Источники могут объединять целое число её окон;
      * разные сети начинают окна со сдвигом, поэтому поиск не собирается в один пиковый тик.
      *
      * @param slotSerial номер окна внутри этой сети, начиная с 0

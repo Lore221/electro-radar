@@ -205,7 +205,7 @@ public final class RadarMonitorScreen extends Screen {
                 MonitorClientState.View view = MonitorClientState.get(key);
                 if (view != null) {
                     findTargetAt(view, mouseX, mouseY).ifPresent(target -> {
-                        if (target.detectedThisWindow() && target.hasPosition()) {
+                        if (target.observing() && target.hasPosition()) {
                             PacketDistributor.sendToServer(new MonitorSelectPayload(
                                     key.rootPosition(), key.displayId(), target.target()));
                         }
@@ -412,7 +412,7 @@ public final class RadarMonitorScreen extends Screen {
         graphics.disableScissor();
     }
 
-    /** Находит ближайшую точку под курсором с радиусом, согласованным с масштабом её ячейки. */
+    /** Наведение доступно только наблюдаемым целям; память не перекрывает живую метку рядом. */
     private Optional<MonitorClientState.DisplayTarget> findTargetAt(MonitorClientState.View view,
                                                                     double mouseX, double mouseY) {
         MonitorSnapshotData snapshot = view.snapshot();
@@ -423,6 +423,7 @@ public final class RadarMonitorScreen extends Screen {
         double radius = contentSize / 2.0D;
         double hitRadius = Math.max(5.0D, markerCellPixels() * 0.5D);
         return view.targets().stream()
+                .filter(MonitorClientState.DisplayTarget::observing)
                 .filter(MonitorClientState.DisplayTarget::hasPosition)
                 .map(target -> new Hit(target, project(snapshot, target, facing), centerX, centerY, radius))
                 .filter(hit -> hit.point() != null && hit.point().insideSquare()

@@ -94,5 +94,5 @@
   "electroradar.config.server.surface.horizontal_angle_degrees": "Горизонтальный угол обзора нижнего радара в градусах",
   "electroradar.config.server.surface.range_multiplier": "Множитель дальности нижнего радара",
   "electroradar.config.server.visual.parts": "Устаревшее значение: число секторов игнорируется",
-  "electroradar.config.server.scanning.sector_ticks": "Тиков на сектор радара"
+  "electroradar.config.server.scanning.sector_ticks": "Тиков на базовое окно сканирования (360° посещает зону два окна)"
 }

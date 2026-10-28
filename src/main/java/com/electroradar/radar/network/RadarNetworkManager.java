@@ -308,7 +308,7 @@ public final class RadarNetworkManager {
                 boolean boundary = advanceWindow(network, parameters.sectorTicks());
                 if (!network.windowStarted()) continue;
                 if (boundary) {
-                    // Смена окна меняет активный сектор каждого радара, а это видно потребителю.
+                    // Общая граница задаёт публикацию; посещение источника может длиться несколько окон.
                     changed.add(network.id);
                     logBoundary(network, parameters);
                 }
@@ -336,7 +336,8 @@ public final class RadarNetworkManager {
 
     /**
      * Продвигает окно сети. Первое окно выравнивается по сдвигу из NetworkId, следующие
-     * начинаются ровно на границе предыдущего. Новый D из конфига действует с новой границы.
+     * начинаются ровно на границе предыдущего. Новый D ждёт общей границы групп источников,
+     * чтобы reload не менял длительность посреди многоконного посещения.
      *
      * @return true, если в этот тик началось новое окно
      */
@@ -349,6 +350,15 @@ public final class RadarNetworkManager {
             return false;
         } else {
             network.slotSerial = Math.incrementExact(network.slotSerial);
+            long previousDuration = network.windowEndTick - network.windowStartTick;
+            if (durationTicks != previousDuration) {
+                for (RadarState state : network.radars.values()) {
+                    if (state.plan != null && network.slotSerial % state.networkWindowMultiple != 0) {
+                        durationTicks = previousDuration;
+                        break;
+                    }
+                }
+            }
         }
         network.windowStartTick = serverTick;
         network.windowEndTick = Math.addExact(serverTick, durationTicks);
@@ -371,7 +381,11 @@ public final class RadarNetworkManager {
                               ObservationWindowSchedule.NetworkWindow networkWindow,
                               PhaseEntityCache cache, Set<NetworkId> changed) {
         if (state.participatesFromSlot > network.slotSerial) return;
-        if (boundary && !refreshPlan(network, endpoint, state, parameters, changed)) return;
+        // Параметры и геометрия закреплены на всю группу, даже когда внутри неё проходит
+        // ещё одна базовая граница сети. У нового/неготового источника план проверяется заново.
+        boolean planBoundary = boundary && (state.plan == null
+                || network.slotSerial % state.networkWindowMultiple == 0);
+        if (planBoundary && !refreshPlan(network, endpoint, state, parameters, changed)) return;
         if (state.plan == null) return;
 
         ObservationWindowSchedule.ObservationWindow window = scheduledWindow(network, endpoint, state,
@@ -459,8 +473,15 @@ public final class RadarNetworkManager {
     private boolean refreshPlan(NetworkRuntime network, EndpointKey endpoint, RadarState state,
                                 RadarServerConfig.Snapshot parameters, Set<NetworkId> changed) {
         Optional<RadarObservationPlan> prepared;
+        int networkWindowMultiple = 1;
         try {
             prepared = state.source.createObservationPlan(parameters);
+            if (prepared.isPresent()) {
+                networkWindowMultiple = prepared.orElseThrow().schedule().networkWindowMultiple();
+                if (networkWindowMultiple <= 0) {
+                    throw new IllegalArgumentException("Source network window multiple must be positive");
+                }
+            }
         } catch (RuntimeException exception) {
             endVisit(network, endpoint, state, changed);
             becomeIdle(state);
@@ -481,6 +502,7 @@ public final class RadarNetworkManager {
             return false;
         }
         state.plan = prepared.orElseThrow();
+        state.networkWindowMultiple = networkWindowMultiple;
         return true;
     }
 
@@ -666,6 +688,7 @@ public final class RadarNetworkManager {
 
     private static void becomeIdle(RadarState state) {
         state.plan = null;
+        state.networkWindowMultiple = 1;
         state.visitWindow = null;
         state.zoneVisits.clear();
     }
@@ -826,6 +849,8 @@ public final class RadarNetworkManager {
     private void logBoundary(NetworkRuntime network, RadarServerConfig.Snapshot parameters) {
         RadarDiagnostics.log("observation_network_boundary", network.id, null, network.slotSerial, serverTick,
                 () -> "window=[" + network.windowStartTick + "," + network.windowEndTick + ")"
+                        + " requestedTicks=" + parameters.sectorTicks()
+                        + " effectiveTicks=" + (network.windowEndTick - network.windowStartTick)
                         + " configRevision=" + parameters.revision() + " sources=" + network.radars.size());
     }
 

@@ -94,5 +94,5 @@
   "electroradar.config.server.surface.horizontal_angle_degrees": "Surface radar horizontal field of view in degrees",
   "electroradar.config.server.surface.range_multiplier": "Surface radar range multiplier",
   "electroradar.config.server.visual.parts": "Deprecated: ignored sector count",
-  "electroradar.config.server.scanning.sector_ticks": "Ticks per radar sector"
+  "electroradar.config.server.scanning.sector_ticks": "Ticks per base scan window (overview visits last two windows)"
 }

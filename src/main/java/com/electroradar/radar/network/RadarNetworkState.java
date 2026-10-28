@@ -116,6 +116,8 @@ final class RadarNetworkState {
         final Map<TargetRef, SourceLink> detections = new HashMap<>();
         final Map<Integer, ZoneVisit> zoneVisits = new HashMap<>();
         RadarObservationPlan plan;
+        /** Проверенная при подготовке плана кратность; исключения SPI не попадают в часы сети. */
+        int networkWindowMultiple = 1;
         /** Последнее начатое (или пропущенное) окно источника; {@code null} до первого окна. */
         VisitWindow visitWindow;
         RadarState(RegistrationToken token, long participatesFromSlot, RadarObservationSource source) {

@@ -77,8 +77,8 @@ public final class RadarServerConfig {
                 .defineInRange("range_per_module", DEFAULT.overview().rangePerModule(), 0, 1_024);
         builder.pop();
 
-        builder.comment("Duration of a sector visit in server ticks.").push("scanning");
-        SECTOR_TICKS = builder.comment("Ticks per sector; applied at the next scan boundary.")
+        builder.comment("Base network window duration: panel visits use one window, overview visits use two.").push("scanning");
+        SECTOR_TICKS = builder.comment("Ticks per base window; changes wait for the next common visit boundary.")
                 .translation("electroradar.config.server.scanning.sector_ticks")
                 .defineInRange("sector_ticks", DEFAULT.sectorTicks(), 1, 200);
         builder.pop();
