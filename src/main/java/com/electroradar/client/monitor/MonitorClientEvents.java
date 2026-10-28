@@ -1,5 +1,7 @@
 package com.electroradar.client.monitor;
 
+import java.io.IOException;
+
 import com.simibubi.create.foundation.data.CreateRegistrate;
 
 import net.neoforged.api.distmarker.Dist;
@@ -8,6 +10,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
+import net.neoforged.neoforge.client.event.RegisterShadersEvent;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
@@ -52,6 +55,11 @@ public final class MonitorClientEvents {
     @SubscribeEvent
     public static void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerBlockEntityRenderer(RadarDisplayContent.RADAR_DISPLAY_ENTITY.get(), RadarDisplayRenderer::new);
+    }
+
+    @SubscribeEvent
+    public static void registerShaders(RegisterShadersEvent event) throws IOException {
+        MonitorGuiRenderTypes.registerShaders(event);
     }
 
     /** Удаляет кэш после выгрузки мира или замены корневого блока; уровни ради этого не загружаются. */

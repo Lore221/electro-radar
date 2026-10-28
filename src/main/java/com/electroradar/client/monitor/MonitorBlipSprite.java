@@ -1,8 +1,8 @@
 package com.electroradar.client.monitor;
 
-import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import org.joml.Matrix4f;
 
-import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.resources.ResourceLocation;
 
 import com.electroradar.ElectroRadar;
@@ -28,32 +28,21 @@ public final class MonitorBlipSprite {
     }
 
     /**
-     * Рисует tintable-область atlas по центру точки и восстанавливает цвет шейдера.
+     * Добавляет область атласа в общий пакет GUI; цвет и alpha принадлежат вершинам.
      * {@code cellPixels} — размер исходной ячейки 8×8: сама иконка 4×4 занимает половину,
      * а рамка 8×8 — всю ячейку. Так метка и выделение меняются с масштабом карты одинаково.
      */
-    public static void drawGui(GuiGraphics graphics, Region region, int centerX, int centerY,
-                               int cellPixels, int argb) {
+    static void emitGui(VertexConsumer vertices, Matrix4f pose, Region region, int centerX, int centerY,
+                        int cellPixels, int argb) {
+        if ((argb >>> 24) == 0) return;
         int width = Math.max(1, Math.round(Math.max(1, cellPixels) * region.width / (float) CELL_SIZE));
         int height = Math.max(1, Math.round(Math.max(1, cellPixels) * region.height / (float) CELL_SIZE));
-        int alpha = (argb >>> 24) & 0xFF;
-        int red = (argb >>> 16) & 0xFF;
-        int green = (argb >>> 8) & 0xFF;
-        int blue = argb & 0xFF;
-        // GuiGraphics.blit использует шейдер без цвета вершин. Поэтому alpha метки должен
-        // попасть в цвет шейдера, а смешивание нужно включить явно: иначе GUI рисует
-        // полупрозрачные метки непрозрачными, хотя BER использует alpha каждой вершины.
-        RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
-        graphics.setColor(red / 255.0F, green / 255.0F,
-                blue / 255.0F, alpha / 255.0F);
-        try {
-            graphics.blit(TEXTURE, centerX - width / 2, centerY - height / 2,
-                    width, height, region.x, region.y, region.width, region.height,
-                    ATLAS_SIZE, ATLAS_SIZE);
-        } finally {
-            graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
-        }
+        int left = centerX - width / 2;
+        int top = centerY - height / 2;
+        vertices.addVertex(pose, left, top, 0.0F).setUv(region.minU(), region.minV()).setColor(argb);
+        vertices.addVertex(pose, left, top + height, 0.0F).setUv(region.minU(), region.maxV()).setColor(argb);
+        vertices.addVertex(pose, left + width, top + height, 0.0F).setUv(region.maxU(), region.maxV()).setColor(argb);
+        vertices.addVertex(pose, left + width, top, 0.0F).setUv(region.maxU(), region.minV()).setColor(argb);
     }
 
     /** Точный прямоугольник прозрачного atlas для сетевой отрисовки. */

@@ -2,9 +2,13 @@ package com.electroradar.client.monitor;
 
 import java.util.Optional;
 
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import org.joml.Matrix4f;
+
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
@@ -240,8 +244,16 @@ public final class RadarMonitorScreen extends Screen {
             MonitorSectorGuiRenderer.draw(graphics, view, snapshot.dimension(),
                     center.x(), center.z(), facing, centerOffsetX, centerOffsetZ,
                     mapDiameterBlocks, contentX, contentY, contentSize);
-            drawTargets(graphics, view, snapshot, partialTick);
-            drawTargetFrames(graphics, view, snapshot, hovered, partialTick);
+            graphics.flush();
+            VertexConsumer sprites = graphics.bufferSource().getBuffer(MonitorGuiRenderTypes.BLIPS);
+            Matrix4f pose = graphics.pose().last().pose();
+            try {
+                // Порядок вершин сохраняет рамки поверх всех меток в том же пакете атласа.
+                drawTargets(sprites, pose, view, snapshot, partialTick);
+                drawTargetFrames(sprites, pose, view, snapshot, hovered, partialTick);
+            } finally {
+                graphics.flush();
+            }
         }
         drawGrid(graphics);
         graphics.disableScissor();
@@ -250,7 +262,7 @@ public final class RadarMonitorScreen extends Screen {
     }
 
     /** Выводит только те цели, для которых клиентский снимок содержит безопасную позицию. */
-    private void drawTargets(GuiGraphics graphics, MonitorClientState.View view,
+    private void drawTargets(VertexConsumer vertices, Matrix4f pose, MonitorClientState.View view,
                              MonitorSnapshotData snapshot, float partialTick) {
         Direction facing = facing();
         int centerX = contentX + contentSize / 2;
@@ -268,13 +280,13 @@ public final class RadarMonitorScreen extends Screen {
             float opacity = view.targetOpacity(target, renderTime);
             if (opacity <= 0.0F) continue;
             int alpha = Math.max(0, Math.min(255, Math.round(255.0F * opacity)));
-            MonitorBlipSprite.drawGui(graphics, MonitorBlipSprite.ENTITY,
+            MonitorBlipSprite.emitGui(vertices, pose, MonitorBlipSprite.ENTITY,
                     x, y, cellPixels, (alpha << 24) | MonitorTargetPalette.entityRgb(target));
         }
     }
 
     /** Рисует наведение и серверный выбор отдельными рамками поверх всех значков. */
-    private void drawTargetFrames(GuiGraphics graphics, MonitorClientState.View view,
+    private void drawTargetFrames(VertexConsumer vertices, Matrix4f pose, MonitorClientState.View view,
                                   MonitorSnapshotData snapshot,
                                   Optional<MonitorClientState.DisplayTarget> hovered,
                                   float partialTick) {
@@ -286,6 +298,10 @@ public final class RadarMonitorScreen extends Screen {
         int cellPixels = markerCellPixels();
 
         for (MonitorClientState.DisplayTarget target : view.targets()) {
+            boolean selected = snapshot.selectedTarget() != null
+                    && snapshot.selectedTarget().equals(target.target());
+            boolean isHovered = hovered.isPresent() && hovered.get().target().equals(target.target());
+            if (!selected && !isHovered) continue;
             if (!target.hasPosition()) continue;
             RadarDisplayProjector.MapPoint point = project(snapshot, target, facing);
             if (point == null || !point.insideSquare()) continue;
@@ -293,15 +309,12 @@ public final class RadarMonitorScreen extends Screen {
             int y = (int) Math.round(centerY - point.y() * radius);
             float opacity = target.rememberedOpacity(gameTime);
             int alpha = Math.max(0, Math.min(255, Math.round(255.0F * opacity)));
-            boolean selected = snapshot.selectedTarget() != null
-                    && snapshot.selectedTarget().equals(target.target());
-            boolean isHovered = hovered.isPresent() && hovered.get().target().equals(target.target());
             if (selected) {
-                MonitorBlipSprite.drawGui(graphics, MonitorBlipSprite.SELECTED_FRAME,
+                MonitorBlipSprite.emitGui(vertices, pose, MonitorBlipSprite.SELECTED_FRAME,
                         x, y, cellPixels, (alpha << 24)
                                 | (RadarClientConfig.palette().screen().selectedFrame() & 0x00FFFFFF));
             } else if (isHovered) {
-                MonitorBlipSprite.drawGui(graphics, MonitorBlipSprite.HOVERED_FRAME,
+                MonitorBlipSprite.emitGui(vertices, pose, MonitorBlipSprite.HOVERED_FRAME,
                         x, y, cellPixels, (alpha << 24)
                                 | (RadarClientConfig.palette().screen().hoveredFrame() & 0x00FFFFFF));
             }
@@ -311,18 +324,28 @@ public final class RadarMonitorScreen extends Screen {
     /** Рисует мировые линии на масштабе карты и дополнительно страхует их scissor-отсечением. */
     private void drawGrid(GuiGraphics graphics) {
         MapCenter center = mapCenter(facing());
-        for (MonitorGridGeometry.GridLine line : MonitorGridGeometry.project(
-                center.x(), center.z(), centerOffsetX, centerOffsetZ, facing(), mapDiameterBlocks)) {
-            double pixelOffset = line.normalizedCoordinate() * contentSize / 2.0D;
-            if (line.vertical()) {
-                int x = (int) Math.round(contentX + contentSize / 2.0D + pixelOffset);
-                graphics.fill(x, contentY, x + 1, contentY + contentSize,
-                        RadarClientConfig.palette().screen().guiGrid());
-            } else {
-                int y = (int) Math.round(contentY + contentSize / 2.0D + pixelOffset);
-                graphics.fill(contentX, y, contentX + contentSize, y + 1,
-                        RadarClientConfig.palette().screen().guiGrid());
+        int color = RadarClientConfig.palette().screen().guiGrid();
+        if ((color >>> 24) == 0) return;
+        graphics.flush();
+        VertexConsumer vertices = graphics.bufferSource().getBuffer(RenderType.gui());
+        Matrix4f pose = graphics.pose().last().pose();
+        try {
+            for (MonitorGridGeometry.GridLine line : MonitorGridGeometry.project(
+                    center.x(), center.z(), centerOffsetX, centerOffsetZ, facing(), mapDiameterBlocks)) {
+                double pixelOffset = line.normalizedCoordinate() * contentSize / 2.0D;
+                int left = line.vertical()
+                        ? (int) Math.round(contentX + contentSize / 2.0D + pixelOffset) : contentX;
+                int top = line.vertical()
+                        ? contentY : (int) Math.round(contentY + contentSize / 2.0D + pixelOffset);
+                int right = line.vertical() ? left + 1 : contentX + contentSize;
+                int bottom = line.vertical() ? contentY + contentSize : top + 1;
+                vertices.addVertex(pose, right, bottom, 0.0F).setColor(color);
+                vertices.addVertex(pose, right, top, 0.0F).setColor(color);
+                vertices.addVertex(pose, left, top, 0.0F).setColor(color);
+                vertices.addVertex(pose, left, bottom, 0.0F).setColor(color);
             }
+        } finally {
+            graphics.flush();
         }
     }
 

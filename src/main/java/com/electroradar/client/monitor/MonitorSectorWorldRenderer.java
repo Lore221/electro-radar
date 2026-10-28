@@ -1,7 +1,5 @@
 package com.electroradar.client.monitor;
 
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -15,7 +13,6 @@ import net.minecraft.client.renderer.RenderType;
 import com.electroradar.radar.monitor.MonitorSnapshotData;
 import com.electroradar.radar.monitor.RadarDisplayBlockEntity;
 import com.electroradar.radar.RadarDiagnostics;
-import com.electroradar.radar.visual.RadarVisualAnimation;
 import com.electroradar.radar.visual.RadarVisualProfile;
 
 /** Рисует ту же проецированную геометрию секторов на экранной плоскости монитора в мире. */
@@ -51,113 +48,62 @@ final class MonitorSectorWorldRenderer {
                             + " baseHalfWidthFraction=" + BASE_LINE_HALF_WIDTH_FRACTION
                             + " activeHalfWidthFraction=" + ACTIVE_LINE_HALF_WIDTH_FRACTION);
         }
-        Map<RadarVisualProfile.Key, MonitorSectorAnimationState.ProfileFrame> frameByProfile = new HashMap<>();
-        for (MonitorSectorAnimationState.ProfileFrame frame : view.visualFrames()) {
-            frameByProfile.put(frame.profile().key(), frame);
-        }
+        Map<RadarVisualProfile.Key, MonitorSectorAnimationState.ProfileFrame> frameByProfile =
+                MonitorSectorMesh.framesByProfile(view);
 
         VertexConsumer consumer = buffers.getBuffer(
                 RenderType.entityTranslucentEmissive(MonitorBlipSprite.TEXTURE));
         double baseLineHalfWidth = contentSide * BASE_LINE_HALF_WIDTH_FRACTION;
         double activeLineHalfWidth = contentSide * ACTIVE_LINE_HALF_WIDTH_FRACTION;
+        MonitorSectorMesh.Style colors = MonitorSectorPalette.worldStyle();
+        MonitorSectorMesh.Sink sink = new MonitorSectorMesh.Sink() {
+            @Override
+            public void triangle(MonitorSectorProjection.MapPoint first, MonitorSectorProjection.MapPoint second,
+                                 MonitorSectorProjection.MapPoint third, int argb) {
+                drawTriangle(display, poseStack, consumer, facing, origin, first, second, third,
+                        centerU, centerV, mapRadius, contentLeft, contentBottom, contentSide,
+                        argb, packedOverlay, FILL_FACE_OFFSET);
+            }
+
+            @Override
+            public void line(MonitorSectorProjection.ProjectedSegment line, int argb, MonitorSectorMesh.LineStyle style) {
+                boolean active = style == MonitorSectorMesh.LineStyle.ACTIVE;
+                drawLine(display, poseStack, consumer, facing, origin, line,
+                        centerU, centerV, mapRadius, contentLeft, contentBottom, contentSide,
+                        argb, packedOverlay, active ? ACTIVE_EDGE_FACE_OFFSET : BASE_LINE_FACE_OFFSET,
+                        active ? activeLineHalfWidth : baseLineHalfWidth);
+            }
+        };
         for (RadarVisualProfile profile : snapshot.visualProfiles()) {
             MonitorSectorProjection.ProjectedCoverage coverage = MonitorSectorProjection.project(
                     profile, snapshot.dimension(), worldCenterX, worldCenterZ, facing,
                     0.0D, 0.0D, mapDiameter);
-            MonitorSectorAnimationState.ProfileFrame frame = frameByProfile.get(profile.key());
-            if (profile.animation() == RadarVisualAnimation.FULL_FLASH) {
-                float strength = frame == null ? 0.0F : frame.flashStrength();
-                if (strength > 0.0F) {
-                    int flashFill = MonitorSectorPalette.scaleAlpha(
-                            MonitorSectorPalette.worldFlashFill(), strength);
-                    // Используем все уже ограниченные части, чтобы залить объединение Coverage
-                    // по её реальной форме, но не показывать внутренние радиальные разделители.
-                    for (MonitorSectorProjection.ProjectedSector sector : coverage.sectors()) {
-                        for (List<MonitorSectorProjection.MapPoint> polygon : sector.polygons()) {
-                            drawPolygon(display, poseStack, consumer, facing, origin, polygon,
-                                    centerU, centerV, mapRadius, contentLeft, contentBottom,
-                                    contentSide, flashFill, packedOverlay, FILL_FACE_OFFSET);
-                        }
-                    }
-                }
-            } else if (frame != null && !frame.activeSectorIndices().isEmpty()) {
-                for (MonitorSectorProjection.ProjectedSector sector : coverage.sectors()) {
-                    if (frame.activeSectorIndices().contains(sector.index())) {
-                        for (List<MonitorSectorProjection.MapPoint> polygon : sector.polygons()) {
-                            drawPolygon(display, poseStack, consumer, facing, origin, polygon,
-                                    centerU, centerV, mapRadius, contentLeft, contentBottom,
-                                    contentSide, MonitorSectorPalette.activeFill(), packedOverlay,
-                                    FILL_FACE_OFFSET);
-                        }
-                    }
-                }
-            }
-
-            for (MonitorSectorProjection.ProjectedSegment line : coverage.outline()) {
-                drawLine(display, poseStack, consumer, facing, origin, line,
-                        centerU, centerV, mapRadius, contentLeft, contentBottom, contentSide,
-                        MonitorSectorPalette.worldBaseLine(), packedOverlay,
-                        BASE_LINE_FACE_OFFSET, baseLineHalfWidth);
-            }
-            if (profile.animation() == RadarVisualAnimation.SECTOR_SWEEP) {
-                for (MonitorSectorProjection.ProjectedSegment line : coverage.separators()) {
-                    drawLine(display, poseStack, consumer, facing, origin, line,
-                            centerU, centerV, mapRadius, contentLeft, contentBottom, contentSide,
-                            MonitorSectorPalette.worldBaseLine(), packedOverlay,
-                            BASE_LINE_FACE_OFFSET, baseLineHalfWidth);
-                }
-            } else if (frame != null && frame.flashStrength() > 0.0F) {
-                int flashEdge = MonitorSectorPalette.scaleAlpha(
-                        MonitorSectorPalette.worldFlashEdge(), frame.flashStrength());
-                for (MonitorSectorProjection.ProjectedSegment line : coverage.outline()) {
-                    drawLine(display, poseStack, consumer, facing, origin, line,
-                            centerU, centerV, mapRadius, contentLeft, contentBottom, contentSide,
-                            flashEdge, packedOverlay, ACTIVE_EDGE_FACE_OFFSET,
-                            activeLineHalfWidth);
-                }
-            }
-            if (profile.animation() == RadarVisualAnimation.SECTOR_SWEEP
-                    && frame != null && !frame.activeSectorIndices().isEmpty()) {
-                for (MonitorSectorProjection.ProjectedSector sector : coverage.sectors()) {
-                    if (frame.activeSectorIndices().contains(sector.index())) {
-                        for (MonitorSectorProjection.ProjectedSegment edge : sector.boundary()) {
-                            drawLine(display, poseStack, consumer, facing, origin, edge,
-                                    centerU, centerV, mapRadius, contentLeft, contentBottom, contentSide,
-                                    MonitorSectorPalette.worldActiveEdge(), packedOverlay,
-                                    ACTIVE_EDGE_FACE_OFFSET, activeLineHalfWidth);
-                        }
-                    }
-                }
-            }
+            MonitorSectorMesh.emit(coverage, profile.animation(), frameByProfile.get(profile.key()), colors, sink);
         }
     }
 
-    /** Триангулирует обрезанный сектор вокруг его центра; все пиксели остаются клиентскими. */
-    private static void drawPolygon(RadarDisplayBlockEntity display, PoseStack poseStack,
+    /** Преобразует треугольник общего прохода в поверхность монитора. */
+    private static void drawTriangle(RadarDisplayBlockEntity display, PoseStack poseStack,
                                    VertexConsumer consumer, Direction facing, BlockPos origin,
-                                   List<MonitorSectorProjection.MapPoint> polygon,
+                                   MonitorSectorProjection.MapPoint first,
+                                   MonitorSectorProjection.MapPoint second,
+                                   MonitorSectorProjection.MapPoint third,
                                    double centerU, double centerV, double mapRadius,
                                    double contentLeft, double contentBottom, double contentSide,
                                    int argb, int packedOverlay, float faceOffset) {
-        if (polygon.size() < 3) return;
         int alpha = argb >>> 24;
         int red = argb >>> 16 & 0xFF;
         int green = argb >>> 8 & 0xFF;
         int blue = argb & 0xFF;
-        MonitorSectorProjection.MapPoint first = polygon.get(0);
-        for (int i = 1; i + 1 < polygon.size(); i++) {
-            MonitorSectorProjection.MapPoint second = polygon.get(i);
-            MonitorSectorProjection.MapPoint third = polygon.get(i + 1);
-            vertex(display, poseStack, consumer, facing, origin, first, centerU, centerV, mapRadius,
-                    contentLeft, contentBottom, contentSide, red, green, blue, alpha, packedOverlay, faceOffset);
-            vertex(display, poseStack, consumer, facing, origin, second, centerU, centerV, mapRadius,
-                    contentLeft, contentBottom, contentSide, red, green, blue, alpha, packedOverlay, faceOffset);
-            vertex(display, poseStack, consumer, facing, origin, third, centerU, centerV, mapRadius,
-                    contentLeft, contentBottom, contentSide, red, green, blue, alpha, packedOverlay, faceOffset);
-            // RenderType использует QUADS: повтор вершины задаёт один невырожденный треугольник.
-            vertex(display, poseStack, consumer, facing, origin, third, centerU, centerV, mapRadius,
-                    contentLeft, contentBottom, contentSide, red, green, blue, alpha, packedOverlay, faceOffset);
-        }
+        vertex(display, poseStack, consumer, facing, origin, first, centerU, centerV, mapRadius,
+                contentLeft, contentBottom, contentSide, red, green, blue, alpha, packedOverlay, faceOffset);
+        vertex(display, poseStack, consumer, facing, origin, second, centerU, centerV, mapRadius,
+                contentLeft, contentBottom, contentSide, red, green, blue, alpha, packedOverlay, faceOffset);
+        vertex(display, poseStack, consumer, facing, origin, third, centerU, centerV, mapRadius,
+                contentLeft, contentBottom, contentSide, red, green, blue, alpha, packedOverlay, faceOffset);
+        // RenderType использует QUADS: повтор вершины задаёт один невырожденный треугольник.
+        vertex(display, poseStack, consumer, facing, origin, third, centerU, centerV, mapRadius,
+                contentLeft, contentBottom, contentSide, red, green, blue, alpha, packedOverlay, faceOffset);
     }
 
     /** Представляет линию тонким quad, отсекая также его толщину по внутреннему квадрату карты. */

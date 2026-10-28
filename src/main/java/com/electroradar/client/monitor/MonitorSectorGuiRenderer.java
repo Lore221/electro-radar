@@ -1,7 +1,5 @@
 package com.electroradar.client.monitor;
 
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 import com.mojang.blaze3d.vertex.VertexConsumer;
@@ -13,7 +11,6 @@ import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceLocation;
 
 import com.electroradar.radar.monitor.MonitorSnapshotData;
-import com.electroradar.radar.visual.RadarVisualAnimation;
 import com.electroradar.radar.visual.RadarVisualProfile;
 
 /** Отрисовка общей секторной геометрии на центральной квадратной карте GUI. */
@@ -32,10 +29,8 @@ final class MonitorSectorGuiRenderer {
         if (view == null) return;
         MonitorSnapshotData snapshot = view.snapshot();
         if (snapshot.visualProfiles().isEmpty()) return;
-        Map<RadarVisualProfile.Key, MonitorSectorAnimationState.ProfileFrame> frameByProfile = new HashMap<>();
-        for (MonitorSectorAnimationState.ProfileFrame frame : view.visualFrames()) {
-            frameByProfile.put(frame.profile().key(), frame);
-        }
+        Map<RadarVisualProfile.Key, MonitorSectorAnimationState.ProfileFrame> frameByProfile =
+                MonitorSectorMesh.framesByProfile(view);
 
         double centerX = contentX + contentSize * 0.5D;
         double centerY = contentY + contentSize * 0.5D;
@@ -45,63 +40,26 @@ final class MonitorSectorGuiRenderer {
         graphics.flush();
         VertexConsumer vertices = graphics.bufferSource().getBuffer(RenderType.gui());
         Matrix4f pose = graphics.pose().last().pose();
+        MonitorSectorMesh.Style colors = MonitorSectorPalette.guiStyle();
+        MonitorSectorMesh.Sink sink = new MonitorSectorMesh.Sink() {
+            @Override
+            public void triangle(MonitorSectorProjection.MapPoint first, MonitorSectorProjection.MapPoint second,
+                                 MonitorSectorProjection.MapPoint third, int argb) {
+                drawTriangle(vertices, pose, first, second, third, centerX, centerY, radius, argb);
+            }
+
+            @Override
+            public void line(MonitorSectorProjection.ProjectedSegment line, int argb, MonitorSectorMesh.LineStyle style) {
+                drawLine(vertices, pose, line, centerX, centerY, radius, argb,
+                        style == MonitorSectorMesh.LineStyle.ACTIVE ? 2 : 1);
+            }
+        };
         try {
             for (RadarVisualProfile profile : snapshot.visualProfiles()) {
                 MonitorSectorProjection.ProjectedCoverage coverage = MonitorSectorProjection.project(
                         profile, mapDimension, mapCenterX, mapCenterZ, facing,
                         offsetX, offsetZ, mapDiameter);
-                MonitorSectorAnimationState.ProfileFrame frame = frameByProfile.get(profile.key());
-                if (profile.animation() == RadarVisualAnimation.FULL_FLASH) {
-                    float strength = frame == null ? 0.0F : frame.flashStrength();
-                    if (strength > 0.0F) {
-                        int flashFill = MonitorSectorPalette.scaleAlpha(
-                                MonitorSectorPalette.flashFill(), strength);
-                        // Сумма частей — фактическая Coverage радара. Вспышка заполняет её целиком,
-                        // не рисуя внутренние разделители и не обходя части по очереди.
-                        for (MonitorSectorProjection.ProjectedSector sector : coverage.sectors()) {
-                            for (List<MonitorSectorProjection.MapPoint> polygon : sector.polygons()) {
-                                fillPolygon(vertices, pose, polygon, centerX, centerY, radius, flashFill);
-                            }
-                        }
-                    }
-                } else if (frame != null && !frame.activeSectorIndices().isEmpty()) {
-                    for (MonitorSectorProjection.ProjectedSector sector : coverage.sectors()) {
-                        if (frame.activeSectorIndices().contains(sector.index())) {
-                            for (List<MonitorSectorProjection.MapPoint> polygon : sector.polygons()) {
-                                fillPolygon(vertices, pose, polygon, centerX, centerY, radius,
-                                        MonitorSectorPalette.activeFill());
-                            }
-                        }
-                    }
-                }
-
-                for (MonitorSectorProjection.ProjectedSegment line : coverage.outline()) {
-                    drawLine(vertices, pose, line, centerX, centerY, radius,
-                            MonitorSectorPalette.baseLine(), 1);
-                }
-                if (profile.animation() == RadarVisualAnimation.SECTOR_SWEEP) {
-                    for (MonitorSectorProjection.ProjectedSegment line : coverage.separators()) {
-                        drawLine(vertices, pose, line, centerX, centerY, radius,
-                                MonitorSectorPalette.baseLine(), 1);
-                    }
-                } else if (frame != null && frame.flashStrength() > 0.0F) {
-                    int flashEdge = MonitorSectorPalette.scaleAlpha(
-                            MonitorSectorPalette.flashEdge(), frame.flashStrength());
-                    for (MonitorSectorProjection.ProjectedSegment line : coverage.outline()) {
-                        drawLine(vertices, pose, line, centerX, centerY, radius, flashEdge, 2);
-                    }
-                }
-                if (profile.animation() == RadarVisualAnimation.SECTOR_SWEEP
-                        && frame != null && !frame.activeSectorIndices().isEmpty()) {
-                    for (MonitorSectorProjection.ProjectedSector sector : coverage.sectors()) {
-                        if (frame.activeSectorIndices().contains(sector.index())) {
-                            for (MonitorSectorProjection.ProjectedSegment edge : sector.boundary()) {
-                                drawLine(vertices, pose, edge, centerX, centerY, radius,
-                                        MonitorSectorPalette.activeEdge(), 2);
-                            }
-                        }
-                    }
-                }
+                MonitorSectorMesh.emit(coverage, profile.animation(), frameByProfile.get(profile.key()), colors, sink);
             }
         } finally {
             // Отсечение остаётся включённым вызывающим экраном до завершения этого пакета.
@@ -109,35 +67,29 @@ final class MonitorSectorGuiRenderer {
         }
     }
 
-    /** Отсечение треугольника квадратом даёт выпуклый полигон; заполняем его веером. */
-    private static void fillPolygon(VertexConsumer vertices, Matrix4f pose,
-                                   List<MonitorSectorProjection.MapPoint> polygon,
-                                   double centerX, double centerY, double radius, int argb) {
-        if (polygon.size() < 3 || (argb >>> 24) == 0) return;
-        MonitorSectorProjection.MapPoint first = polygon.getFirst();
+    /** GUI-тип использует QUADS и culling; повтор вершины задаёт один треугольник. */
+    private static void drawTriangle(VertexConsumer vertices, Matrix4f pose,
+                                     MonitorSectorProjection.MapPoint first,
+                                     MonitorSectorProjection.MapPoint second,
+                                     MonitorSectorProjection.MapPoint third,
+                                     double centerX, double centerY, double radius, int argb) {
         double ax = centerX + first.x() * radius;
         double ay = centerY - first.y() * radius;
-        for (int i = 1; i + 1 < polygon.size(); i++) {
-            MonitorSectorProjection.MapPoint second = polygon.get(i);
-            MonitorSectorProjection.MapPoint third = polygon.get(i + 1);
-            double bx = centerX + second.x() * radius;
-            double by = centerY - second.y() * radius;
-            double cx = centerX + third.x() * radius;
-            double cy = centerY - third.y() * radius;
-            double cross = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
-            if (cross == 0.0D) continue;
-            // RenderType.gui использует QUADS и culling. Нормализуем обход для экранной Y,
-            // а четвёртую вершину повторяем: второй треугольник квада вырожден.
-            vertex(vertices, pose, ax, ay, argb);
-            if (cross < 0.0D) {
-                vertex(vertices, pose, bx, by, argb);
-                vertex(vertices, pose, cx, cy, argb);
-                vertex(vertices, pose, cx, cy, argb);
-            } else {
-                vertex(vertices, pose, cx, cy, argb);
-                vertex(vertices, pose, bx, by, argb);
-                vertex(vertices, pose, bx, by, argb);
-            }
+        double bx = centerX + second.x() * radius;
+        double by = centerY - second.y() * radius;
+        double cx = centerX + third.x() * radius;
+        double cy = centerY - third.y() * radius;
+        double cross = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+        if (cross == 0.0D) return;
+        vertex(vertices, pose, ax, ay, argb);
+        if (cross < 0.0D) {
+            vertex(vertices, pose, bx, by, argb);
+            vertex(vertices, pose, cx, cy, argb);
+            vertex(vertices, pose, cx, cy, argb);
+        } else {
+            vertex(vertices, pose, cx, cy, argb);
+            vertex(vertices, pose, bx, by, argb);
+            vertex(vertices, pose, bx, by, argb);
         }
     }
 

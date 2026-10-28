@@ -17,6 +17,15 @@ final class MonitorSectorPalette {
     static int worldFlashFill() { return RadarClientConfig.palette().sector().world().flashFill(); }
     static int worldFlashEdge() { return RadarClientConfig.palette().sector().world().flashEdge(); }
 
+    static MonitorSectorMesh.Style guiStyle() {
+        return new MonitorSectorMesh.Style(baseLine(), activeFill(), activeEdge(), flashFill(), flashEdge());
+    }
+
+    static MonitorSectorMesh.Style worldStyle() {
+        return new MonitorSectorMesh.Style(worldBaseLine(), activeFill(), worldActiveEdge(),
+                worldFlashFill(), worldFlashEdge());
+    }
+
     /** Масштабирует только alpha цвета, сохраняя RGB-палитру и общий расчёт силы фазы. */
     static int scaleAlpha(int argb, float strength) {
         float bounded = Math.clamp(strength, 0.0F, 1.0F);
