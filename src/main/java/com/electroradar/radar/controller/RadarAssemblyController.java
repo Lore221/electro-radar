@@ -21,12 +21,14 @@ import com.electroradar.radar.RadarDiagnostics;
 
 /**
  * Владеет состоянием одной сборки Create и её коротким визуальным наклоном. В NBT остаются UUID,
- * количество и фаза анимации; состав панелей сериализует сама contraption, не BlockEntity.
+ * тип/размер апертуры и фаза анимации; блоки сериализует сама contraption.
  */
 final class RadarAssemblyController {
     private static final String ASSEMBLED_TAG = "Assembled";
     private static final String ENTITY_UUID_TAG = "PanelContraptionUuid";
     private static final String PANEL_COUNT_TAG = "PanelCount";
+    private static final String APERTURE_KIND_TAG = "ApertureKind";
+    private static final String APERTURE_COUNT_TAG = "ApertureCount";
     private static final String TILT_ACTIVE_TAG = "TiltActive";
     private static final String TILT_START_TAG = "TiltStart";
     private static final String TILT_TARGET_TAG = "TiltTarget";
@@ -36,7 +38,8 @@ final class RadarAssemblyController {
 
     private boolean assembled;
     private UUID entityUuid;
-    private int panelCount;
+    private int apertureCount;
+    private RadarApertureKind apertureKind = RadarApertureKind.PANEL;
     private transient ControlledContraptionEntity entity;
     private transient Direction lastFacing;
     private transient int missingEntityTicks;
@@ -50,7 +53,11 @@ final class RadarAssemblyController {
     public void read(CompoundTag tag) {
         assembled = tag.getBoolean(ASSEMBLED_TAG);
         entityUuid = tag.hasUUID(ENTITY_UUID_TAG) ? tag.getUUID(ENTITY_UUID_TAG) : null;
-        panelCount = Math.max(0, tag.getInt(PANEL_COUNT_TAG));
+        apertureCount = Math.max(0, tag.contains(APERTURE_COUNT_TAG)
+                ? tag.getInt(APERTURE_COUNT_TAG) : tag.getInt(PANEL_COUNT_TAG));
+        apertureKind = tag.contains(APERTURE_KIND_TAG)
+                ? RadarApertureKind.fromSavedName(tag.getString(APERTURE_KIND_TAG))
+                : RadarApertureKind.PANEL;
         tiltActive = tag.getBoolean(TILT_ACTIVE_TAG);
         tiltStart = tag.getFloat(TILT_START_TAG);
         tiltTarget = tag.getFloat(TILT_TARGET_TAG);
@@ -58,7 +65,7 @@ final class RadarAssemblyController {
         tiltElapsed = Math.clamp(tag.getInt(TILT_ELAPSED_TAG), 0, Math.max(0, tiltDuration));
         if (entityUuid == null) {
             assembled = false;
-            panelCount = 0;
+            apertureCount = 0;
             tiltActive = false;
         }
         entity = null;
@@ -70,7 +77,9 @@ final class RadarAssemblyController {
     public void write(CompoundTag tag) {
         tag.putBoolean(ASSEMBLED_TAG, assembled);
         if (entityUuid != null) tag.putUUID(ENTITY_UUID_TAG, entityUuid);
-        tag.putInt(PANEL_COUNT_TAG, panelCount);
+        tag.putInt(PANEL_COUNT_TAG, apertureCount);
+        tag.putInt(APERTURE_COUNT_TAG, apertureCount);
+        tag.putString(APERTURE_KIND_TAG, apertureKind.serializedName());
         tag.putBoolean(TILT_ACTIVE_TAG, tiltActive);
         tag.putFloat(TILT_START_TAG, tiltStart);
         tag.putFloat(TILT_TARGET_TAG, tiltTarget);
@@ -87,7 +96,7 @@ final class RadarAssemblyController {
 
     /** При необработанном повороте панели и область скана ещё не согласованы. */
     public boolean isReadyForScanning(RadarControllerBlockEntity owner) {
-        return assembled && (lastFacing == null
+        return assembled && apertureCount > 0 && (lastFacing == null
                 || lastFacing == owner.getBlockState().getValue(RadarControllerBlock.FACING));
     }
 
@@ -96,9 +105,9 @@ final class RadarAssemblyController {
         return assembled || entityUuid != null;
     }
 
-    public int panelCount() {
-        return panelCount;
-    }
+    public int panelCount() { return apertureKind == RadarApertureKind.PANEL ? apertureCount : 0; }
+    public int apertureCount() { return apertureCount; }
+    public RadarApertureKind apertureKind() { return apertureKind; }
 
     public boolean owns(ControlledContraptionEntity candidate) {
         return entityUuid != null && candidate.getUUID().equals(entityUuid);
@@ -134,7 +143,7 @@ final class RadarAssemblyController {
                 }
                 assembled = false;
                 entityUuid = null;
-                panelCount = 0;
+                apertureCount = 0;
                 tiltActive = false;
                 owner.setChanged();
             }
@@ -164,7 +173,8 @@ final class RadarAssemblyController {
             ControlledContraptionEntity current = resolveEntity(owner, level);
             if (current == null) {
                 tell(player, RadarAssemblyFinder.Failure.ENTITY_UNAVAILABLE, 0);
-                logAssembly(owner, RadarAssemblyFinder.Failure.ENTITY_UNAVAILABLE, panelCount);
+                logAssembly(owner, RadarAssemblyFinder.Failure.ENTITY_UNAVAILABLE,
+                        apertureCount, apertureKind);
                 return;
             }
             boolean disassembled = disassemble(owner, level, "manual");
@@ -179,41 +189,49 @@ final class RadarAssemblyController {
         Direction facing = owner.getBlockState().getValue(RadarControllerBlock.FACING);
         RadarServerConfig.Snapshot parameters = RadarServerConfig.snapshot();
         RadarAssemblyFinder.Discovery discovery = RadarAssemblyFinder.discover(
-                level, owner.getBlockPos(), facing, parameters.maxPanels());
+                level, owner.getBlockPos(), facing, parameters.maxPanels(), parameters.overview().maxModules());
         if (!discovery.valid()) {
-            logAssembly(owner, discovery.failure(), discovery.panelCount());
-            tell(player, discovery.failure(), parameters.maxPanels());
+            logAssembly(owner, discovery.failure(), discovery.apertureCount(), discovery.apertureKind());
+            tell(player, discovery.failure(), discovery.apertureKind() == RadarApertureKind.OVERVIEW
+                    ? parameters.overview().maxModules() : parameters.maxPanels());
             return;
         }
-        logAssembly(owner, RadarAssemblyFinder.Failure.NONE, discovery.panelCount());
+        logAssembly(owner, RadarAssemblyFinder.Failure.NONE,
+                discovery.apertureCount(), discovery.apertureKind());
 
         RadarContraptionAdapter.Result result = RadarContraptionAdapter.assemble(
                 level, owner, owner.mode(), discovery);
         if (!result.success()) {
-            logAssembly(owner, result.failure(), discovery.panelCount());
-            tell(player, result.failure(), parameters.maxPanels());
+            logAssembly(owner, result.failure(), discovery.apertureCount(), discovery.apertureKind());
+            tell(player, result.failure(), discovery.apertureKind() == RadarApertureKind.OVERVIEW
+                    ? parameters.overview().maxModules() : parameters.maxPanels());
             return;
         }
 
+        RadarApertureKind previousKind = apertureKind;
         entity = result.entity();
         entityUuid = entity.getUUID();
         assembled = true;
-        panelCount = discovery.panelCount();
+        apertureKind = discovery.apertureKind();
+        apertureCount = discovery.apertureCount();
         missingEntityTicks = 0;
         missingEntityLogged = false;
         tiltStart = 0.0F;
-        tiltTarget = (float) owner.mode().panelTiltDegrees(facing);
+        tiltTarget = apertureKind == RadarApertureKind.OVERVIEW
+                ? 0.0F : (float) owner.mode().panelTiltDegrees(facing);
         tiltDuration = (int) Math.ceil(Math.abs(tiltTarget - tiltStart));
         tiltElapsed = 0;
         tiltActive = tiltDuration > 0;
         owner.setChanged();
         RadarServerRuntime runtime = owner.runtime();
-        runtime.invalidateProfile();
+        if (previousKind != apertureKind) runtime.apertureKindChanged(owner);
+        else runtime.invalidateProfile();
         if (tiltActive) sendTilt(entity, tiltStart, tiltTarget, tiltDuration);
         RadarDiagnostics.log("contraption_assembled", owner.networkId(), owner.endpoint(), null,
                 owner.currentTickForDiagnostics(), "entity=" + entityUuid + " mode=" + owner.mode()
-                        + " panels=" + panelCount + " targetAngle=" + tiltTarget);
-        tell(player, RadarAssemblyFinder.Failure.NONE, panelCount);
+                        + " aperture=" + apertureKind.serializedName() + " count=" + apertureCount
+                        + " targetAngle=" + tiltTarget);
+        tellSuccess(player, apertureKind, apertureCount);
     }
 
     public void prepareForBlockRemoval(RadarControllerBlockEntity owner, ServerLevel level) {
@@ -243,14 +261,15 @@ final class RadarAssemblyController {
             current.setAngle(0.0F);
             if (current.getContraption() instanceof RadarPanelContraption panels) {
                 current.disassemble();
-                panels.clearPanelProfiles(level, owner.getBlockPos());
+                panels.refreshRestoredAperture(level, owner.getBlockPos());
             } else {
                 current.disassemble();
                 RadarDiagnostics.log("contraption_type_mismatch_on_disassemble", owner.networkId(),
                         owner.endpoint(), null, owner.currentTickForDiagnostics(), "entity=" + entityUuid);
             }
             RadarDiagnostics.log("contraption_disassembled", owner.networkId(), owner.endpoint(), null,
-                    owner.currentTickForDiagnostics(), "entity=" + entityUuid + " panels=" + panelCount
+                    owner.currentTickForDiagnostics(), "entity=" + entityUuid + " aperture="
+                            + apertureKind.serializedName() + " count=" + apertureCount
                             + " reason=" + reason);
             clearRuntime();
             owner.runtime().invalidateProfile();
@@ -274,7 +293,8 @@ final class RadarAssemblyController {
             missingEntityTicks = 0;
             missingEntityLogged = false;
             RadarDiagnostics.log("contraption_recovered_after_load", owner.networkId(), owner.endpoint(),
-                    null, owner.currentTickForDiagnostics(), "entity=" + entityUuid + " panels=" + panelCount);
+                    null, owner.currentTickForDiagnostics(), "entity=" + entityUuid + " aperture="
+                            + apertureKind.serializedName() + " count=" + apertureCount);
             return controlled;
         }
         return null;
@@ -301,7 +321,7 @@ final class RadarAssemblyController {
     private void clearRuntime() {
         assembled = false;
         entityUuid = null;
-        panelCount = 0;
+        apertureCount = 0;
         entity = null;
         tiltActive = false;
         tiltStart = 0.0F;
@@ -312,12 +332,14 @@ final class RadarAssemblyController {
         missingEntityLogged = false;
     }
 
-    private void logAssembly(RadarControllerBlockEntity owner, RadarAssemblyFinder.Failure failure, int count) {
+    private void logAssembly(RadarControllerBlockEntity owner, RadarAssemblyFinder.Failure failure,
+                             int count, RadarApertureKind kind) {
         RadarDiagnostics.log(failure == RadarAssemblyFinder.Failure.NONE
                         ? "assembly_search_completed" : "assembly_search_rejected",
                 owner.networkId(), owner.endpoint(), null, owner.currentTickForDiagnostics(),
                 "mode=" + owner.mode() + " facing=" + owner.getBlockState().getValue(RadarControllerBlock.FACING)
-                        + " panels=" + count + " reason=" + failure.name().toLowerCase());
+                        + " aperture=" + kind.serializedName() + " count=" + count
+                        + " reason=" + failure.name().toLowerCase());
     }
 
     private static void tell(net.minecraft.world.entity.player.Player player,
@@ -326,11 +348,21 @@ final class RadarAssemblyController {
         if (failure == RadarAssemblyFinder.Failure.NONE) {
             player.displayClientMessage(Component.translatable("message.electroradar.assembly.success",
                     countOrLimit), true);
-        } else if (failure == RadarAssemblyFinder.Failure.TOO_MANY_PANELS) {
+        } else if (failure == RadarAssemblyFinder.Failure.TOO_MANY_PANELS
+                || failure == RadarAssemblyFinder.Failure.TOO_MANY_OVERVIEW_MODULES) {
             player.displayClientMessage(Component.translatable(failure.translationKey(), countOrLimit), true);
         } else {
             player.displayClientMessage(Component.translatable(failure.translationKey()), true);
         }
+    }
+
+    private static void tellSuccess(net.minecraft.world.entity.player.Player player,
+                                    RadarApertureKind kind, int count) {
+        if (player == null) return;
+        String key = kind == RadarApertureKind.OVERVIEW
+                ? "message.electroradar.assembly.overview_success"
+                : "message.electroradar.assembly.success";
+        player.displayClientMessage(Component.translatable(key, count), true);
     }
 
     /** Create вызывает этот метод только после восстановления entity из её сохранённого UUID. */

@@ -1,5 +1,7 @@
 package com.electroradar.radar.network;
 
+import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -31,11 +33,29 @@ public interface ObservationWindowSchedule {
     }
 
     /** Окно одного источника; пустой Optional означает штатную паузу без живых прав. */
-    record ObservationWindow(int activeSectorIndex, long startTick, long endTick, long fadeDurationTicks) {
+    record ObservationWindow(List<Integer> activeSectorIndices, long startTick,
+                             long endTick, long fadeDurationTicks) {
         public ObservationWindow {
-            if (activeSectorIndex < 0 || startTick < 0 || endTick <= startTick || fadeDurationTicks < 0) {
+            activeSectorIndices = List.copyOf(activeSectorIndices);
+            if (activeSectorIndices.isEmpty() || activeSectorIndices.size() > 64
+                    || startTick < 0 || endTick <= startTick || fadeDurationTicks < 0
+                    || new HashSet<>(activeSectorIndices).size() != activeSectorIndices.size()
+                    || activeSectorIndices.stream().anyMatch(index -> index == null || index < 0 || index >= 64)) {
                 throw new IllegalArgumentException("Invalid source observation window");
             }
+        }
+
+        public ObservationWindow(int activeSectorIndex, long startTick, long endTick,
+                                 long fadeDurationTicks) {
+            this(List.of(activeSectorIndex), startTick, endTick, fadeDurationTicks);
+        }
+
+        /** Singleton compatibility accessor for ordinary one-zone radar schedules. */
+        public int activeSectorIndex() {
+            if (activeSectorIndices.size() != 1) {
+                throw new IllegalStateException("Observation window contains multiple active sectors");
+            }
+            return activeSectorIndices.getFirst();
         }
     }
 
@@ -49,7 +69,7 @@ public interface ObservationWindowSchedule {
             Objects.requireNonNull(window, "networkWindow");
             int index = order[(int) Math.floorMod(window.slotSerial(), (long) order.length)];
             long fadeTicks = Math.multiplyExact(window.durationTicks(), order.length);
-            return Optional.of(new ObservationWindow(index, window.startTick(), window.endTick(), fadeTicks));
+            return Optional.of(new ObservationWindow(List.of(index), window.startTick(), window.endTick(), fadeTicks));
         };
     }
 }

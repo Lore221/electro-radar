@@ -28,8 +28,9 @@ import com.electroradar.radar.network.RadarNetworkState.Registration;
 import com.electroradar.radar.network.RadarNetworkState.SectorConfirmation;
 import com.electroradar.radar.network.RadarNetworkState.SourceLink;
 import com.electroradar.radar.network.RadarNetworkState.TargetEntry;
-import com.electroradar.radar.network.RadarNetworkState.Visit;
+import com.electroradar.radar.network.RadarNetworkState.VisitWindow;
 import com.electroradar.radar.network.RadarNetworkState.VisitPhase;
+import com.electroradar.radar.network.RadarNetworkState.ZoneVisit;
 import com.electroradar.radar.scan.EntityRadarScanner;
 
 /**
@@ -167,12 +168,18 @@ public final class RadarNetworkManager {
         RadarState state = network == null ? null : network.radars.get(radar);
         if (registration == null || registration.role != EndpointRole.RADAR || state == null
                 || !state.token.equals(registration.token) || state.plan == null
-                || !state.observing() || state.visit == null) {
+                || !state.observing() || state.visitWindow == null) {
             return Optional.empty();
         }
-        Visit visit = state.visit;
-        return Optional.of(new RadarVisualWindow(state.plan.profile(), visit.sectorIndex(),
-                visit.startTick(), visit.endTick()));
+        VisitWindow window = state.visitWindow;
+        List<Integer> active = window.activeSectorIndices().stream()
+                .filter(index -> {
+                    ZoneVisit zone = state.zoneVisits.get(index);
+                    return zone != null && zone.observing();
+                }).toList();
+        if (active.isEmpty()) return Optional.empty();
+        return Optional.of(new RadarVisualWindow(state.plan.profile(), active,
+                window.startTick(), window.endTick()));
     }
 
     public boolean unregister(EndpointKey endpoint, NetworkId networkId, RegistrationToken token) {
@@ -356,9 +363,8 @@ public final class RadarNetworkManager {
     }
 
     /**
-     * Один тик одного источника. Порядок проверок:
-     * план (только на границе) → окно расписания → новое ли это посещение → готовность →
-     * поиск (только в начале OBSERVING) → проверка начального набора.
+     * Один тик одного источника. Готовность общая для физического источника, а поиск, начальный
+     * набор UUID, фаза и ошибки изолированы по каждой активной геометрической зоне.
      */
     private void processRadar(NetworkRuntime network, EndpointKey endpoint, RadarState state,
                               RadarServerConfig.Snapshot parameters, boolean boundary,
@@ -372,19 +378,23 @@ public final class RadarNetworkManager {
                 networkWindow, changed);
         if (window == null) return;
 
-        boolean newVisit = state.visit == null
-                || !state.visit.sameWindow(window, state.plan.geometryRevision());
+        boolean newVisit = state.visitWindow == null
+                || !state.visitWindow.sameWindow(window, state.plan.geometryRevision());
         if (newVisit) {
             endVisit(network, endpoint, state, changed);
-            state.visit = new Visit(window.activeSectorIndex(), window.startTick(),
+            state.visitWindow = new VisitWindow(window.activeSectorIndices(), window.startTick(),
                     window.endTick(), window.fadeDurationTicks(), state.plan.geometryRevision());
-            state.metrics.reset();
-            state.phase = VisitPhase.SKIPPED;
+            for (int sectorIndex : window.activeSectorIndices()) {
+                ZoneVisit zone = new ZoneVisit(sectorIndex, state.visitWindow);
+                zone.phase = VisitPhase.SKIPPED;
+                state.zoneVisits.put(sectorIndex, zone);
+            }
             if (window.startTick() != serverTick) {
                 // Поиск разрешён только в первый тик посещения; опоздавший источник ждёт.
-                state.metrics.outcome = "window_start_missed";
+                for (ZoneVisit zone : state.zoneVisits.values()) zone.metrics.outcome = "window_start_missed";
                 RadarDiagnostics.log("observation_window_skipped", network.id, endpoint, network.slotSerial,
-                        serverTick, () -> "reason=window_start_missed startTick=" + window.startTick());
+                        serverTick, () -> "reason=window_start_missed startTick=" + window.startTick()
+                                + " sectors=" + window.activeSectorIndices());
                 return;
             }
         } else if (!state.observing()) {
@@ -397,25 +407,40 @@ public final class RadarNetworkManager {
                 RadarDiagnostics.log("observation_revoked", network.id, endpoint, network.slotSerial,
                         serverTick, "reason=source_not_ready");
             }
+            for (ZoneVisit zone : state.zoneVisits.values()) zone.metrics.outcome = "source_not_ready";
             endVisit(network, endpoint, state, changed);
-            state.metrics.outcome = "source_not_ready";
             return;
         }
 
         if (newVisit) {
-            state.phase = VisitPhase.OBSERVING;
-            changed.add(network.id);
-            try {
-                searchSector(network, endpoint, state, cache, changed);
-            } catch (RuntimeException exception) {
-                state.metrics.outcome = "search_exception";
-                endVisit(network, endpoint, state, changed);
-                RadarDiagnostics.logException("observation_search_failed", network.id, endpoint,
-                        network.slotSerial, serverTick, "retry=next_window active_rights=revoked", exception);
-                return;
+            for (int sectorIndex : window.activeSectorIndices()) {
+                ZoneVisit zone = state.zoneVisits.get(sectorIndex);
+                zone.phase = VisitPhase.OBSERVING;
+                changed.add(network.id);
+                try {
+                    searchSector(network, endpoint, state, zone, cache, changed);
+                } catch (RuntimeException exception) {
+                    zone.metrics.outcome = "search_exception";
+                    endZoneVisit(network, endpoint, state, zone, changed);
+                    RadarDiagnostics.logException("observation_search_failed", network.id, endpoint,
+                            network.slotSerial, serverTick, "sector=" + sectorIndex
+                                    + " retry=next_visit active_rights=revoked other_zones=continue", exception);
+                }
             }
         }
-        trackKnownTargets(network, endpoint, state, cache, changed);
+        for (int sectorIndex : window.activeSectorIndices()) {
+            ZoneVisit zone = state.zoneVisits.get(sectorIndex);
+            if (zone == null || !zone.observing()) continue;
+            try {
+                trackKnownTargets(network, endpoint, state, zone, cache, changed);
+            } catch (RuntimeException exception) {
+                zone.metrics.outcome = "known_target_check_failed";
+                endZoneVisit(network, endpoint, state, zone, changed);
+                RadarDiagnostics.logException("known_zone_check_failed", network.id, endpoint,
+                        network.slotSerial, serverTick, "sector=" + sectorIndex
+                                + " active_rights=revoked other_zones=continue", exception);
+            }
+        }
     }
 
     /**
@@ -468,21 +493,20 @@ public final class RadarNetworkManager {
                     state.plan.schedule().windowAt(serverTick, networkWindow);
             if (next.isEmpty()) {
                 endVisit(network, endpoint, state, changed);
-                state.phase = VisitPhase.IDLE;
-                state.visit = null;
+                state.visitWindow = null;
                 return null;
             }
             ObservationWindowSchedule.ObservationWindow window = next.orElseThrow();
             if (!state.plan.dimension().equals(endpoint.dimension().location())
-                    || window.activeSectorIndex() >= state.plan.sectors().size()
+                    || window.activeSectorIndices().stream()
+                            .anyMatch(index -> index >= state.plan.sectors().size())
                     || window.startTick() > serverTick || window.endTick() <= serverTick) {
                 throw new IllegalStateException("Source schedule returned a window invalid for this tick");
             }
             return window;
         } catch (RuntimeException exception) {
             endVisit(network, endpoint, state, changed);
-            state.phase = VisitPhase.IDLE;
-            state.visit = null;
+            state.visitWindow = null;
             RadarDiagnostics.logException("observation_schedule_failed", network.id, endpoint,
                     network.slotSerial, serverTick, "active_rights=revoked retry=next_schedule_window", exception);
             return null;
@@ -499,36 +523,37 @@ public final class RadarNetworkManager {
         }
     }
 
-    /** Один запрос на входе в сектор; ошибки и неготовность не считаются пустыми поисками. */
+    /** Один запрос на входе в зону; ошибка не становится отрицательным результатом поиска. */
     private void searchSector(NetworkRuntime network, EndpointKey endpoint, RadarState state,
+                              ZoneVisit zone,
                               PhaseEntityCache cache, Set<NetworkId> changed) {
-        RadarObservationPlan.Sector sector = state.plan.sectors().get(state.visit.sectorIndex());
+        RadarObservationPlan.Sector sector = state.plan.sectors().get(zone.sectorIndex);
         if (sector.area().isEmpty()) {
-            state.metrics.outcome = "empty_geometry";
-            applySuccessfulSearch(network, endpoint, state, Map.of(), changed);
+            zone.metrics.outcome = "empty_geometry";
+            applySuccessfulSearch(network, endpoint, state, zone, Map.of(), changed);
             return;
         }
         ServerLevel level = server.getLevel(endpoint.dimension());
         if (level == null) {
             // Посещение остаётся OBSERVING с пустым набором: это не отрицательный поиск.
-            state.metrics.outcome = "dimension_unloaded";
+            zone.metrics.outcome = "dimension_unloaded";
             RadarDiagnostics.log("observation_search_unavailable", network.id, endpoint, network.slotSerial,
-                    serverTick, "reason=dimension_unloaded");
+                    serverTick, "reason=dimension_unloaded sector=" + zone.sectorIndex);
             return;
         }
         long searchStarted = System.nanoTime();
+        zone.metrics.spatialQueries++;
         EntityRadarScanner.EntitySearchResult result = SCANNER.scanEntities(
                 level, sector.area(), state.plan.eligibility());
-        state.metrics.searchDurationNanos += System.nanoTime() - searchStarted;
-        state.metrics.outcome = "search_succeeded";
-        state.metrics.spatialQueries++;
-        state.metrics.candidates += result.candidateCount();
-        state.metrics.acceptedHitboxes += result.acceptedHitboxCount();
-        state.metrics.foundTargets += result.entities().size();
+        zone.metrics.searchDurationNanos += System.nanoTime() - searchStarted;
+        zone.metrics.outcome = "search_succeeded";
+        zone.metrics.candidates += result.candidateCount();
+        zone.metrics.acceptedHitboxes += result.acceptedHitboxCount();
+        zone.metrics.foundTargets += result.entities().size();
         for (Map.Entry<TargetRef, Entity> found : result.entities().entrySet()) {
             cache.remember(found.getKey(), found.getValue());
         }
-        applySuccessfulSearch(network, endpoint, state, result.entities(), changed);
+        applySuccessfulSearch(network, endpoint, state, zone, result.entities(), changed);
     }
 
     /**
@@ -536,9 +561,10 @@ public final class RadarNetworkManager {
      * подтверждение того же геометрического сектора; на {@code forgetAfterMisses}-м оно снимается.
      */
     private void applySuccessfulSearch(NetworkRuntime network, EndpointKey endpoint, RadarState state,
+                                       ZoneVisit zone,
                                        Map<TargetRef, Entity> found, Set<NetworkId> changed) {
-        int sectorIndex = state.visit.sectorIndex();
-        state.visitTargets.clear();
+        int sectorIndex = zone.sectorIndex;
+        zone.targets.clear();
         for (TargetRef target : found.keySet()) {
             if (!target.dimension().equals(endpoint.dimension())) continue;
             SourceLink link = state.detections.computeIfAbsent(target, ignored -> {
@@ -554,7 +580,7 @@ public final class RadarNetworkManager {
             });
             confirmation.missedVisits = 0;
             confirmation.lastSuccessfulVisitTick = serverTick;
-            state.visitTargets.add(target);
+            zone.targets.add(target);
         }
         List<TargetRef> forgotten = new ArrayList<>();
         for (Map.Entry<TargetRef, SourceLink> detection : state.detections.entrySet()) {
@@ -578,22 +604,23 @@ public final class RadarNetworkManager {
      * изменении (положение, тип, переход наблюдение/память), а не каждый тик неподвижной цели.
      */
     private void trackKnownTargets(NetworkRuntime network, EndpointKey endpoint, RadarState state,
+                                   ZoneVisit zone,
                                    PhaseEntityCache cache, Set<NetworkId> changed) {
-        int sectorIndex = state.visit.sectorIndex();
+        int sectorIndex = zone.sectorIndex;
         RadarObservationPlan.Sector sector = state.plan.sectors().get(sectorIndex);
         if (sector.area().isEmpty()) return;
         long startedAt = System.nanoTime();
         long lookupsBefore = cache.uuidLookups;
         long hitsBefore = cache.cacheHits;
-        for (TargetRef target : state.visitTargets) {
-            state.metrics.knownChecks++;
+        for (TargetRef target : zone.targets) {
+            zone.metrics.knownChecks++;
             SourceLink link = state.detections.get(target);
             SectorConfirmation confirmation = link == null ? null : link.sectors.get(sectorIndex);
             if (confirmation == null) continue;
             try {
                 Entity entity = cache.resolve(target);
                 if (entity == null || !EntityRadarScanner.anyHitboxInside(entity, sector.area())) {
-                    freezeConfirmation(confirmation, state.visit.fadeDurationTicks(), changed, network.id);
+                    freezeConfirmation(confirmation, zone.window.fadeDurationTicks(), changed, network.id);
                     continue;
                 }
                 LiveResult next = LiveResult.observed(serverTick, entity.position(), entity.getType());
@@ -601,38 +628,46 @@ public final class RadarNetworkManager {
                 confirmation.measurement = next;
                 confirmation.lastSuccessfulVisitTick = serverTick;
             } catch (RuntimeException exception) {
-                freezeConfirmation(confirmation, state.visit.fadeDurationTicks(), changed, network.id);
+                freezeConfirmation(confirmation, zone.window.fadeDurationTicks(), changed, network.id);
                 RadarDiagnostics.logException("known_target_check_failed", network.id, endpoint,
                         network.slotSerial, serverTick, "target=" + target + " sector=" + sectorIndex, exception);
             }
         }
-        state.metrics.uuidLookups += cache.uuidLookups - lookupsBefore;
-        state.metrics.cacheHits += cache.cacheHits - hitsBefore;
-        state.metrics.checkDurationNanos += System.nanoTime() - startedAt;
+        zone.metrics.uuidLookups += cache.uuidLookups - lookupsBefore;
+        zone.metrics.cacheHits += cache.cacheHits - hitsBefore;
+        zone.metrics.checkDurationNanos += System.nanoTime() - startedAt;
     }
 
-    /** Закрывает текущее наблюдение: замораживает набор и переводит посещение в SKIPPED. */
+    /** Закрывает все активные зоны источника независимо друг от друга. */
     private void endVisit(NetworkRuntime network, EndpointKey endpoint, RadarState state, Set<NetworkId> changed) {
-        if (!state.observing()) return;
-        logVisitSummary(network, endpoint, state);
-        for (TargetRef target : state.visitTargets) {
+        for (ZoneVisit zone : state.zoneVisits.values()) {
+            endZoneVisit(network, endpoint, state, zone, changed);
+        }
+        state.zoneVisits.clear();
+    }
+
+    /** Ошибка или конец окна отзывает только эту зону и сохраняет её собственное затухание. */
+    private void endZoneVisit(NetworkRuntime network, EndpointKey endpoint, RadarState state,
+                              ZoneVisit zone, Set<NetworkId> changed) {
+        if (!zone.observing()) return;
+        logVisitSummary(network, endpoint, zone, state.plan);
+        for (TargetRef target : zone.targets) {
             SourceLink link = state.detections.get(target);
-            SectorConfirmation confirmation = link == null ? null : link.sectors.get(state.visit.sectorIndex());
+            SectorConfirmation confirmation = link == null ? null : link.sectors.get(zone.sectorIndex);
             if (confirmation != null) {
-                freezeConfirmation(confirmation, state.visit.fadeDurationTicks(), changed, network.id);
+                freezeConfirmation(confirmation, zone.window.fadeDurationTicks(), changed, network.id);
             }
         }
-        state.visitTargets.clear();
-        state.phase = VisitPhase.SKIPPED;
-        // Активный сектор пропадает с монитора — это видимое изменение.
+        zone.targets.clear();
+        zone.phase = VisitPhase.SKIPPED;
+        // Эта зона пропадает с монитора; остальные зоны источника могут продолжить работу.
         changed.add(network.id);
     }
 
     private static void becomeIdle(RadarState state) {
         state.plan = null;
-        state.phase = VisitPhase.IDLE;
-        state.visit = null;
-        state.visitTargets.clear();
+        state.visitWindow = null;
+        state.zoneVisits.clear();
     }
 
     private void freezeConfirmation(SectorConfirmation confirmation, long fadeTicks,
@@ -728,7 +763,9 @@ public final class RadarNetworkManager {
         if (network != null && registration.role == EndpointRole.RADAR) {
             RadarState state = network.radars.remove(endpoint);
             if (state != null) {
-                if (state.observing()) logVisitSummary(network, endpoint, state);
+                for (ZoneVisit zone : state.zoneVisits.values()) {
+                    if (zone.observing()) logVisitSummary(network, endpoint, zone, state.plan);
+                }
                 forgetAllConfirmations(network, endpoint, state, changedNetworks);
                 changedNetworks.add(network.id);
             }
@@ -792,17 +829,17 @@ public final class RadarNetworkManager {
                         + " configRevision=" + parameters.revision() + " sources=" + network.radars.size());
     }
 
-    private void logVisitSummary(NetworkRuntime network, EndpointKey endpoint, RadarState state) {
+    private void logVisitSummary(NetworkRuntime network, EndpointKey endpoint, ZoneVisit zone,
+                                RadarObservationPlan plan) {
         RadarDiagnostics.log("observation_visit_summary", network.id, endpoint, network.slotSerial, serverTick, () -> {
-            RadarNetworkState.VisitMetrics m = state.metrics;
-            RadarObservationPlan plan = state.plan;
-            return "sector=" + (state.visit == null ? -1 : state.visit.sectorIndex())
+            RadarNetworkState.VisitMetrics m = zone.metrics;
+            return "sector=" + zone.sectorIndex
                     + " variant=" + (plan == null ? 0 : plan.sectorOrderVariant())
-                    + " geometryRevision=" + (plan == null ? -1 : plan.geometryRevision())
+                    + " geometryRevision=" + (zone.window == null ? -1 : zone.window.geometryRevision())
                     + " outcome=" + m.outcome + " spatialQueries=" + m.spatialQueries
                     + " candidates=" + m.candidates + " acceptedHitboxes=" + m.acceptedHitboxes
                     + " found=" + m.foundTargets + " knownChecks=" + m.knownChecks
-                    + " observing=" + state.visitTargets.size() + " uuidLookups=" + m.uuidLookups
+                    + " observing=" + zone.targets.size() + " uuidLookups=" + m.uuidLookups
                     + " cacheHits=" + m.cacheHits + " searchNanos=" + m.searchDurationNanos
                     + " checkNanos=" + m.checkDurationNanos;
         });
@@ -850,15 +887,23 @@ public final class RadarNetworkManager {
         void clear() { entities.clear(); }
     }
 
-    /** Текущее посещение одного радара для монитора: геометрия и активный сектор с границами окна. */
+    /** Текущее окно радара и успешные активные зоны для одного визуального профиля. */
     public record RadarVisualWindow(com.electroradar.radar.visual.RadarVisualProfile profile,
-                                    int activeSectorIndex, long startTick, long endTick) {
+                                    List<Integer> activeSectorIndices, long startTick, long endTick) {
         public RadarVisualWindow {
             Objects.requireNonNull(profile, "profile");
-            if (activeSectorIndex < 0 || activeSectorIndex >= profile.sectorCount()
+            activeSectorIndices = List.copyOf(activeSectorIndices);
+            if (activeSectorIndices.isEmpty() || activeSectorIndices.size() > profile.sectorCount()
+                    || activeSectorIndices.stream().anyMatch(index -> index < 0 || index >= profile.sectorCount())
+                    || new HashSet<>(activeSectorIndices).size() != activeSectorIndices.size()
                     || startTick < 0 || endTick <= startTick) {
                 throw new IllegalArgumentException("Invalid radar visual window");
             }
+        }
+
+        public RadarVisualWindow(com.electroradar.radar.visual.RadarVisualProfile profile,
+                                 int activeSectorIndex, long startTick, long endTick) {
+            this(profile, List.of(activeSectorIndex), startTick, endTick);
         }
     }
 }

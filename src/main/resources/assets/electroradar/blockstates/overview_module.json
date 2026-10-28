@@ -1,0 +1,16 @@
+{
+  "variants": {
+    "connected_down=false,connected_up=false": {
+      "model": "electroradar:block/overview_module/overview_module"
+    },
+    "connected_down=false,connected_up=true": {
+      "model": "electroradar:block/overview_module/overview_module"
+    },
+    "connected_down=true,connected_up=true": {
+      "model": "electroradar:block/overview_module/overview_module"
+    },
+    "connected_down=true,connected_up=false": {
+      "model": "electroradar:block/overview_module/overview_module"
+    }
+  }
+}

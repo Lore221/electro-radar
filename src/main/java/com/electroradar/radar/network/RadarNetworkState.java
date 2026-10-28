@@ -75,43 +75,56 @@ final class RadarNetworkState {
         OBSERVING
     }
 
-    /**
-     * Неизменяемые параметры одного посещения: окно самого источника и геометрический сектор.
-     *
-     * <p>Посещение определяется только окном источника, а не номером окна сети: собственное
-     * расписание может вернуть окно длиннее D (например [100,160) при сетевых [100,110),
-     * [110,120)...). Граница сети внутри такого окна не начинает новое посещение и не
-     * замораживает цели. Затухание тоже фиксируется в начале посещения, поэтому смена D
-     * посреди окна его не перезапускает.</p>
-     */
-    record Visit(int sectorIndex, long startTick, long endTick, long fadeDurationTicks, long geometryRevision) {
+    /** Одно неизменяемое окно источника, в котором могут наблюдаться несколько зон. */
+    record VisitWindow(java.util.List<Integer> activeSectorIndices, long startTick, long endTick,
+                       long fadeDurationTicks, long geometryRevision) {
+        VisitWindow {
+            activeSectorIndices = java.util.List.copyOf(activeSectorIndices);
+        }
+
         boolean sameWindow(ObservationWindowSchedule.ObservationWindow window, long geometry) {
-            return sectorIndex == window.activeSectorIndex()
+            return activeSectorIndices.equals(window.activeSectorIndices())
                     && startTick == window.startTick() && endTick == window.endTick()
+                    // Затухание закреплено за начатым посещением. Reload D может изменить
+                    // расчёт следующего fade, но не должен прервать собственное длинное окно.
                     && geometryRevision == geometry;
         }
     }
 
-    /** Runtime одного источника и начальный набор UUID его единственного текущего посещения. */
+    /** Независимые права, начальный набор UUID и диагностика одной геометрической зоны. */
+    static final class ZoneVisit {
+        final int sectorIndex;
+        final VisitWindow window;
+        final TreeSet<TargetRef> targets = new TreeSet<>(TARGET_ORDER);
+        final VisitMetrics metrics = new VisitMetrics();
+        VisitPhase phase = VisitPhase.IDLE;
+
+        ZoneVisit(int sectorIndex, VisitWindow window) {
+            this.sectorIndex = sectorIndex;
+            this.window = window;
+        }
+
+        boolean observing() { return phase == VisitPhase.OBSERVING; }
+    }
+
+    /** Runtime одного источника и состояние посещения каждой текущей активной зоны. */
     static final class RadarState {
         final RegistrationToken token;
         /** Номер окна сети, с которого источник участвует; регистрация посреди окна ждёт следующего. */
         final long participatesFromSlot;
         final RadarObservationSource source;
         final Map<TargetRef, SourceLink> detections = new HashMap<>();
-        final TreeSet<TargetRef> visitTargets = new TreeSet<>(TARGET_ORDER);
-        final VisitMetrics metrics = new VisitMetrics();
+        final Map<Integer, ZoneVisit> zoneVisits = new HashMap<>();
         RadarObservationPlan plan;
-        VisitPhase phase = VisitPhase.IDLE;
-        /** Последнее начатое (или пропущенное) посещение; {@code null} до первого окна. */
-        Visit visit;
+        /** Последнее начатое (или пропущенное) окно источника; {@code null} до первого окна. */
+        VisitWindow visitWindow;
         RadarState(RegistrationToken token, long participatesFromSlot, RadarObservationSource source) {
             this.token = token;
             this.participatesFromSlot = participatesFromSlot;
             this.source = source;
         }
 
-        boolean observing() { return phase == VisitPhase.OBSERVING; }
+        boolean observing() { return zoneVisits.values().stream().anyMatch(ZoneVisit::observing); }
     }
 
     /** Только диагностические счётчики одного посещения; на поведение не влияют. */

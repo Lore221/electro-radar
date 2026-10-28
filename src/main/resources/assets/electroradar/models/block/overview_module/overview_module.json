@@ -1,0 +1,19 @@
+{
+  "parent": "block/block",
+  "loader": "neoforge:obj",
+  "render_type": "minecraft:cutout",
+  "ambientocclusion": false,
+  "shade_quads": false,
+  "emissive_ambient": false,
+  "automatic_culling": false,
+  "flip_v": true,
+  "model": "electroradar:models/block/overview_module/overview_module.obj",
+  "textures": {
+    "front": "electroradar:block/overview_module/overview_module_front",
+    "side": "electroradar:block/overview_module/overview_module_side",
+    "back": "electroradar:block/overview_module/overview_module_back",
+    "body": "electroradar:block/overview_module/overview_module",
+    "0": "electroradar:block/overview_module/overview_module",
+    "particle": "electroradar:block/overview_module/overview_module"
+  }
+}

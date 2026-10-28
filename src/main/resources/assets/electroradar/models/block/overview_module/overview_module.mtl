@@ -1,0 +1,10 @@
+# Made in Blockbench 5.1.6
+newmtl m_7b8e3bfd-a73a-8e69-e0f9-3fb673841baa
+map_Kd #front
+newmtl m_0fb2c600-381e-c9c2-b4ef-6ec02d4f3690
+map_Kd #side
+newmtl m_94a5560f-7a70-d0ac-1964-82647a764650
+map_Kd #back
+newmtl m_febf5445-4979-b322-5d6e-44b822892974
+map_Kd #body
+newmtl none

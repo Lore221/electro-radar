@@ -33,7 +33,7 @@ final class MonitorVisualProfileCollector {
             List<MonitorVisualPhase> phases = new ArrayList<>(windows.size());
             for (RadarNetworkManager.RadarVisualWindow window : windows) {
                 profiles.add(window.profile());
-                phases.add(new MonitorVisualPhase(window.profile().radarPosition(), window.activeSectorIndex(),
+                phases.add(new MonitorVisualPhase(window.profile().radarPosition(), window.activeSectorIndices(),
                         window.startTick(), window.endTick()));
             }
             failureLogged = false;

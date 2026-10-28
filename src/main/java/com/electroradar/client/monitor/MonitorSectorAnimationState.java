@@ -36,10 +36,16 @@ final class MonitorSectorAnimationState {
 
         for (RadarVisualProfile profile : current.visualProfiles()) {
             MonitorVisualPhase phase = phases.get(profile.radarPosition());
-            if (phase == null) continue;
+            if (phase == null) {
+                // Профиль может остаться доступен, когда источник временно не публикует
+                // активную фазу. Не сохраняем подсветку предыдущего окна.
+                cycles.remove(profile.key());
+                continue;
+            }
             ProfileCycle old = cycles.get(profile.key());
             // Новое посещение — другое начало окна; новая геометрия — другой профиль.
             boolean newSlot = old == null || old.phase.windowStartTick() != phase.windowStartTick()
+                    || !old.phase.activeSectorIndices().equals(phase.activeSectorIndices())
                     || !old.profile.equals(profile);
             double mappedWindowStart = clientTickTime + phase.windowStartTick() - current.observedServerTick();
             // Повторный sample не сдвигает привязку начала окна к клиентскому времени.
@@ -49,7 +55,7 @@ final class MonitorSectorAnimationState {
             if (newSlot && RadarDiagnostics.visualDiagnosticsEnabled()) {
                 RadarDiagnostics.log("monitor_visual_server_slot", null, null, null, (long) clientTickTime,
                         "displayId=" + key.displayId() + " radar=" + profile.radarPosition()
-                                + " sector=" + phase.activeSectorIndex() + " window=[" + phase.windowStartTick()
+                                + " sectors=" + phase.activeSectorIndices() + " window=[" + phase.windowStartTick()
                                 + "," + phase.windowEndTick() + ")");
             }
         }
@@ -62,9 +68,9 @@ final class MonitorSectorAnimationState {
         ArrayList<ProfileFrame> active = new ArrayList<>(cycles.size());
         for (ProfileCycle cycle : cycles.values()) {
             if (cycle.profile.animation() == RadarVisualAnimation.FULL_FLASH) {
-                active.add(new ProfileFrame(cycle.profile, -1, cycle.flashStrength(renderTime)));
+                active.add(new ProfileFrame(cycle.profile, List.of(), cycle.flashStrength(renderTime)));
             } else {
-                active.add(new ProfileFrame(cycle.profile, cycle.phase.activeSectorIndex(), 0.0F));
+                active.add(new ProfileFrame(cycle.profile, cycle.phase.activeSectorIndices(), 0.0F));
             }
         }
         return List.copyOf(active);
@@ -78,7 +84,11 @@ final class MonitorSectorAnimationState {
         CYCLES.clear();
     }
 
-    record ProfileFrame(RadarVisualProfile profile, int activeSectorIndex, float flashStrength) { }
+    record ProfileFrame(RadarVisualProfile profile, List<Integer> activeSectorIndices, float flashStrength) {
+        ProfileFrame {
+            activeSectorIndices = List.copyOf(activeSectorIndices);
+        }
+    }
 
     private static final class ProfileCycle {
         final RadarVisualProfile profile;

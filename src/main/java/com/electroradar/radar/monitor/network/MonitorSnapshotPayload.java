@@ -169,13 +169,31 @@ public record MonitorSnapshotPayload(
 
     private static void writePhase(RegistryFriendlyByteBuf buffer, MonitorVisualPhase phase) {
         buffer.writeBlockPos(phase.radarPosition());
-        buffer.writeVarInt(phase.activeSectorIndex());
+        buffer.writeVarInt(phase.activeSectorIndices().size());
+        for (int sectorIndex : phase.activeSectorIndices()) buffer.writeVarInt(sectorIndex);
         buffer.writeVarLong(phase.windowStartTick());
         buffer.writeVarLong(phase.windowEndTick());
     }
 
     private static MonitorVisualPhase readPhase(RegistryFriendlyByteBuf buffer) {
-        return new MonitorVisualPhase(buffer.readBlockPos(), buffer.readVarInt(),
+        BlockPos radarPosition = buffer.readBlockPos();
+        int count = readCount(buffer, RadarVisualProfile.MAX_SECTOR_COUNT);
+        if (count == 0) throw new IllegalArgumentException("Monitor phase has no active sectors");
+        int[] indices = new int[count];
+        long seen = 0L;
+        for (int i = 0; i < count; i++) {
+            int index = buffer.readVarInt();
+            if (index < 0 || index >= RadarVisualProfile.MAX_SECTOR_COUNT) {
+                throw new IllegalArgumentException("Monitor phase sector index exceeds bounds");
+            }
+            long bit = 1L << index;
+            if ((seen & bit) != 0L) throw new IllegalArgumentException("Duplicate monitor phase sector index");
+            seen |= bit;
+            indices[i] = index;
+        }
+        ArrayList<Integer> active = new ArrayList<>(count);
+        for (int index : indices) active.add(index);
+        return new MonitorVisualPhase(radarPosition, active,
                 buffer.readVarLong(), buffer.readVarLong());
     }
 

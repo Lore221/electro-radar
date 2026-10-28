@@ -20,7 +20,8 @@ public final class RadarServerConfig {
             new RangeParameters(80, 20, 1_024, 1.0D),
             new ModeParameters(new VerticalRange(-20, 128), 90.0D, 1.0D),
             new ModeParameters(new VerticalRange(40, 1_500), 60.0D, 1.5D),
-            new ModeParameters(new VerticalRange(-1_500, -20), 120.0D, 1.0D), 10);
+            new ModeParameters(new VerticalRange(-1_500, -20), 120.0D, 1.0D), 10,
+            new OverviewParameters(5, 50));
     /**
      * Один volatile-снимок — единственная точка чтения конфигурации для runtime.
      * До первого события загрузки доступен полный набор стандартных значений.
@@ -36,6 +37,8 @@ public final class RadarServerConfig {
     private static final ModeValues SURFACE;
     private static final ModConfigSpec.IntValue VISUAL_PARTS;
     private static final ModConfigSpec.IntValue SECTOR_TICKS;
+    private static final ModConfigSpec.IntValue MAX_OVERVIEW_MODULES;
+    private static final ModConfigSpec.IntValue OVERVIEW_RANGE_PER_MODULE;
 
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
@@ -64,6 +67,15 @@ public final class RadarServerConfig {
         GROUND = ModeValues.define(builder, "ground", "Ordinary ground radar scan geometry.", DEFAULT.ground());
         AIR = ModeValues.define(builder, "air", "Air radar scan geometry.", DEFAULT.air());
         SURFACE = ModeValues.define(builder, "surface", "Surface radar scan geometry.", DEFAULT.surface());
+
+        builder.comment("Overview aperture limits and range contribution.").push("overview");
+        MAX_OVERVIEW_MODULES = builder.comment("Maximum overview modules accepted by a new assembly.")
+                .translation("electroradar.config.server.overview.max_modules")
+                .defineInRange("max_modules", DEFAULT.overview().maxModules(), 1, 20);
+        OVERVIEW_RANGE_PER_MODULE = builder.comment("Range bonus from each overview module, in blocks.")
+                .translation("electroradar.config.server.overview.range_per_module")
+                .defineInRange("range_per_module", DEFAULT.overview().rangePerModule(), 0, 1_024);
+        builder.pop();
 
         builder.comment("Duration of a sector visit in server ticks.").push("scanning");
         SECTOR_TICKS = builder.comment("Ticks per sector; applied at the next scan boundary.")
@@ -122,7 +134,8 @@ public final class RadarServerConfig {
         return new Snapshot(revision, MAX_PANELS.get(), range,
                 GROUND.read(DEFAULT.ground(), "ground", revision),
                 AIR.read(DEFAULT.air(), "air", revision),
-                SURFACE.read(DEFAULT.surface(), "surface", revision), SECTOR_TICKS.get());
+                SURFACE.read(DEFAULT.surface(), "surface", revision), SECTOR_TICKS.get(),
+                new OverviewParameters(MAX_OVERVIEW_MODULES.get(), OVERVIEW_RANGE_PER_MODULE.get()));
     }
 
     /** Одна схема TOML для трёх режимов; ключи и ограничения остаются одинаковыми. */
@@ -189,12 +202,27 @@ public final class RadarServerConfig {
     public record ModeParameters(VerticalRange verticalRange, double horizontalAngle, double rangeMultiplier) {
     }
 
+    public record OverviewParameters(int maxModules, int rangePerModule) {
+        public OverviewParameters {
+            if (maxModules < 1 || maxModules > 20 || rangePerModule < 0 || rangePerModule > 1_024) {
+                throw new IllegalArgumentException("Invalid overview radar configuration");
+            }
+        }
+    }
+
     public record Snapshot(long revision, int maxPanels, RangeParameters range,
-                           ModeParameters ground, ModeParameters air, ModeParameters surface, int sectorTicks) {
+                           ModeParameters ground, ModeParameters air, ModeParameters surface, int sectorTicks,
+                           OverviewParameters overview) {
         public Snapshot {
-            if (maxPanels < 1 || maxPanels > 20 || sectorTicks < 1 || sectorTicks > 200) {
+            if (maxPanels < 1 || maxPanels > 20 || sectorTicks < 1 || sectorTicks > 200
+                    || overview == null) {
                 throw new IllegalArgumentException("Invalid server radar configuration snapshot");
             }
+        }
+
+        public Snapshot(long revision, int maxPanels, RangeParameters range,
+                        ModeParameters ground, ModeParameters air, ModeParameters surface, int sectorTicks) {
+            this(revision, maxPanels, range, ground, air, surface, sectorTicks, new OverviewParameters(5, 50));
         }
     }
 }

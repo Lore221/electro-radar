@@ -80,17 +80,15 @@ final class MonitorSectorWorldRenderer {
                         }
                     }
                 }
-            } else if (frame != null && frame.activeSectorIndex() >= 0) {
-                int activeIndex = frame.activeSectorIndex();
+            } else if (frame != null && !frame.activeSectorIndices().isEmpty()) {
                 for (MonitorSectorProjection.ProjectedSector sector : coverage.sectors()) {
-                    if (sector.index() == activeIndex) {
+                    if (frame.activeSectorIndices().contains(sector.index())) {
                         for (List<MonitorSectorProjection.MapPoint> polygon : sector.polygons()) {
                             drawPolygon(display, poseStack, consumer, facing, origin, polygon,
                                     centerU, centerV, mapRadius, contentLeft, contentBottom,
                                     contentSide, MonitorSectorPalette.activeFill(), packedOverlay,
                                     FILL_FACE_OFFSET);
                         }
-                        break;
                     }
                 }
             }
@@ -119,17 +117,15 @@ final class MonitorSectorWorldRenderer {
                 }
             }
             if (profile.animation() == RadarVisualAnimation.SECTOR_SWEEP
-                    && frame != null && frame.activeSectorIndex() >= 0) {
-                int activeIndex = frame.activeSectorIndex();
+                    && frame != null && !frame.activeSectorIndices().isEmpty()) {
                 for (MonitorSectorProjection.ProjectedSector sector : coverage.sectors()) {
-                    if (sector.index() == activeIndex) {
+                    if (frame.activeSectorIndices().contains(sector.index())) {
                         for (MonitorSectorProjection.ProjectedSegment edge : sector.boundary()) {
                             drawLine(display, poseStack, consumer, facing, origin, edge,
                                     centerU, centerV, mapRadius, contentLeft, contentBottom, contentSide,
                                     MonitorSectorPalette.worldActiveEdge(), packedOverlay,
                                     ACTIVE_EDGE_FACE_OFFSET, activeLineHalfWidth);
                         }
-                        break;
                     }
                 }
             }

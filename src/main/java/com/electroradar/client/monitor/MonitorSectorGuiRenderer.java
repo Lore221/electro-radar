@@ -54,15 +54,13 @@ final class MonitorSectorGuiRenderer {
                         }
                     }
                 }
-            } else if (frame != null && frame.activeSectorIndex() >= 0) {
-                int activeIndex = frame.activeSectorIndex();
+            } else if (frame != null && !frame.activeSectorIndices().isEmpty()) {
                 for (MonitorSectorProjection.ProjectedSector sector : coverage.sectors()) {
-                    if (sector.index() == activeIndex) {
+                    if (frame.activeSectorIndices().contains(sector.index())) {
                         for (List<MonitorSectorProjection.MapPoint> polygon : sector.polygons()) {
                             fillPolygon(graphics, polygon, centerX, centerY, radius,
                                     MonitorSectorPalette.activeFill());
                         }
-                        break;
                     }
                 }
             }
@@ -84,15 +82,13 @@ final class MonitorSectorGuiRenderer {
                 }
             }
             if (profile.animation() == RadarVisualAnimation.SECTOR_SWEEP
-                    && frame != null && frame.activeSectorIndex() >= 0) {
-                int activeIndex = frame.activeSectorIndex();
+                    && frame != null && !frame.activeSectorIndices().isEmpty()) {
                 for (MonitorSectorProjection.ProjectedSector sector : coverage.sectors()) {
-                    if (sector.index() == activeIndex) {
+                    if (frame.activeSectorIndices().contains(sector.index())) {
                         for (MonitorSectorProjection.ProjectedSegment edge : sector.boundary()) {
                             drawLine(graphics, edge, centerX, centerY, radius,
                                     MonitorSectorPalette.activeEdge(), 2);
                         }
-                        break;
                     }
                 }
             }

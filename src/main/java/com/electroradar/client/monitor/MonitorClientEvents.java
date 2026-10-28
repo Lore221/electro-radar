@@ -15,6 +15,7 @@ import com.electroradar.ElectroRadar;
 import com.electroradar.radar.monitor.RadarDisplayContent;
 import com.electroradar.radar.controller.RadarControllerContent;
 import com.electroradar.client.controller.RadarPanelCTBehaviour;
+import com.electroradar.client.controller.OverviewModuleCTBehaviour;
 import com.electroradar.radar.monitor.network.MonitorOpenPayload;
 import com.electroradar.radar.monitor.network.MonitorPayloads;
 import com.electroradar.radar.monitor.network.MonitorSnapshotPayload;
@@ -43,6 +44,9 @@ public final class MonitorClientEvents {
         event.enqueueWork(() -> CreateRegistrate
                 .connectedTextures(RadarPanelCTBehaviour::new)
                 .accept(RadarControllerContent.RADAR_PANEL.get()));
+        event.enqueueWork(() -> CreateRegistrate
+                .connectedTextures(OverviewModuleCTBehaviour::new)
+                .accept(RadarControllerContent.OVERVIEW_MODULE.get()));
     }
 
     @SubscribeEvent

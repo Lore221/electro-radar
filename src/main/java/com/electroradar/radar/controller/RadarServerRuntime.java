@@ -17,6 +17,7 @@ import com.electroradar.radar.network.RadarNetworkManager;
 import com.electroradar.radar.network.RadarObservationPlan;
 import com.electroradar.radar.network.RadarObservationSource;
 import com.electroradar.radar.network.RegistrationToken;
+import com.electroradar.radar.network.ObservationWindowSchedule;
 import com.electroradar.radar.visual.RadarSectorOrder;
 import com.electroradar.radar.visual.RadarVisualProfile;
 
@@ -142,13 +143,18 @@ final class RadarServerRuntime implements RadarObservationSource {
                 || !controller.assembly().isReadyForScanning(controller)) return Optional.empty();
         ensureSectorOrder(controller, level);
         RadarMode mode = controller.mode();
-        int panels = controller.assembly().panelCount();
-        RadarAreaGeometry.GeometrySnapshot geometry = geometry(controller, level, mode, panels, parameters);
-        if (panels > parameters.maxPanels() && lastLimitWarningRevision != parameters.revision()) {
+        RadarApertureKind kind = controller.assembly().apertureKind();
+        int apertureCount = controller.assembly().apertureCount();
+        if (kind == RadarApertureKind.OVERVIEW && apertureCount <= 0) return Optional.empty();
+        RadarAreaGeometry.GeometrySnapshot geometry = geometry(
+                controller, level, mode, kind, apertureCount, parameters);
+        int activeLimit = kind == RadarApertureKind.OVERVIEW
+                ? parameters.overview().maxModules() : parameters.maxPanels();
+        if (apertureCount > activeLimit && lastLimitWarningRevision != parameters.revision()) {
             lastLimitWarningRevision = parameters.revision();
             RadarDiagnostics.log("assembly_limit_reduced", networkId, endpoint, null, tick(level),
-                    "capturedPanels=" + panels + " activeLimit=" + parameters.maxPanels()
-                            + " action=range_uses_limit_panels_assembly_kept");
+                    "aperture=" + kind.serializedName() + " captured=" + apertureCount
+                            + " activeLimit=" + activeLimit + " action=range_uses_limit_assembly_kept");
         }
         RadarObservationPlan previous = lastPreparedPlan;
         if (previous != null && previous.geometryRevision() == geometryRevision
@@ -164,14 +170,18 @@ final class RadarServerRuntime implements RadarObservationSource {
         } else {
             List<RadarObservationPlan.Sector> sectors = geometry.sectors().stream()
                     .map(sector -> new RadarObservationPlan.Sector(sector.index(), sector.area())).toList();
-            plan = new RadarObservationPlan(level.dimension().location(), geometry.profile(),
-                    sectors, sectorOrderVariant, geometryRevision, parameters.revision(),
-                    RadarTargetFilter.ELIGIBLE);
+            ObservationWindowSchedule schedule = kind == RadarApertureKind.OVERVIEW
+                    ? OverviewRadarSchedule.create(sectorOrderVariant)
+                    : ObservationWindowSchedule.sectorCycle(geometry.profile().sectorCount(), sectorOrderVariant);
+            plan = new RadarObservationPlan(level.dimension().location(), geometry.profile(), sectors,
+                    sectorOrderVariant, geometryRevision, parameters.revision(),
+                    RadarTargetFilter.ELIGIBLE, schedule);
         }
         lastPreparedPlan = plan;
         RadarDiagnostics.log("radar_profile_published", networkId, endpoint, null, tick(level),
                 "geometryRevision=" + geometryRevision + " configRevision=" + parameters.revision()
-                        + " mode=" + mode + " range=" + geometry.range() + " angle="
+                        + " mode=" + mode + " aperture=" + kind.serializedName()
+                        + " apertureCount=" + apertureCount + " range=" + geometry.range() + " angle="
                         + geometry.horizontalAngle() + " minY=" + geometry.minYOffset() + " maxY="
                         + geometry.maxYOffset() + " sectors=" + plan.sectors().size()
                         + " orderVariant=" + sectorOrderVariant);
@@ -201,16 +211,19 @@ final class RadarServerRuntime implements RadarObservationSource {
     }
 
     private RadarAreaGeometry.GeometrySnapshot geometry(RadarControllerBlockEntity owner, ServerLevel level,
-                                                        RadarMode mode, int panelCount,
+                                                        RadarMode mode, RadarApertureKind kind, int apertureCount,
                                                         RadarServerConfig.Snapshot parameters) {
-        int boundedPanels = Math.min(Math.max(0, panelCount), parameters.maxPanels());
+        int activeLimit = kind == RadarApertureKind.OVERVIEW
+                ? parameters.overview().maxModules() : parameters.maxPanels();
+        int boundedCount = Math.min(Math.max(0, apertureCount), activeLimit);
         RadarServerConfig.ModeParameters modeParameters = mode.parameters(parameters);
-        GeometryKey key = new GeometryKey(parameters.range(), modeParameters, boundedPanels, mode,
+        GeometryKey key = new GeometryKey(parameters.range(), parameters.overview(), modeParameters,
+                kind, boundedCount, mode,
                 owner.getBlockState().getValue(RadarControllerBlock.FACING), owner.getBlockPos().immutable(),
                 sectorOrderVariant);
         if (cachedGeometry != null && key.equals(cachedKey)) return cachedGeometry;
         cachedGeometry = RadarAreaGeometry.create(level.dimension().location(), key.position(), key.facing(),
-                mode, panelCount, parameters, sectorOrderVariant);
+                mode, kind, apertureCount, parameters, sectorOrderVariant);
         cachedKey = key;
         geometryRevision = Math.incrementExact(geometryRevision);
         return cachedGeometry;
@@ -220,6 +233,22 @@ final class RadarServerRuntime implements RadarObservationSource {
         cachedGeometry = null;
         cachedKey = null;
         lastPreparedPlan = null;
+    }
+
+    /** Смена числа/смысла индексов сбрасывает привязанные к ним подтверждения вне обхода Pre. */
+    public void apertureKindChanged(RadarControllerBlockEntity owner) {
+        if (!(owner.getLevel() instanceof ServerLevel level)) {
+            invalidateProfile();
+            return;
+        }
+        unregister("aperture_kind_changed", owner);
+        this.owner = owner;
+        ensureNetworkId(owner, level);
+        ensureSectorOrder(owner, level);
+        register(level, owner.getBlockPos());
+        RadarDiagnostics.log("radar_aperture_kind_changed", networkId, endpoint, null, tick(level),
+                "action=registration_reset preserveNetworkId=true preserveOrderVariant="
+                        + sectorOrderVariant);
     }
 
     public void unregister(String reason, RadarControllerBlockEntity owner) {
@@ -299,7 +328,9 @@ final class RadarServerRuntime implements RadarObservationSource {
     public long currentTick(ServerLevel level) { return tick(level); }
 
     private record GeometryKey(RadarServerConfig.RangeParameters rangeParameters,
-                               RadarServerConfig.ModeParameters modeParameters, int countedPanels,
+                               RadarServerConfig.OverviewParameters overviewParameters,
+                               RadarServerConfig.ModeParameters modeParameters,
+                               RadarApertureKind apertureKind, int countedAperture,
                                RadarMode mode, Direction facing, BlockPos position,
                                int sectorOrderVariant) { }
 }

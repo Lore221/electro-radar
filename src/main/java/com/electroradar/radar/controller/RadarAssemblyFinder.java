@@ -22,13 +22,20 @@ final class RadarAssemblyFinder {
     }
 
     public static Discovery discover(ServerLevel level, BlockPos controllerPos,
-                                     Direction controllerFacing, int maxPanels) {
+                                     Direction controllerFacing, int maxPanels, int maxOverviewModules) {
         BlockPos first = controllerPos.above();
-        if (!level.hasChunkAt(first)) return failed(Failure.UNLOADED_AREA, first, controllerFacing);
+        if (!level.hasChunkAt(first)) {
+            return failed(Failure.UNLOADED_AREA, first, controllerFacing, RadarApertureKind.PANEL);
+        }
         BlockState firstState = level.getBlockState(first);
-        if (!RadarPanelBlock.isPanel(firstState)) return failed(Failure.NO_PANEL_ABOVE, first, controllerFacing);
+        if (OverviewModuleBlock.isOverviewModule(firstState)) {
+            return discoverOverview(level, controllerPos, first, maxOverviewModules);
+        }
+        if (!RadarPanelBlock.isPanel(firstState)) {
+            return failed(Failure.NO_PANEL_ABOVE, first, controllerFacing, RadarApertureKind.PANEL);
+        }
         if (firstState.getValue(RadarPanelBlock.FACING) != controllerFacing) {
-            return failed(Failure.INCOMPATIBLE_DIRECTION, first, controllerFacing);
+            return failed(Failure.INCOMPATIBLE_DIRECTION, first, controllerFacing, RadarApertureKind.PANEL);
         }
 
         Direction right = controllerFacing.getCounterClockWise();
@@ -43,8 +50,8 @@ final class RadarAssemblyFinder {
             positions.add(current.immutable());
             states.put(current.immutable(), level.getBlockState(current));
             if (positions.size() == maxPanels + 1) {
-                return new Discovery(false, Failure.TOO_MANY_PANELS, positions, states,
-                        first, controllerFacing);
+                return new Discovery(false, Failure.TOO_MANY_PANELS, RadarApertureKind.PANEL,
+                        positions, states, first, controllerFacing);
             }
 
             for (BlockPos next : List.of(current.above(), current.below(),
@@ -52,27 +59,67 @@ final class RadarAssemblyFinder {
                 // На границе чанка соседний блок может быть панелью. Не загружаем его и не
                 // трактуем недоступную часть компоненты как пустую щель.
                 if (!level.hasChunkAt(next)) {
-                    return new Discovery(false, Failure.UNLOADED_AREA, positions, states,
-                            next.immutable(), controllerFacing);
+                    return new Discovery(false, Failure.UNLOADED_AREA, RadarApertureKind.PANEL,
+                            positions, states, next.immutable(), controllerFacing);
                 }
                 if (!inPanelPlane(first, next, controllerFacing)) continue;
                 BlockState nextState = level.getBlockState(next);
+                if (OverviewModuleBlock.isOverviewModule(nextState)) {
+                    return new Discovery(false, Failure.MIXED_APERTURE, RadarApertureKind.PANEL,
+                            positions, states, next.immutable(), controllerFacing);
+                }
                 if (!RadarPanelBlock.isPanel(nextState)) continue;
                 if (nextState.getValue(RadarPanelBlock.FACING) != controllerFacing) {
-                    return new Discovery(false, Failure.INCOMPATIBLE_DIRECTION, positions, states,
-                            next.immutable(), controllerFacing);
+                    return new Discovery(false, Failure.INCOMPATIBLE_DIRECTION, RadarApertureKind.PANEL,
+                            positions, states, next.immutable(), controllerFacing);
                 }
                 if (next.below().equals(controllerPos)) continue;
                 if (level.getBlockState(next.below()).getBlock() instanceof RadarControllerBlock) {
-                    return new Discovery(false, Failure.AMBIGUOUS_OWNER, positions, states,
-                            next.immutable(), controllerFacing);
+                    return new Discovery(false, Failure.AMBIGUOUS_OWNER, RadarApertureKind.PANEL,
+                            positions, states, next.immutable(), controllerFacing);
                 }
                 if (visited.add(next.immutable())) pending.addLast(next.immutable());
             }
         }
 
-        if (positions.isEmpty()) return failed(Failure.NO_PANEL_ABOVE, first, controllerFacing);
-        return new Discovery(true, Failure.NONE, positions, states, first, controllerFacing);
+        if (positions.isEmpty()) {
+            return failed(Failure.NO_PANEL_ABOVE, first, controllerFacing, RadarApertureKind.PANEL);
+        }
+        return new Discovery(true, Failure.NONE, RadarApertureKind.PANEL,
+                positions, states, first, controllerFacing);
+    }
+
+    /** Находит только непрерывный столбик одного X/Z и проверяет лимит дополнительным блоком. */
+    private static Discovery discoverOverview(ServerLevel level, BlockPos controllerPos,
+                                              BlockPos first, int maxModules) {
+        ArrayList<BlockPos> positions = new ArrayList<>();
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        for (int offset = 0; offset <= maxModules; offset++) {
+            BlockPos position = first.above(offset).immutable();
+            if (!level.hasChunkAt(position)) {
+                return new Discovery(false, Failure.UNLOADED_AREA, RadarApertureKind.OVERVIEW,
+                        positions, states, position, Direction.NORTH);
+            }
+            BlockState state = level.getBlockState(position);
+            if (!OverviewModuleBlock.isOverviewModule(state)) {
+                if (!positions.isEmpty() && RadarPanelBlock.isPanel(state)) {
+                    return new Discovery(false, Failure.MIXED_APERTURE, RadarApertureKind.OVERVIEW,
+                            positions, states, position, Direction.NORTH);
+                }
+                break;
+            }
+            positions.add(position);
+            states.put(position, state);
+            if (positions.size() > maxModules) {
+                return new Discovery(false, Failure.TOO_MANY_OVERVIEW_MODULES, RadarApertureKind.OVERVIEW,
+                        positions, states, position, Direction.NORTH);
+            }
+        }
+        if (positions.isEmpty()) {
+            return failed(Failure.NO_PANEL_ABOVE, first, Direction.NORTH, RadarApertureKind.OVERVIEW);
+        }
+        return new Discovery(true, Failure.NONE, RadarApertureKind.OVERVIEW,
+                positions, states, controllerPos.above(), Direction.NORTH);
     }
 
     private static boolean inPanelPlane(BlockPos first, BlockPos position, Direction facing) {
@@ -82,8 +129,9 @@ final class RadarAssemblyFinder {
         return depth == 0;
     }
 
-    private static Discovery failed(Failure reason, BlockPos position, Direction facing) {
-        return new Discovery(false, reason, List.of(), Map.of(), position, facing);
+    private static Discovery failed(Failure reason, BlockPos position, Direction facing,
+                                    RadarApertureKind kind) {
+        return new Discovery(false, reason, kind, List.of(), Map.of(), position, facing);
     }
 
     public enum Failure {
@@ -91,6 +139,8 @@ final class RadarAssemblyFinder {
         NO_PANEL_ABOVE("message.electroradar.assembly.no_panel"),
         INCOMPATIBLE_DIRECTION("message.electroradar.assembly.incompatible_direction"),
         TOO_MANY_PANELS("message.electroradar.assembly.too_many_panels"),
+        TOO_MANY_OVERVIEW_MODULES("message.electroradar.assembly.too_many_overview_modules"),
+        MIXED_APERTURE("message.electroradar.assembly.mixed_aperture"),
         UNLOADED_AREA("message.electroradar.assembly.unloaded_area"),
         AMBIGUOUS_OWNER("message.electroradar.assembly.ambiguous_owner"),
         CREATE_REJECTED("message.electroradar.assembly.create_rejected"),
@@ -108,7 +158,8 @@ final class RadarAssemblyFinder {
         }
     }
 
-    public record Discovery(boolean valid, Failure failure, List<BlockPos> positions,
+    public record Discovery(boolean valid, Failure failure, RadarApertureKind apertureKind,
+                            List<BlockPos> positions,
                             Map<BlockPos, BlockState> sourceStates, BlockPos firstPanel,
                             Direction facing) {
         public Discovery {
@@ -120,5 +171,7 @@ final class RadarAssemblyFinder {
         public int panelCount() {
             return positions.size();
         }
+
+        public int apertureCount() { return positions.size(); }
     }
 }

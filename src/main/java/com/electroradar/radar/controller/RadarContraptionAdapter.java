@@ -23,7 +23,8 @@ final class RadarContraptionAdapter {
 
     public static Result assemble(ServerLevel level, RadarControllerBlockEntity controller,
                                   RadarMode mode, RadarAssemblyFinder.Discovery discovery) {
-        RadarPanelContraption contraption = new RadarPanelContraption(discovery.facing());
+        RadarPanelContraption contraption = new RadarPanelContraption(
+                discovery.apertureKind(), discovery.facing(), discovery.apertureCount());
         ControlledContraptionEntity entity;
         try {
             if (!contraption.assembleValidated(level, controller.getBlockPos(), discovery, mode)) {
@@ -37,7 +38,8 @@ final class RadarContraptionAdapter {
         } catch (Exception exception) {
             RadarDiagnostics.logException("contraption_preparation_failed", controller.networkId(),
                     controller.endpoint(), null, controller.currentTickForDiagnostics(),
-                    "panels=" + discovery.panelCount(), exception);
+                    "aperture=" + discovery.apertureKind().serializedName()
+                            + " count=" + discovery.apertureCount(), exception);
             return new Result(null, RadarAssemblyFinder.Failure.CREATE_REJECTED);
         }
 
@@ -56,16 +58,17 @@ final class RadarContraptionAdapter {
                     restoreWithCreate(level, contraption, discovery, controller.getBlockPos());
                 } catch (Exception restoreException) {
                     exception.addSuppressed(restoreException);
-                    restoreMissingPanels(level, discovery.sourceStates());
+                    restoreMissingApertureBlocks(level, discovery.sourceStates());
                 }
             } else {
                 // Если Create оборвался посреди removeBlocksFromWorld, вернуть только исчезнувшие
                 // исходные панели; существующие блоки никогда не затираются и предметы не дропаются.
-                restoreMissingPanels(level, discovery.sourceStates());
+                restoreMissingApertureBlocks(level, discovery.sourceStates());
             }
             RadarDiagnostics.logException("contraption_capture_failed", controller.networkId(),
                     controller.endpoint(), null, controller.currentTickForDiagnostics(),
-                    "panels=" + discovery.panelCount() + " rolledBack=true", exception);
+                    "aperture=" + discovery.apertureKind().serializedName()
+                            + " count=" + discovery.apertureCount() + " rolledBack=true", exception);
             return new Result(null, RadarAssemblyFinder.Failure.CREATE_REJECTED);
         }
     }
@@ -75,14 +78,14 @@ final class RadarContraptionAdapter {
         // StructureBlockInfo уже сохранён в локальных координатах contraption. При откате
         // Create должен применить тот же мировой anchor, который использовался при захвате.
         contraption.addBlocksToWorld(level, new StructureTransform(controllerPos.above(), 0, 0, 0));
-        contraption.clearPanelProfiles(level, controllerPos);
+        contraption.refreshRestoredAperture(level, controllerPos);
         // Create выбрасывает entity при disassemble; если он уже был принят, безопасно убрать
         // оставшийся объект после восстановления по штатному transform.
         if (contraption.entity != null && contraption.entity.isAlive()) contraption.entity.discard();
-        restoreMissingPanels(level, discovery.sourceStates());
+        restoreMissingApertureBlocks(level, discovery.sourceStates());
     }
 
-    private static void restoreMissingPanels(ServerLevel level, Map<BlockPos, BlockState> sourceStates) {
+    private static void restoreMissingApertureBlocks(ServerLevel level, Map<BlockPos, BlockState> sourceStates) {
         for (Map.Entry<BlockPos, BlockState> entry : sourceStates.entrySet()) {
             BlockPos pos = entry.getKey();
             if (!level.hasChunkAt(pos)) continue;
@@ -91,6 +94,7 @@ final class RadarContraptionAdapter {
                 level.setBlock(pos, entry.getValue(), Block.UPDATE_CLIENTS | Block.UPDATE_NEIGHBORS
                         | Block.UPDATE_SUPPRESS_DROPS);
             }
+            OverviewModuleBlock.reconcileAround(level, pos);
         }
     }
 

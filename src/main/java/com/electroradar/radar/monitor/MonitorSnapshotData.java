@@ -67,9 +67,11 @@ public record MonitorSnapshotData(
         }
         Set<BlockPos> phasePositions = new HashSet<>();
         for (MonitorVisualPhase phase : visualPhases) {
-            if (!phasePositions.add(phase.radarPosition()) || visualProfiles.stream().noneMatch(profile ->
-                    profile.radarPosition().equals(phase.radarPosition())
-                            && phase.activeSectorIndex() < profile.sectorCount())) {
+            RadarVisualProfile profile = visualProfiles.stream()
+                    .filter(candidate -> candidate.radarPosition().equals(phase.radarPosition()))
+                    .findFirst().orElse(null);
+            if (!phasePositions.add(phase.radarPosition()) || profile == null
+                    || phase.activeSectorIndices().stream().anyMatch(index -> index >= profile.sectorCount())) {
                 throw new IllegalArgumentException("Monitor phase has no unique geometry profile");
             }
         }

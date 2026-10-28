@@ -43,12 +43,18 @@ public final class RadarControllerContent {
     public static final DeferredBlock<RadarPanelBlock> RADAR_PANEL = BLOCKS.registerBlock(
             "radar_panel", RadarPanelBlock::new,
             BlockBehaviour.Properties.of().mapColor(MapColor.METAL).strength(1.5F).noOcclusion());
+    public static final DeferredBlock<OverviewModuleBlock> OVERVIEW_MODULE = BLOCKS.registerBlock(
+            "overview_module", OverviewModuleBlock::new,
+            BlockBehaviour.Properties.of().mapColor(MapColor.METAL).strength(1.5F)
+                    .requiresCorrectToolForDrops().noOcclusion());
 
     public static final DeferredItem<NetworkBoundBlockItem> RADAR_CONTROLLER_ITEM = controllerItem("radar_controller", RADAR_CONTROLLER);
     public static final DeferredItem<NetworkBoundBlockItem> AIR_RADAR_CONTROLLER_ITEM = controllerItem("air_radar_controller", AIR_RADAR_CONTROLLER);
     public static final DeferredItem<NetworkBoundBlockItem> SURFACE_RADAR_CONTROLLER_ITEM = controllerItem("surface_radar_controller", SURFACE_RADAR_CONTROLLER);
     public static final DeferredItem<BlockItem> RADAR_PANEL_ITEM = ITEMS.register("radar_panel",
             () -> new BlockItem(RADAR_PANEL.get(), new Item.Properties()));
+    public static final DeferredItem<BlockItem> OVERVIEW_MODULE_ITEM = ITEMS.register("overview_module",
+            () -> new BlockItem(OVERVIEW_MODULE.get(), new Item.Properties()));
 
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<RadarControllerBlockEntity>> CONTROLLER_ENTITY =
             BLOCK_ENTITIES.register("radar_controller", () -> BlockEntityType.Builder.of(
@@ -64,6 +70,7 @@ public final class RadarControllerContent {
                         output.accept(AIR_RADAR_CONTROLLER_ITEM.get());
                         output.accept(SURFACE_RADAR_CONTROLLER_ITEM.get());
                         output.accept(RADAR_PANEL_ITEM.get());
+                        output.accept(OVERVIEW_MODULE_ITEM.get());
                         output.accept(RadarDisplayContent.RADAR_DISPLAY_ITEM.get());
                         output.accept(LinkerContent.LINKER.get());
                     }).build());

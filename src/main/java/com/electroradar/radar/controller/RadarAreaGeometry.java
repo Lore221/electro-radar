@@ -16,6 +16,7 @@ import com.electroradar.radar.visual.RadarVisualProfile;
 /** Чистое преобразование снимка конфигурации в общую серверную и визуальную геометрию. */
 final class RadarAreaGeometry {
     static final int SECTOR_COUNT = 7;
+    static final int OVERVIEW_SECTOR_COUNT = 18;
     /** Грубый поиск строгий, точная проверка допускает касание с погрешностью. */
     private static final double COARSE_QUERY_MARGIN = 1.0E-7D;
 
@@ -31,15 +32,40 @@ final class RadarAreaGeometry {
             RadarServerConfig.Snapshot parameters,
             int sectorOrderVariant
     ) {
+        return create(dimension, controllerPos, facing, mode, RadarApertureKind.PANEL,
+                panelCount, parameters, sectorOrderVariant);
+    }
+
+    public static GeometrySnapshot create(
+            ResourceLocation dimension,
+            BlockPos controllerPos,
+            Direction facing,
+            RadarMode mode,
+            RadarApertureKind apertureKind,
+            int apertureCount,
+            RadarServerConfig.Snapshot parameters,
+            int sectorOrderVariant
+    ) {
         RadarServerConfig.RangeParameters rangeParameters = parameters.range();
         RadarServerConfig.ModeParameters modeParameters = mode.parameters(parameters);
         double centerX = controllerPos.getX() + 0.5D;
         double centerY = controllerPos.getY() + 0.5D;
         double centerZ = controllerPos.getZ() + 0.5D;
-        int boundedPanelCount = Math.min(Math.max(0, panelCount), parameters.maxPanels());
-        double unbounded = ((double) rangeParameters.baseRange()
-                + (double) boundedPanelCount * rangeParameters.rangePerPanel())
-                * rangeParameters.globalMultiplier() * modeParameters.rangeMultiplier();
+        int sectorCount;
+        double unbounded;
+        if (apertureKind == RadarApertureKind.OVERVIEW) {
+            int modules = Math.min(Math.max(0, apertureCount), parameters.overview().maxModules());
+            sectorCount = OVERVIEW_SECTOR_COUNT;
+            double moduleRange = modules == 0 ? 0.0D : rangeParameters.baseRange()
+                    + (double) modules * parameters.overview().rangePerModule();
+            unbounded = moduleRange * rangeParameters.globalMultiplier() * modeParameters.rangeMultiplier();
+        } else {
+            int boundedPanelCount = Math.min(Math.max(0, apertureCount), parameters.maxPanels());
+            sectorCount = SECTOR_COUNT;
+            unbounded = ((double) rangeParameters.baseRange()
+                    + (double) boundedPanelCount * rangeParameters.rangePerPanel())
+                    * rangeParameters.globalMultiplier() * modeParameters.rangeMultiplier();
+        }
         int range;
         if (!Double.isFinite(unbounded) || unbounded >= rangeParameters.maxRange()) {
             range = rangeParameters.maxRange();
@@ -47,22 +73,29 @@ final class RadarAreaGeometry {
             range = Math.max(0, (int) Math.floor(unbounded));
         }
 
-        double sweep = Math.toRadians(modeParameters.horizontalAngle());
-        double forwardAngle = Math.atan2(facing.getStepX(), -facing.getStepZ());
-        double startAngle = forwardAngle - sweep / 2.0D;
+        double sweep = apertureKind == RadarApertureKind.OVERVIEW
+                ? RadarVisualProfile.FULL_TURN : Math.toRadians(modeParameters.horizontalAngle());
+        double startAngle;
+        if (apertureKind == RadarApertureKind.OVERVIEW) {
+            // Модель не имеет FACING; первая группа [-60°, 60°] направлена на север.
+            startAngle = -Math.PI / 3.0D;
+        } else {
+            double forwardAngle = Math.atan2(facing.getStepX(), -facing.getStepZ());
+            startAngle = forwardAngle - sweep / 2.0D;
+        }
         RadarVisualProfile profile = RadarVisualProfile.triangularFan(
                 dimension, controllerPos, centerX, centerY, centerZ,
-                range, startAngle, sweep, SECTOR_COUNT, sectorOrderVariant);
+                range, startAngle, sweep, sectorCount, sectorOrderVariant);
         RadarServerConfig.VerticalRange vertical = modeParameters.verticalRange();
         double worldMinY = centerY + vertical.minY();
         double worldMaxY = centerY + vertical.maxY();
-        ArrayList<ScanSector> sectors = new ArrayList<>(SECTOR_COUNT);
+        ArrayList<ScanSector> sectors = new ArrayList<>(sectorCount);
         for (RadarVisualGeometry.Sector sector : profile.coverage().sectors()) {
             sectors.add(new ScanSector(sector.index(), sector,
                     area(sector.triangles(), centerX, centerZ, worldMinY, worldMaxY)));
         }
         return new GeometrySnapshot(profile, sectors, range, vertical.minY(), vertical.maxY(),
-                modeParameters.horizontalAngle());
+                apertureKind == RadarApertureKind.OVERVIEW ? 360.0D : modeParameters.horizontalAngle());
     }
 
     private static SectorRadarScanArea area(List<RadarVisualGeometry.Triangle> triangles,
@@ -89,13 +122,15 @@ final class RadarAreaGeometry {
     public record ScanSector(int index, RadarVisualGeometry.Sector visualSector, SectorRadarScanArea area) {
     }
 
-    /** Неизменяемая геометрия; единственными областями сканирования являются семь частей Coverage. */
+    /** Неизменяемая геометрия; поиск и отображение используют одни и те же части Coverage. */
     public record GeometrySnapshot(RadarVisualProfile profile, List<ScanSector> sectors,
                                    int range, int minYOffset, int maxYOffset,
                                    double horizontalAngle) {
         public GeometrySnapshot {
             sectors = List.copyOf(sectors);
-            if (sectors.size() != SECTOR_COUNT) throw new IllegalArgumentException("Expected seven sectors");
+            if (sectors.size() != profile.sectorCount()) {
+                throw new IllegalArgumentException("Scan sectors must match the visual profile");
+            }
         }
     }
 }
