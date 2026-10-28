@@ -13,14 +13,14 @@ import net.minecraft.resources.ResourceLocation;
  * есть готовая внешняя граница и части анимации. Сервер проверяет hitbox по объединению тех же
  * треугольников, поэтому контур и обнаружение не расходятся. Поставщик определяет, влияет ли
  * число частей на форму: у треугольного веера оно задаёт также внешнюю ломаную.
- * {@code inactiveSectorFadeTicks} задаёт только визуальный след выключенной зоны;
- * ноль отключает след, длительность не управляет наблюдением или памятью целей.</p>
+ * {@code inactiveSectorFadeStyle} задаёт пресет визуального следа выключенной зоны;
+ * его длительность берётся из клиентского конфига и не управляет наблюдением или памятью целей.</p>
  */
 public record RadarVisualProfile(ResourceLocation dimension, BlockPos radarPosition,
                                  double centerX, double centerY, double centerZ,
                                  RadarVisualGeometry.Coverage coverage,
                                  RadarVisualAnimation animation, int sectorOrderVariant,
-                                 int inactiveSectorFadeTicks) {
+                                 RadarVisualFadeStyle inactiveSectorFadeStyle) {
     public static final int DEFAULT_SECTOR_COUNT = 7;
     public static final int MIN_SECTOR_COUNT = 1;
     public static final int MAX_SECTOR_COUNT = 64;
@@ -31,10 +31,11 @@ public record RadarVisualProfile(ResourceLocation dimension, BlockPos radarPosit
         radarPosition = Objects.requireNonNull(radarPosition, "radarPosition").immutable();
         Objects.requireNonNull(coverage, "coverage");
         Objects.requireNonNull(animation, "animation");
+        Objects.requireNonNull(inactiveSectorFadeStyle, "inactiveSectorFadeStyle");
         if (!Double.isFinite(centerX) || !Double.isFinite(centerY) || !Double.isFinite(centerZ)
                 || coverage.sectors().size() < MIN_SECTOR_COUNT
                 || coverage.sectors().size() > MAX_SECTOR_COUNT
-                || !RadarSectorOrder.validVariant(sectorOrderVariant) || inactiveSectorFadeTicks < 0) {
+                || !RadarSectorOrder.validVariant(sectorOrderVariant)) {
             throw new IllegalArgumentException("Invalid radar visual profile");
         }
     }
@@ -43,7 +44,7 @@ public record RadarVisualProfile(ResourceLocation dimension, BlockPos radarPosit
     public RadarVisualProfile(ResourceLocation dimension, BlockPos radarPosition,
                               double centerX, double centerY, double centerZ,
                               RadarVisualGeometry.Coverage coverage, RadarVisualAnimation animation) {
-        this(dimension, radarPosition, centerX, centerY, centerZ, coverage, animation, 1, 0);
+        this(dimension, radarPosition, centerX, centerY, centerZ, coverage, animation, 1, RadarVisualFadeStyle.NONE);
     }
 
     /** Совместимый путь для существующих направленных профилей: по умолчанию они идут секторами. */
@@ -90,15 +91,15 @@ public record RadarVisualProfile(ResourceLocation dimension, BlockPos radarPosit
                         startAngle, sweepAngle, sectorCount), animation);
     }
 
-    /** Прямые треугольные части с заданными источником порядком загорания и длительностью следа. */
+    /** Прямые треугольные части с заданными источником порядком загорания и пресетом следа. */
     public static RadarVisualProfile triangularFan(ResourceLocation dimension, BlockPos radarPosition,
                                                    double centerX, double centerY, double centerZ,
                                                    double radius, double startAngle, double sweepAngle,
                                                    int sectorCount, int sectorOrderVariant,
-                                                   int inactiveSectorFadeTicks) {
+                                                   RadarVisualFadeStyle inactiveSectorFadeStyle) {
         return new RadarVisualProfile(dimension, radarPosition, centerX, centerY, centerZ,
                 RadarVisualGeometry.triangularFan(centerX, centerZ, radius, startAngle, sweepAngle, sectorCount),
-                RadarVisualAnimation.SECTOR_SWEEP, sectorOrderVariant, inactiveSectorFadeTicks);
+                RadarVisualAnimation.SECTOR_SWEEP, sectorOrderVariant, inactiveSectorFadeStyle);
     }
 
     public int sectorCount() {

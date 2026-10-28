@@ -20,6 +20,7 @@ import com.electroradar.radar.monitor.MonitorVisualPhase;
 import com.electroradar.radar.network.TargetRef;
 import com.electroradar.radar.visual.RadarSectorOrder;
 import com.electroradar.radar.visual.RadarVisualAnimation;
+import com.electroradar.radar.visual.RadarVisualFadeStyle;
 import com.electroradar.radar.visual.RadarVisualGeometry;
 import com.electroradar.radar.visual.RadarVisualProfile;
 
@@ -238,7 +239,7 @@ public record MonitorSnapshotPayload(
         // Явный ограниченный ID сохраняет wire-контракт независимым от enum.ordinal().
         buffer.writeVarInt(profile.animation().wireId());
         buffer.writeVarInt(profile.sectorOrderVariant());
-        buffer.writeVarInt(profile.inactiveSectorFadeTicks());
+        buffer.writeVarInt(profile.inactiveSectorFadeStyle().wireId());
         buffer.writeDouble(profile.centerX());
         buffer.writeDouble(profile.centerY());
         buffer.writeDouble(profile.centerZ());
@@ -263,7 +264,7 @@ public record MonitorSnapshotPayload(
         BlockPos position = buffer.readBlockPos();
         RadarVisualAnimation animation = RadarVisualAnimation.fromWireId(buffer.readVarInt());
         int orderVariant = buffer.readVarInt();
-        int inactiveSectorFadeTicks = buffer.readVarInt();
+        RadarVisualFadeStyle inactiveSectorFadeStyle = RadarVisualFadeStyle.fromWireId(buffer.readVarInt());
         if (!RadarSectorOrder.validVariant(orderVariant)) {
             throw new IllegalArgumentException("Invalid radar sector order variant");
         }
@@ -297,7 +298,7 @@ public record MonitorSnapshotPayload(
         // Общие инварианты пустых частей и покрытия проверяет Coverage также при создании на сервере.
         return new RadarVisualProfile(dimension, position, centerX, centerY, centerZ,
                 new RadarVisualGeometry.Coverage(outline, separators, sectors), animation, orderVariant,
-                inactiveSectorFadeTicks);
+                inactiveSectorFadeStyle);
     }
 
     private static void writePoint(RegistryFriendlyByteBuf buffer, RadarVisualGeometry.Point point) {

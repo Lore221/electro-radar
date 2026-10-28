@@ -11,14 +11,13 @@ import net.minecraft.world.phys.AABB;
 import com.electroradar.config.RadarServerConfig;
 import com.electroradar.radar.scan.SectorRadarScanArea;
 import com.electroradar.radar.visual.RadarVisualGeometry;
+import com.electroradar.radar.visual.RadarVisualFadeStyle;
 import com.electroradar.radar.visual.RadarVisualProfile;
 
 /** Чистое преобразование снимка конфигурации в общую серверную и визуальную геометрию. */
 final class RadarAreaGeometry {
     static final int SECTOR_COUNT = 7;
     static final int OVERVIEW_SECTOR_COUNT = 18;
-    private static final int PANEL_SECTOR_FADE_TICKS = 10;
-    private static final int OVERVIEW_SECTOR_FADE_TICKS = 40;
     /** Грубый поиск строгий, точная проверка допускает касание с погрешностью. */
     private static final double COARSE_QUERY_MARGIN = 1.0E-7D;
 
@@ -88,7 +87,7 @@ final class RadarAreaGeometry {
         RadarVisualProfile profile = RadarVisualProfile.triangularFan(
                 dimension, controllerPos, centerX, centerY, centerZ,
                 range, startAngle, sweep, sectorCount, sectorOrderVariant,
-                apertureKind == RadarApertureKind.OVERVIEW ? OVERVIEW_SECTOR_FADE_TICKS : PANEL_SECTOR_FADE_TICKS);
+                apertureKind == RadarApertureKind.OVERVIEW ? RadarVisualFadeStyle.OVERVIEW : RadarVisualFadeStyle.SECTOR);
         RadarServerConfig.VerticalRange vertical = modeParameters.verticalRange();
         double worldMinY = centerY + vertical.minY();
         double worldMaxY = centerY + vertical.maxY();

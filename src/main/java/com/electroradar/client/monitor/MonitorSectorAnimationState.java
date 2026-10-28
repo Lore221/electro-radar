@@ -10,6 +10,7 @@ import java.util.Set;
 import net.minecraft.client.Minecraft;
 import org.jetbrains.annotations.Nullable;
 
+import com.electroradar.config.RadarClientConfig;
 import com.electroradar.radar.RadarDiagnostics;
 import com.electroradar.radar.monitor.MonitorSnapshotData;
 import com.electroradar.radar.monitor.MonitorVisualPhase;
@@ -110,6 +111,7 @@ final class MonitorSectorAnimationState {
             if (old != null && profile.animation() == RadarVisualAnimation.SECTOR_SWEEP) {
                 fadingSectors.putAll(old.fadingSectors);
                 if (old.phase != null) {
+                    int fadeTicks = RadarClientConfig.sectorFadeTimes().durationTicks(profile.inactiveSectorFadeStyle());
                     // Используем серверный конец посещения в шкале текущего снимка.
                     // Медленный сервер не должен гасить ещё активную зону по часам клиента.
                     double stoppedAt = receivedAt + old.phase.windowEndTick() - observedServerTick;
@@ -120,7 +122,7 @@ final class MonitorSectorAnimationState {
                     }
                     for (int sectorIndex : old.phase.activeSectorIndices()) {
                         if (phase == null || !phase.activeSectorIndices().contains(sectorIndex)) {
-                            fadingSectors.put(sectorIndex, new SectorFade(stoppedAt, profile.inactiveSectorFadeTicks()));
+                            fadingSectors.put(sectorIndex, new SectorFade(stoppedAt, fadeTicks));
                         }
                     }
                 }

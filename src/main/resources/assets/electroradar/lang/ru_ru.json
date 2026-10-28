@@ -74,6 +74,8 @@
   "electroradar.config.client.sector.world_active_edge": "Граница активного сектора на блоке монитора (#AARRGGBB)",
   "electroradar.config.client.sector.world_flash_fill": "Заливка импульса на блоке монитора (#AARRGGBB)",
   "electroradar.config.client.sector.world_flash_edge": "Граница импульса на блоке монитора (#AARRGGBB)",
+  "electroradar.config.client.sector.fade_ticks": "Затухание сектора направленного радара (тики; 0 — выключить)",
+  "electroradar.config.client.sector.overview_fade_ticks": "Затухание зоны обзорного радара (тики; 0 — выключить)",
   "electroradar.config.server.max_panels": "Максимум панелей для новых сборок",
   "electroradar.config.server.overview.max_modules": "Максимум обзорных модулей для новых сборок",
   "electroradar.config.server.overview.range_per_module": "Дальность от каждого обзорного модуля в блоках",

@@ -74,6 +74,8 @@
   "electroradar.config.client.sector.world_active_edge": "World display active sector edge (#AARRGGBB)",
   "electroradar.config.client.sector.world_flash_fill": "World display sweep flash fill (#AARRGGBB)",
   "electroradar.config.client.sector.world_flash_edge": "World display sweep flash edge (#AARRGGBB)",
+  "electroradar.config.client.sector.fade_ticks": "Sector afterglow duration (ticks; 0 disables)",
+  "electroradar.config.client.sector.overview_fade_ticks": "Overview zone afterglow duration (ticks; 0 disables)",
   "electroradar.config.server.max_panels": "Maximum panels accepted for new assemblies",
   "electroradar.config.server.overview.max_modules": "Maximum overview modules accepted for new assemblies",
   "electroradar.config.server.overview.range_per_module": "Range added by each overview module in blocks",
