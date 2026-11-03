@@ -63,9 +63,22 @@ class FlightHorizonTest {
 
     @Test
     void lifetimeAndLimitBoundTheSearch() {
+        // CBC проверяет отрезок до уменьшения ageRemaining: при T = 60 отрезков 60, номера 0…59.
         FlightCoefficients autocannon = FlightCoefficients.of(ProjectileProfile.of(8.0D, 2.0D, 0.01D, 0.05D).withLifetime(60));
-        assertEquals(new FlightHorizon(60, FlightHorizon.Bound.LIFETIME),
+        assertEquals(new FlightHorizon(59, FlightHorizon.Bound.LIFETIME),
                 FlightHorizon.compute(autocannon, 90.0D, CLEARANCE, LIMIT));
+        for (int lifetime : new int[] {0, 1, 2}) {
+            FlightCoefficients shortLived = FlightCoefficients.of(
+                    ProjectileProfile.of(8.0D, 2.0D, 0.01D, 0.05D).withLifetime(lifetime));
+            assertEquals(new FlightHorizon(Math.max(0, lifetime - 1), FlightHorizon.Bound.LIFETIME),
+                    FlightHorizon.compute(shortLived, 90.0D, CLEARANCE, LIMIT), "lifetime " + lifetime);
+        }
+        // Внешний предел ближе времени жизни, а граница модели ближе обоих.
+        assertEquals(new FlightHorizon(40, FlightHorizon.Bound.LIMIT),
+                FlightHorizon.compute(autocannon, 90.0D, CLEARANCE, 40));
+        FlightCoefficients longLived = FlightCoefficients.of(
+                ProjectileProfile.of(8.0D, 2.0D, 0.01D, 0.05D).withLifetime(10_000));
+        assertEquals(FlightHorizon.Bound.KILL_PLANE, FlightHorizon.compute(longLived, 90.0D, CLEARANCE, LIMIT).bound());
 
         FlightCoefficients drifting = FlightCoefficients.of(ProjectileProfile.of(8.0D, 2.0D, 0.0D, 0.0D));
         FlightHorizon unbounded = FlightHorizon.compute(drifting, 90.0D, CLEARANCE, 500);

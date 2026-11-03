@@ -13,7 +13,8 @@ import java.util.OptionalInt;
  * @param target прогноз цели относительно центра пушки
  * @param constraints угол крепления и семейство траектории
  * @param horizon последний проверяемый тик
- * @param hintTick тик прежнего решения: он и соседние проверяются первыми свежим прогнозом
+ * @param hintTick тик прежнего решения: он и соседние проверяются первыми свежим прогнозом, и
+ *                 найденное там решение предпочитается более раннему (см. {@link InterceptSearch})
  */
 public record InterceptRequest(FlightCoefficients flight, TargetForecast target, AimConstraints constraints,
                                FlightHorizon horizon, OptionalInt hintTick) {

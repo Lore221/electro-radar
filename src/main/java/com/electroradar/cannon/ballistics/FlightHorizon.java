@@ -30,7 +30,7 @@ public record FlightHorizon(int lastTick, Bound bound) {
         KILL_PLANE,
         /** Без гравитации отрезок стал короче 0,01 и CBC больше не проверяет столкновения. */
         MIN_SWEEP_LENGTH,
-        /** Время жизни снаряда. */
+        /** Время жизни снаряда: последний отрезок перед удалением. */
         LIFETIME,
         /** Внешний предел перебора; после него попадания не исключены. */
         LIMIT
@@ -73,8 +73,8 @@ public record FlightHorizon(int lastTick, Bound bound) {
         ProjectileProfile profile = flight.profile();
         int limit = tickLimit;
         Bound limitBound = Bound.LIMIT;
-        if (profile.lifetimeTicks().isPresent() && profile.lifetimeTicks().getAsInt() <= limit) {
-            limit = profile.lifetimeTicks().getAsInt();
+        if (profile.lifetimeTicks().isPresent() && lastLivingTick(profile.lifetimeTicks().getAsInt()) <= limit) {
+            limit = lastLivingTick(profile.lifetimeTicks().getAsInt());
             limitBound = Bound.LIFETIME;
         }
         if (profile.gravity() > 0.0D) {
@@ -86,6 +86,15 @@ public record FlightHorizon(int lastTick, Bound bound) {
             return last < limit ? new FlightHorizon(last, Bound.MIN_SWEEP_LENGTH) : new FlightHorizon(limit, limitBound);
         }
         return new FlightHorizon(limit, limitBound);
+    }
+
+    /**
+     * Последний отрезок снаряда со временем жизни {@code T}. CBC сначала проверяет отрезок, затем
+     * уменьшает {@code ageRemaining} и удаляет снаряд при нуле ({@code AbstractAutocannonProjectile.tick}):
+     * отрезков ровно {@code T}, с номерами {@code 0…T−1}; при {@code T = 0} снаряд успевает один отрезок.
+     */
+    static int lastLivingTick(int lifetimeTicks) {
+        return Math.max(0, lifetimeTicks - 1);
     }
 
     /**
