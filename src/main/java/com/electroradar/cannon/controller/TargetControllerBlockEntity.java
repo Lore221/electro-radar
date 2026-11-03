@@ -9,6 +9,7 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -26,6 +27,8 @@ import com.electroradar.cannon.ballistics.AimConstraints;
 import com.electroradar.cannon.ballistics.FireSolution;
 import com.electroradar.cannon.ballistics.FlightHorizon;
 import com.electroradar.cannon.ballistics.Vector3;
+import com.electroradar.cannon.diagnostics.CannonDiagnostics;
+import com.electroradar.cannon.diagnostics.ShotPrediction;
 import com.electroradar.cannon.mount.CannonKind;
 import com.electroradar.cannon.mount.CannonMunition;
 import com.electroradar.cannon.mount.MountedCannon;
@@ -65,6 +68,8 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
     private final AimDrive drive = new AimDrive();
     private final FireTrigger trigger = new FireTrigger();
     private final InterceptPlanner planner = new InterceptPlanner();
+    private final CannonDiagnostics diagnostics = new CannonDiagnostics();
+    private CannonDiagnostics.Plan diagnosticPlan;
 
     private ScrollOptionBehaviour<TrajectoryMode> trajectoryMode;
     private NetworkId networkId;
@@ -114,14 +119,18 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         status = outcome.status();
         boolean next = outcome.kind() != null && trigger.update(outcome.kind(), outcome.ready(), outcome.held());
         if (outcome.kind() == null) trigger.reset();
+        boolean rising = next && !firing;
         setFiring(next, outcome.kind());
+        if (next) CannonDiagnostics.armed(serverLevel, diagnosticPlan, rising);
         syncStatus(serverLevel.getGameTime());
     }
 
     private Outcome evaluate(ServerLevel level) {
+        diagnosticPlan = null;
         ensureConnection(level);
+        Optional<TargetRef> selected = connection == null ? Optional.empty() : connection.selectedTarget();
+        diagnostics.selection(level, worldPosition, selected.orElse(null));
         if (connection == null) return idle(FireStatus.NO_NETWORK, null);
-        Optional<TargetRef> selected = connection.selectedTarget();
         if (selected.isEmpty()) return idle(FireStatus.NO_TARGET, null);
         TargetRef target = selected.get();
 
@@ -193,6 +202,16 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
                 && !munition(level, cannon, true).equals(reading)) {
             hintTick = OptionalInt.empty();
             return new Outcome(FireStatus.AIMING, cannon.kind(), false, false);
+        }
+        if (CannonDiagnostics.enabled()) {
+            Vec3 barrel = cannon.barrelDirection();
+            ShotPrediction prediction = new ShotPrediction(reading.profile().orElseThrow(), pivot,
+                    InterceptPlanner.forecast(pivot, estimate), fire);
+            diagnosticPlan = new CannonDiagnostics.Plan(level.dimension().location().toString(),
+                    worldPosition.immutable(), cannon.mountPos().immutable(), target.id(),
+                    BuiltInRegistries.ENTITY_TYPE.getKey(entity.get().getType()).toString(),
+                    pivot.add(vector(barrel).scale(cannon.spawnOffset())), estimate.position(), prediction);
+            diagnostics.solution(level, diagnosticPlan, next, barrel);
         }
         // Очередь автопушки переживает колебания привода, но не запрет огня по дистанции или стороне.
         return new Outcome(next, cannon.kind(), next == FireStatus.READY,
