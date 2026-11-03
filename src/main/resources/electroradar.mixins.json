@@ -1,0 +1,8 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.electroradar.mixin",
+  "plugin": "com.electroradar.mixin.CannonDiagnosticsMixinPlugin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": ["CannonProjectileDiagnosticsMixin"]
+}

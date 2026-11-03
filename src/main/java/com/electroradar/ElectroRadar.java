@@ -6,6 +6,7 @@ import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.common.NeoForge;
 
 import com.electroradar.cannon.controller.TargetControllerContent;
+import com.electroradar.cannon.diagnostics.CannonDiagnostics;
 import com.electroradar.config.RadarClientConfig;
 import com.electroradar.config.RadarServerConfig;
 import com.electroradar.radar.controller.RadarControllerContent;
@@ -39,6 +40,9 @@ public final class ElectroRadar {
         modEventBus.addListener(MonitorPayloads::register);
         modEventBus.addListener(NetworkOutlinePayloads::register);
         modEventBus.addListener(RadarPanelTiltPayloads::register);
+        NeoForge.EVENT_BUS.addListener(CannonDiagnostics::onJoin);
+        NeoForge.EVENT_BUS.addListener(CannonDiagnostics::onLeave);
+        NeoForge.EVENT_BUS.addListener(CannonDiagnostics::onServerStopped);
         NeoForge.EVENT_BUS.addListener(RadarNetworkManager::onServerStarting);
         NeoForge.EVENT_BUS.addListener(RadarNetworkManager::onServerTick);
         NeoForge.EVENT_BUS.addListener(RadarNetworkManager::onServerStopped);
