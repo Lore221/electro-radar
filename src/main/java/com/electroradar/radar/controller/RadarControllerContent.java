@@ -19,6 +19,7 @@ import com.simibubi.create.api.contraption.BlockMovementChecks;
 import com.simibubi.create.api.registry.CreateRegistries;
 
 import com.electroradar.ElectroRadar;
+import com.electroradar.cannon.controller.TargetControllerContent;
 import com.electroradar.radar.monitor.RadarDisplayContent;
 import com.electroradar.radar.linker.LinkerContent;
 import com.electroradar.radar.network.NetworkBoundBlockItem;
@@ -72,6 +73,7 @@ public final class RadarControllerContent {
                         output.accept(RADAR_PANEL_ITEM.get());
                         output.accept(OVERVIEW_MODULE_ITEM.get());
                         output.accept(RadarDisplayContent.RADAR_DISPLAY_ITEM.get());
+                        output.accept(TargetControllerContent.TARGET_CONTROLLER_ITEM.get());
                         output.accept(LinkerContent.LINKER.get());
                     }).build());
 

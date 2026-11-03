@@ -21,7 +21,8 @@ public final class RadarServerConfig {
             new ModeParameters(new VerticalRange(-20, 128), 90.0D, 1.0D),
             new ModeParameters(new VerticalRange(40, 1_500), 60.0D, 1.5D),
             new ModeParameters(new VerticalRange(-1_500, -20), 120.0D, 1.0D), 10,
-            new OverviewParameters(5, 50));
+            new OverviewParameters(5, 50),
+            new TargetControllerParameters(64.0D, 32.0D, 20.0D, 20.0D));
     /**
      * Один volatile-снимок — единственная точка чтения конфигурации для runtime.
      * До первого события загрузки доступен полный набор стандартных значений.
@@ -39,6 +40,10 @@ public final class RadarServerConfig {
     private static final ModConfigSpec.IntValue SECTOR_TICKS;
     private static final ModConfigSpec.IntValue MAX_OVERVIEW_MODULES;
     private static final ModConfigSpec.IntValue OVERVIEW_RANGE_PER_MODULE;
+    private static final ModConfigSpec.DoubleValue TARGET_CONTROLLER_DRIVE_RPM;
+    private static final ModConfigSpec.DoubleValue TARGET_CONTROLLER_ACCELERATION;
+    private static final ModConfigSpec.DoubleValue BIG_CANNON_MIN_DISTANCE;
+    private static final ModConfigSpec.DoubleValue AUTOCANNON_MIN_DISTANCE;
 
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
@@ -81,6 +86,22 @@ public final class RadarServerConfig {
         SECTOR_TICKS = builder.comment("Ticks per base window; changes wait for the next common visit boundary.")
                 .translation("electroradar.config.server.scanning.sector_ticks")
                 .defineInRange("sector_ticks", DEFAULT.sectorTicks(), 1, 200);
+        builder.pop();
+
+        builder.comment("Target Controller drive and firing limits.").push("target_controller");
+        TargetControllerParameters controller = DEFAULT.targetController();
+        TARGET_CONTROLLER_DRIVE_RPM = builder.comment("Maximum turning speed of the cannon drive, in RPM.")
+                .translation("electroradar.config.server.target_controller.drive_rpm")
+                .defineInRange("drive_rpm", controller.driveRpm(), 0.1D, 256.0D);
+        TARGET_CONTROLLER_ACCELERATION = builder.comment("Drive acceleration, in RPM per second.")
+                .translation("electroradar.config.server.target_controller.acceleration_rpm_per_second")
+                .defineInRange("acceleration_rpm_per_second", controller.accelerationRpmPerSecond(), 0.1D, 1_024.0D);
+        BIG_CANNON_MIN_DISTANCE = builder.comment("Big cannons do not fire at targets closer than this, in blocks.")
+                .translation("electroradar.config.server.target_controller.big_cannon_min_distance")
+                .defineInRange("big_cannon_min_distance", controller.bigCannonMinDistance(), 0.0D, 1_024.0D);
+        AUTOCANNON_MIN_DISTANCE = builder.comment("Autocannons do not fire at targets closer than this, in blocks.")
+                .translation("electroradar.config.server.target_controller.autocannon_min_distance")
+                .defineInRange("autocannon_min_distance", controller.autocannonMinDistance(), 0.0D, 1_024.0D);
         builder.pop();
 
         builder.comment("Deprecated settings retained for existing configurations.").push("visual");
@@ -135,7 +156,9 @@ public final class RadarServerConfig {
                 GROUND.read(DEFAULT.ground(), "ground", revision),
                 AIR.read(DEFAULT.air(), "air", revision),
                 SURFACE.read(DEFAULT.surface(), "surface", revision), SECTOR_TICKS.get(),
-                new OverviewParameters(MAX_OVERVIEW_MODULES.get(), OVERVIEW_RANGE_PER_MODULE.get()));
+                new OverviewParameters(MAX_OVERVIEW_MODULES.get(), OVERVIEW_RANGE_PER_MODULE.get()),
+                new TargetControllerParameters(TARGET_CONTROLLER_DRIVE_RPM.get(), TARGET_CONTROLLER_ACCELERATION.get(),
+                        BIG_CANNON_MIN_DISTANCE.get(), AUTOCANNON_MIN_DISTANCE.get()));
     }
 
     /** Одна схема TOML для трёх режимов; ключи и ограничения остаются одинаковыми. */
@@ -210,12 +233,32 @@ public final class RadarServerConfig {
         }
     }
 
+    /**
+     * Привод контроллера наведения не требует питания: скорость и ускорение задаёт сервер.
+     *
+     * @param driveRpm наибольшая скорость поворота ствола, об/мин
+     * @param accelerationRpmPerSecond ускорение привода, об/мин за секунду
+     * @param bigCannonMinDistance ближе этого большая пушка не стреляет, блоки
+     * @param autocannonMinDistance ближе этого автопушка не стреляет, блоки
+     */
+    public record TargetControllerParameters(double driveRpm, double accelerationRpmPerSecond,
+                                             double bigCannonMinDistance, double autocannonMinDistance) {
+        public TargetControllerParameters {
+            if (!(driveRpm > 0.0D) || !(accelerationRpmPerSecond > 0.0D)
+                    || !(bigCannonMinDistance >= 0.0D) || !(autocannonMinDistance >= 0.0D)
+                    || !Double.isFinite(driveRpm) || !Double.isFinite(accelerationRpmPerSecond)
+                    || !Double.isFinite(bigCannonMinDistance) || !Double.isFinite(autocannonMinDistance)) {
+                throw new IllegalArgumentException("Invalid target controller configuration");
+            }
+        }
+    }
+
     public record Snapshot(long revision, int maxPanels, RangeParameters range,
                            ModeParameters ground, ModeParameters air, ModeParameters surface, int sectorTicks,
-                           OverviewParameters overview) {
+                           OverviewParameters overview, TargetControllerParameters targetController) {
         public Snapshot {
             if (maxPanels < 1 || maxPanels > 20 || sectorTicks < 1 || sectorTicks > 200
-                    || overview == null) {
+                    || overview == null || targetController == null) {
                 throw new IllegalArgumentException("Invalid server radar configuration snapshot");
             }
         }
