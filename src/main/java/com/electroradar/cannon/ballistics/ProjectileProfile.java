@@ -16,7 +16,8 @@ import java.util.OptionalInt;
  * @param spawnOffset осевое смещение точки появления снаряда от центра пушки {@code L}
  * @param drag линейное сопротивление {@code k} за тик, {@code 0 ≤ k < 1}
  * @param gravity модуль ускорения вниз {@code g} за тик (в данных CBC хранится со знаком минус)
- * @param lifetimeTicks время жизни снаряда, если оно есть (автопушки); иначе пусто
+ * @param lifetimeTicks время жизни, если оно есть (автопушки): число обновлений снаряда до удаления,
+ *                      то есть начальное {@code ageRemaining} CBC, а не номер последнего тика; иначе пусто
  */
 public record ProjectileProfile(double speed, double spawnOffset, double drag, double gravity,
                                 OptionalInt lifetimeTicks) {

@@ -130,6 +130,65 @@ class InterceptSearchTest {
         assertTrue(Math.abs(warm.solution().orElseThrow().tick() - cold.tick()) <= 1);
     }
 
+    /** Issue #13, п. 1: подсказка не должна съедать весь бюджет и зацикливать продолжение. */
+    @Test
+    void hintNeverStallsBudgetedContinuation() {
+        FlightCoefficients flight = FlightCoefficients.of(ProjectileProfile.of(8.0D, 2.0D, 0.01D, 0.05D));
+        FlightHorizon horizon = FlightHorizon.compute(flight, 85.0D, CLEARANCE, 1000);
+        InterceptRequest unreachable = InterceptRequest.of(flight,
+                TargetForecast.stationary(new Vector3(5000.0D, 0.0D, 0.0D)), MOUNT, horizon);
+        for (int hint : new int[] {0, 10, horizon.lastTick()}) {
+            for (int budget = 1; budget <= 4; budget++) {
+                InterceptRequest request = unreachable.withHint(hint);
+                int next = 0;
+                int calls = 0;
+                InterceptResult result;
+                do {
+                    result = InterceptSearch.search(request, next, budget, solution -> true);
+                    assertTrue(result.status() != InterceptResult.Status.PENDING || result.nextTick() > next,
+                            "no progress: hint " + hint + " budget " + budget + " at " + next);
+                    next = result.nextTick();
+                    calls++;
+                } while (result.status() == InterceptResult.Status.PENDING && calls < 10_000);
+                assertEquals(InterceptResult.Status.NO_SOLUTION, result.status(), "hint " + hint + " budget " + budget);
+            }
+        }
+        assertEquals(new InterceptResult(InterceptResult.Status.PENDING, java.util.Optional.empty(), 7, 0, 0),
+                InterceptSearch.search(unreachable, 7, 0, solution -> true));
+    }
+
+    /** Issue #13, п. 2: снаряд с T = 60 не существует в отрезке 60. */
+    @Test
+    void lifetimeExcludesTheNonexistentLastSweep() {
+        FlightCoefficients flight = FlightCoefficients.of(ProjectileProfile.of(2.0D, 2.0D, 0.0D, 0.0D).withLifetime(60));
+        FlightHorizon horizon = FlightHorizon.compute(flight, 90.0D, CLEARANCE, 1000);
+        // Отрезок 59 покрывает радиусы 120…122, отрезок 60 (122…124) снаряд уже не проходит.
+        InterceptResult result = InterceptSearch.search(InterceptRequest.of(flight,
+                TargetForecast.stationary(new Vector3(123.0D, 0.0D, 0.0D)),
+                AimConstraints.pitchRange(-90.0D, 90.0D), horizon));
+        assertEquals(InterceptResult.Status.NO_SOLUTION, result.status());
+        InterceptResult last = InterceptSearch.search(InterceptRequest.of(flight,
+                TargetForecast.stationary(new Vector3(121.0D, 0.0D, 0.0D)),
+                AimConstraints.pitchRange(-90.0D, 90.0D), horizon));
+        assertEquals(59, last.solution().orElseThrow().tick());
+    }
+
+    /** Issue #13, п. 3: подсказка задаёт явную политику, без неё действует гарантия самого раннего. */
+    @Test
+    void hintPrefersPreviousSolutionWhileColdSearchIsEarliest() {
+        FlightCoefficients flight = FlightCoefficients.of(ProjectileProfile.of(8.0D, 2.0D, 0.01D, 0.05D));
+        FlightHorizon horizon = FlightHorizon.compute(flight, 85.0D, CLEARANCE, 1000);
+        InterceptRequest request = InterceptRequest.of(flight,
+                TargetForecast.stationary(new Vector3(400.0D, 0.0D, 0.0D)), MOUNT, horizon);
+        FireSolution earliest = InterceptSearch.search(request).solution().orElseThrow();
+        assertEquals(bruteForceTicks(request).iterator().next(), earliest.tick());
+        FireSolution preferred = InterceptSearch.search(request.withHint(198)).solution().orElseThrow();
+        assertTrue(Math.abs(preferred.tick() - 198) <= 1, "hint " + preferred);
+        assertTrue(preferred.tick() > earliest.tick());
+        // Неподходящая подсказка не мешает найти самое раннее решение основным перебором.
+        assertEquals(earliest, InterceptSearch.search(request.withHint(5)).solution().orElseThrow());
+    }
+
     private static int firstTick(FlightCoefficients flight, TargetForecast target, AimConstraints constraints, int limit) {
         FlightHorizon horizon = FlightHorizon.compute(flight, constraints.maxPitch(), CLEARANCE, limit);
         InterceptRequest request = InterceptRequest.of(flight, target, constraints, horizon);
