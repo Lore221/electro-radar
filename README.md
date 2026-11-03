@@ -6,12 +6,15 @@
 
 - JDK 21 (64-bit)
 - Gradle устанавливать отдельно не нужно: используется Gradle Wrapper.
+- В игре обязательны Create и Create Big Cannons (вместе с Ritchie's Projectile Library);
+  в разработке Gradle подключает их сам.
 
 ## Команды
 
 ```bash
 ./gradlew runClient
 ./gradlew build
+./gradlew test   # модульные тесты решателя наведения, без запуска игры
 ```
 
 Готовый мод появится в `build/libs/`.

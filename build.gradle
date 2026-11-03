@@ -4,8 +4,14 @@ plugins {
 }
 
 repositories {
+    mavenCentral()
     maven { url = 'https://maven.createmod.net' }
     maven { url = 'https://mvn.devos.one/snapshots' }
+    maven {
+        // Create Big Cannons и Ritchie's Projectile Library публикуются только здесь.
+        url = 'https://maven.realrobotix.me/master'
+        content { includeGroup 'com.rbasamoyai' }
+    }
 }
 
 version = project.mod_version
@@ -27,6 +33,23 @@ dependencies {
     compileOnly "dev.engine-room.flywheel:flywheel-neoforge-api-${project.minecraft_version}:1.0.6"
     runtimeOnly "dev.engine-room.flywheel:flywheel-neoforge-${project.minecraft_version}:1.0.6"
     implementation 'com.tterrag.registrate:Registrate:MC1.21-1.3.0+67'
+    // Create Big Cannons — обязательная зависимость: решатель наведения моделирует её снаряды.
+    // Транзитивные зависимости CBC (Sable, Aeronautics и т. п.) необязательны и не подключаются;
+    // обязательная для неё Ritchie's Projectile Library нужна только при запуске.
+    implementation("com.rbasamoyai:createbigcannons:5.11.7+mc.${project.minecraft_version}") {
+        transitive = false
+    }
+    runtimeOnly("com.rbasamoyai:ritchiesprojectilelib:2.1.2+mc.${project.minecraft_version}-neoforge") {
+        transitive = false
+    }
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testImplementation 'org.junit.jupiter:junit-jupiter-params:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.11.4'
+}
+
+tasks.named('test', Test).configure {
+    useJUnitPlatform()
 }
 
 neoForge {

@@ -32,6 +32,13 @@ ordering="AFTER"
 side="BOTH"
 
 [[dependencies.${mod_id}]]
+modId="createbigcannons"
+type="required"
+versionRange="[5.11.7,5.12)"
+ordering="AFTER"
+side="BOTH"
+
+[[dependencies.${mod_id}]]
 modId="flywheel"
 type="required"
 versionRange="[1.0.6,1.1)"
