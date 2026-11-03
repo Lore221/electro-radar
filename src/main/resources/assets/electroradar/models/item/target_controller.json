@@ -1,0 +1,11 @@
+{
+  "loader": "neoforge:separate_transforms",
+  "base": {
+    "parent": "electroradar:block/target_controller/model"
+  },
+  "perspectives": {
+    "gui": {
+      "parent": "electroradar:block/target_controller/hud"
+    }
+  }
+}

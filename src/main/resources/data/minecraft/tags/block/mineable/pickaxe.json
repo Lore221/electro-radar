@@ -1,6 +1,7 @@
 {
   "replace": false,
   "values": [
-    "electroradar:overview_module"
+    "electroradar:overview_module",
+    "electroradar:target_controller"
   ]
 }

@@ -5,6 +5,7 @@ import net.neoforged.fml.ModContainer;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.common.NeoForge;
 
+import com.electroradar.cannon.controller.TargetControllerContent;
 import com.electroradar.config.RadarClientConfig;
 import com.electroradar.config.RadarServerConfig;
 import com.electroradar.radar.controller.RadarControllerContent;
@@ -28,6 +29,7 @@ public final class ElectroRadar {
         RadarControllerContent.registerCreateMovementPolicy();
         RadarDisplayContent.register(modEventBus);
         LinkerContent.register(modEventBus);
+        TargetControllerContent.register(modEventBus);
         modContainer.registerConfig(net.neoforged.fml.config.ModConfig.Type.CLIENT, RadarClientConfig.SPEC,
                 "electroradar-client.toml");
         modContainer.registerConfig(net.neoforged.fml.config.ModConfig.Type.SERVER, RadarServerConfig.SPEC,
