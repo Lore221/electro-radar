@@ -118,6 +118,11 @@ public final class MountedCannon {
         return cursor;
     }
 
+    /** Идентичность сборки: после пересборки на той же установке кеш нужно обновить. */
+    public Object identity() {
+        return contraption;
+    }
+
     public CannonKind kind() {
         return kind;
     }
@@ -133,7 +138,7 @@ public final class MountedCannon {
 
     /** Осевое расстояние от центра вращения до точки появления снаряда, {@code L} модели. */
     public double spawnOffset() {
-        return Math.max(0.0D, entity.toGlobalVector(localMuzzle, 0.0F).distanceTo(pivot()) - spawnRetreat);
+        return Math.max(0.0D, localMuzzle.distanceTo(Vec3.atCenterOf(BlockPos.ZERO)) - spawnRetreat);
     }
 
     /** Направление, по которому CBC выстрелит прямо сейчас. */
@@ -215,7 +220,11 @@ public final class MountedCannon {
         for (int i = 0; i < MAX_BARREL_BLOCKS && blockEntities.get(cursor) instanceof IBigCannonBlockEntity cannon; i++) {
             StructureBlockInfo info = cannon.cannonBehavior().block();
             Block block = info.state().getBlock();
-            if (block instanceof BigCannonPropellantBlock propellant && !(block instanceof ProjectileBlock<?>)) {
+            if (info.state().isAir() && projectile == null) {
+                if (i == 0) return CannonMunition.of(CannonMunition.Status.NO_AMMUNITION);
+                // CBC вычитает один заряд за каждый пустой блок ствола до снаряда.
+                charges = Math.max(0.0F, charges - 1.0F);
+            } else if (block instanceof BigCannonPropellantBlock propellant && !(block instanceof ProjectileBlock<?>)) {
                 if (projectile == null) charges += Math.max(0.0F, propellant.getChargePower(info));
             } else if (block instanceof ProjectileBlock<?> projectileBlock && projectile == null) {
                 projectile = projectileBlock.getProjectile(level, projectileBlocks(cursor));
@@ -224,9 +233,6 @@ public final class MountedCannon {
         }
         if (projectile == null) return CannonMunition.of(CannonMunition.Status.NO_AMMUNITION);
         charges += projectile.addedChargePower();
-        if (projectile instanceof IntegratedPropellantProjectile integrated) {
-            charges += Math.max(0.0F, integrated.getChargePower());
-        }
         if (charges <= 0.0F || charges < projectile.minimumChargePower()) {
             return CannonMunition.of(CannonMunition.Status.NO_AMMUNITION);
         }
@@ -234,7 +240,10 @@ public final class MountedCannon {
         float minimumSpread = contraption.getBlocks().get(BlockPos.ZERO) instanceof StructureBlockInfo anchor
                 && anchor.state().getBlock() instanceof BigCannonBlock cannonBlock
                 ? cannonBlock.getCannonMaterial().properties().minimumSpread() : 0.0F;
-        return profile(level, projectile, Math.max(charges, minimumSpread), OptionalInt.empty());
+        float integratedCharge = projectile instanceof IntegratedPropellantProjectile integrated
+                ? Math.max(0.0F, integrated.getChargePower()) : 0.0F;
+        return profile(level, projectile, BigCannonCharge.launchSpeed(charges, minimumSpread, integratedCharge),
+                OptionalInt.empty());
     }
 
     /** Подряд идущие блоки снаряда, начиная с первого, как их передаёт CBC. */

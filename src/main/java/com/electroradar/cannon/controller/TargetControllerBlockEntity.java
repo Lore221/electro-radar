@@ -57,10 +57,6 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         implements NetworkLinkTarget, IHaveGoggleInformation {
     private static final String NETWORK_ID_TAG = "electroradar_network_id";
     private static final String STATUS_TAG = "electroradar_fire_status";
-    /** Повторное чтение снаряда установки; после импульса выстрела — в следующем же тике. */
-    private static final long MUNITION_REFRESH_TICKS = 20L;
-    /** Не чаще этого клиент получает изменившийся статус для очков. */
-    private static final long STATUS_SYNC_TICKS = 10L;
     /** Допуск наведения ограничен снизу точностью привода и сверху разумным разбросом очереди. */
     private static final double MIN_AIM_TOLERANCE_DEGREES = 0.05D;
     private static final double MAX_AIM_TOLERANCE_DEGREES = 2.0D;
@@ -75,17 +71,13 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
     private ConsumerConnection connection;
     private boolean registrationFailureLogged;
 
-    private BlockPos munitionMount;
-    private CannonKind munitionKind;
-    private CannonMunition munition;
-    private long munitionTick = Long.MIN_VALUE;
+    private final CannonMunitionCache munitionCache = new CannonMunitionCache();
+    private final StatusSync statusSync = new StatusSync();
     private TargetRef hintTarget;
     private OptionalInt hintTick = OptionalInt.empty();
 
     private boolean firing;
     private FireStatus status = FireStatus.NO_NETWORK;
-    private FireStatus syncedStatus;
-    private long statusSyncTick = Long.MIN_VALUE;
 
     public TargetControllerBlockEntity(BlockPos pos, BlockState state) {
         super(TargetControllerContent.TARGET_CONTROLLER_ENTITY.get(), pos, state);
@@ -194,6 +186,14 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         } else {
             next = FireStatus.READY;
         }
+        // Для сопровождения достаточно кеша; перед разрешением огня профиль перечитывается.
+        // При смене боеприпаса сохраняем свежий профиль и пересчитываем решение в следующем тике.
+        if ((next == FireStatus.READY || next == FireStatus.AIMING
+                && cannon.kind() == CannonKind.AUTOCANNON && firing)
+                && !munition(level, cannon, true).equals(reading)) {
+            hintTick = OptionalInt.empty();
+            return new Outcome(FireStatus.AIMING, cannon.kind(), false, false);
+        }
         // Очередь автопушки переживает колебания привода, но не запрет огня по дистанции или стороне.
         return new Outcome(next, cannon.kind(), next == FireStatus.READY,
                 next == FireStatus.READY || next == FireStatus.AIMING);
@@ -216,19 +216,17 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
     }
 
     private CannonMunition munition(ServerLevel level, MountedCannon cannon) {
-        long now = level.getGameTime();
-        if (munition == null || !cannon.mountPos().equals(munitionMount) || cannon.kind() != munitionKind
-                || now - munitionTick >= MUNITION_REFRESH_TICKS || now < munitionTick) {
-            munition = cannon.readMunition(level);
-            munitionMount = cannon.mountPos().immutable();
-            munitionKind = cannon.kind();
-            munitionTick = now;
-        }
-        return munition;
+        return munition(level, cannon, false);
+    }
+
+    private CannonMunition munition(ServerLevel level, MountedCannon cannon, boolean fresh) {
+        return munitionCache.read(cannon.identity(), cannon.spawnOffset(), level.getGameTime(), fresh,
+                () -> cannon.readMunition(level));
     }
 
     private Outcome idle(FireStatus reason, CannonKind kind) {
         drive.stop();
+        if (reason == FireStatus.NO_CANNON) munitionCache.invalidate();
         if (reason == FireStatus.NO_TARGET || reason == FireStatus.NO_NETWORK) {
             track.reset();
             hintTarget = null;
@@ -241,15 +239,12 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         if (next == firing || level == null) return;
         firing = next;
         // Снаряд израсходован: следующий тик перечитает ствол, а не будет стрелять по старому профилю.
-        if (next && kind == CannonKind.BIG_CANNON) munitionTick = Long.MIN_VALUE;
+        if (next && kind == CannonKind.BIG_CANNON) munitionCache.invalidate();
         level.updateNeighborsAt(worldPosition, getBlockState().getBlock());
     }
 
     private void syncStatus(long now) {
-        if (status == syncedStatus || now - statusSyncTick < STATUS_SYNC_TICKS) return;
-        syncedStatus = status;
-        statusSyncTick = now;
-        sendData();
+        if (statusSync.update(status, now)) sendData();
     }
 
     /** Угол между фактическим и требуемым направлениями ствола, градусы. */
