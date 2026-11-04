@@ -120,6 +120,8 @@
   "goggles.electroradar.target_controller.status.unsupported_munition": "Unsupported munition",
   "goggles.electroradar.target_controller.status.target_too_close": "Target is too close",
   "goggles.electroradar.target_controller.status.target_unreachable": "Target is out of reach",
+  "goggles.electroradar.target_controller.status.trajectory_blocked": "Trajectory is blocked",
+  "goggles.electroradar.target_controller.status.trajectory_unloaded": "Trajectory crosses an unloaded area",
   "electroradar.config.server.target_controller.drive_rpm": "Target Controller drive speed in RPM",
   "electroradar.config.server.target_controller.acceleration_rpm_per_second": "Target Controller drive acceleration in RPM per second",
   "electroradar.config.server.target_controller.big_cannon_min_distance": "Minimum firing distance for big cannons in blocks",
