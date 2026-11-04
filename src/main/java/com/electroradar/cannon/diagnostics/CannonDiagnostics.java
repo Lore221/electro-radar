@@ -69,11 +69,11 @@ public final class CannonDiagnostics {
                 result.status(), result.tick(), result.point(), result.segments());
     }
 
-    public static void armed(ServerLevel level, Plan plan, boolean rising) {
+    public static void armed(ServerLevel level, Plan plan, boolean logAttempt) {
         if (!ENABLED || plan == null) return;
         PENDING.remember(plan.dimension() + "/" + plan.controller(), plan.dimension(), level.getGameTime(),
                 plan.expectedSpawn(), plan);
-        if (rising) LOGGER.info("[ElectroRadar/CannonDebug] event=fire_signal tick={} controller={} target={} expectedSpawn={} predictedHit={} expectedFlightTick={}",
+        if (logAttempt) LOGGER.info("[ElectroRadar/CannonDebug] event=fire_attempt tick={} controller={} target={} expectedSpawn={} predictedHit={} expectedFlightTick={}",
                 level.getGameTime(), plan.controller(), plan.target(), plan.expectedSpawn(), plan.prediction().impact(), plan.prediction().solution().tick());
     }
 

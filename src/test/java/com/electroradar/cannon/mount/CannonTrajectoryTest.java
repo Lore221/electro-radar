@@ -45,6 +45,6 @@ class CannonTrajectoryTest {
             assertEquals(ArcBranch.HIGH, result.solution().orElseThrow().branch());
         }
         assertFalse(CannonKind.DROP_MORTAR.selectableTrajectory());
-        assertFalse(CannonKind.DROP_MORTAR.requiresFireSignal());
+        assertFalse(CannonKind.DROP_MORTAR.controllerFires());
     }
 }

@@ -22,7 +22,7 @@ public enum CannonKind {
         };
     }
 
-    public boolean requiresFireSignal() {
+    public boolean controllerFires() {
         return this != DROP_MORTAR;
     }
 }

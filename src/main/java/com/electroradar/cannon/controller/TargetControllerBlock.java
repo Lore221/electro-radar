@@ -4,7 +4,6 @@ import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.item.context.BlockPlaceContext;
-import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BaseEntityBlock;
 import net.minecraft.world.level.block.Block;
@@ -18,13 +17,7 @@ import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
 import com.simibubi.create.content.equipment.wrench.IWrenchable;
 
-/**
- * Контроллер наведения ставится вплотную к установке CBC лицевой гранью к ней.
- *
- * <p>Сигнал выстрела подаётся только в сторону установки: установка CBC с другой стороны принимает
- * сигнал сборки, и импульс туда разобрал бы орудие. Стрелять контроллер начинает, только если
- * смотрит на вход выстрела установки.</p>
- */
+/** Контроллер ставится лицевой стороной к установке CBC и запускает выстрел через её API. */
 public final class TargetControllerBlock extends BaseEntityBlock implements IWrenchable {
     public static final MapCodec<TargetControllerBlock> CODEC = simpleCodec(TargetControllerBlock::new);
     public static final DirectionProperty FACING = HorizontalDirectionalBlock.FACING;
@@ -61,24 +54,6 @@ public final class TargetControllerBlock extends BaseEntityBlock implements IWre
     @Override
     public RenderShape getRenderShape(BlockState state) {
         return RenderShape.MODEL;
-    }
-
-    @Override
-    protected boolean isSignalSource(BlockState state) {
-        return true;
-    }
-
-    /** {@code direction} указывает от соседа на контроллер: сигнал получает только установка спереди. */
-    @Override
-    protected int getSignal(BlockState state, BlockGetter level, BlockPos pos, Direction direction) {
-        return direction == state.getValue(FACING).getOpposite()
-                && level.getBlockEntity(pos) instanceof TargetControllerBlockEntity controller
-                && controller.firing() ? 15 : 0;
-    }
-
-    @Override
-    protected int getDirectSignal(BlockState state, BlockGetter level, BlockPos pos, Direction direction) {
-        return getSignal(state, level, pos, direction);
     }
 
     @Override
