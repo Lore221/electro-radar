@@ -9,7 +9,14 @@ import net.minecraft.world.phys.shapes.CollisionContext;
 import com.electroradar.cannon.ballistics.TrajectoryTrace;
 import com.electroradar.cannon.ballistics.Vector3;
 
-/** Геометрия блоков как в CBC: COLLIDER, без проверки жидкостей и без подгрузки чанков. */
+/**
+ * Геометрия блоков как в CBC: COLLIDER, без проверки жидкостей и без подгрузки чанков.
+ *
+ * <p>Препятствием считается любой блок с коллайдером, включая листву и стекло. Пробитие CBC
+ * не гарантировано: снаряд автопушки на блоке только останавливается или рикошетит, у большой
+ * пушки пробитие зависит от импульса и случайного рикошета и отключается настройкой разрушений,
+ * а ударный взрыватель может сработать уже на первом блоке.</p>
+ */
 final class WorldTrajectoryProbe implements TrajectoryTrace.Probe {
     private final ServerLevel level;
 
