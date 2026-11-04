@@ -54,3 +54,6 @@ side="BOTH"
 
 [[mixins]]
 config="electroradar.mixins.json"
+
+[[mixins]]
+config="electroradar.cbc-control.mixins.json"

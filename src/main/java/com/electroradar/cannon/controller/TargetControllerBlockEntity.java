@@ -47,7 +47,7 @@ import com.electroradar.radar.network.TargetSources;
 
 /**
  * Контроллер наведения: наводит соседнюю установку CBC на цель, выбранную на мониторе сети, и
- * подаёт сигнал выстрела, когда ствол смотрит в рассчитанную точку.
+ * вызывает штатный fireShot CBC, когда ствол смотрит в рассчитанную точку.
  *
  * <p><b>Цикл тика.</b> Выбор цели берётся из сети; сеть же разрешает огонь, пока доступный радар
  * наблюдает цель или помнит её. Точное движение цели читается из мира и сглаживается
@@ -108,11 +108,6 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         return direction == facing.getClockWise() || direction == facing.getCounterClockWise();
     }
 
-    /** Подаётся ли сейчас сигнал выстрела. */
-    public boolean firing() {
-        return firing;
-    }
-
     public FireStatus status() {
         return status;
     }
@@ -133,10 +128,14 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         status = outcome.status();
         boolean next = outcome.kind() != null && trigger.update(outcome.kind(), outcome.ready(), outcome.held());
         if (outcome.kind() == null) trigger.reset();
-        boolean rising = next && !firing;
-        setFiring(next, outcome.kind());
-        // Миномёт запускается самим CBC после загрузки: сохраняем прогноз без сигнала огня.
-        if (next || outcome.kind() == CannonKind.DROP_MORTAR) CannonDiagnostics.armed(serverLevel, diagnosticPlan, rising);
+        firing = next;
+        if (next && outcome.toFire() != null) {
+            // Регистрация до вызова: EntityJoinLevelEvent вызывается синхронно внутри fireShot.
+            CannonDiagnostics.armed(serverLevel, diagnosticPlan, true);
+            if (outcome.toFire().tryFire(serverLevel)) munitionCache.invalidate();
+        } else if (outcome.kind() == CannonKind.DROP_MORTAR) {
+            CannonDiagnostics.armed(serverLevel, diagnosticPlan, false);
+        }
         syncStatus(serverLevel.getGameTime());
     }
 
@@ -198,9 +197,7 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
                 ? parameters.autocannonMinDistance() : parameters.bigCannonMinDistance();
 
         FireStatus next;
-        if (cannon.kind().requiresFireSignal() && !cannon.firesFrom(facing.getOpposite())) {
-            next = FireStatus.WRONG_SIDE;
-        } else if (distance < minimumDistance) {
+        if (distance < minimumDistance) {
             next = FireStatus.TARGET_TOO_CLOSE;
         } else if (estimate.lockTicks() < TargetTrack.ACCELERATION_WARMUP_TICKS) {
             next = FireStatus.TARGET_LOCKING;
@@ -211,16 +208,17 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         }
         // Для сопровождения достаточно кеша; перед разрешением огня профиль перечитывается.
         // При смене боеприпаса сохраняем свежий профиль и пересчитываем решение в следующем тике.
-        if (cannon.kind().requiresFireSignal() && (next == FireStatus.READY || next == FireStatus.AIMING
+        if (cannon.kind().controllerFires() && (next == FireStatus.READY || next == FireStatus.AIMING
                 && cannon.kind() == CannonKind.AUTOCANNON && firing)
                 && !munition(level, cannon, true).equals(reading)) {
             hintTick = OptionalInt.empty();
             return new Outcome(FireStatus.AIMING, cannon.kind(), false, false);
         }
-        boolean wantsSignal = trigger.wouldFire(cannon.kind(), next == FireStatus.READY,
+        boolean wantsFire = trigger.wouldFire(cannon.kind(), next == FireStatus.READY,
                 next == FireStatus.READY || next == FireStatus.AIMING);
+        boolean canAttempt = wantsFire && cannon.canFireNow();
         // Для миномёта это проверка готовности к загрузке: сам запуск контроллер не перехватывает.
-        if (wantsSignal || cannon.kind() == CannonKind.DROP_MORTAR && next == FireStatus.READY) {
+        if (canAttempt || cannon.kind() == CannonKind.DROP_MORTAR && next == FireStatus.READY) {
             Vector3 actualDirection = vector(cannon.barrelDirection());
             var key = new TrajectoryCheckCache.Key(level, cannon.identity(), reading.profile().orElseThrow(),
                     pivot, actualDirection, fire.tick(), fire.fraction());
@@ -244,8 +242,9 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
             diagnostics.solution(level, diagnosticPlan, next, barrel);
         }
         // Очередь автопушки переживает колебания привода, но не запрет огня по дистанции или стороне.
-        return new Outcome(next, cannon.kind(), next == FireStatus.READY,
-                next == FireStatus.READY || next == FireStatus.AIMING);
+        boolean held = next == FireStatus.READY || next == FireStatus.AIMING;
+        return new Outcome(next, cannon.kind(), next == FireStatus.READY, held,
+                canAttempt && held ? cannon : null);
     }
 
     /**
@@ -282,14 +281,6 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
             hintTick = OptionalInt.empty();
         }
         return new Outcome(reason, kind, false, false);
-    }
-
-    private void setFiring(boolean next, CannonKind kind) {
-        if (next == firing || level == null) return;
-        firing = next;
-        // Снаряд израсходован: следующий тик перечитает ствол, а не будет стрелять по старому профилю.
-        if (next && kind == CannonKind.BIG_CANNON) munitionCache.invalidate();
-        level.updateNeighborsAt(worldPosition, getBlockState().getBlock());
     }
 
     private void syncStatus(long now) {
@@ -402,7 +393,7 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
                 connectedKind = null;
             }
         }
-        // Сигнал выстрела не сохраняется: после загрузки фронт формируется заново.
+        // Разрешение очереди не сохраняется: после загрузки готовность проверяется заново.
         firing = false;
     }
 
@@ -431,6 +422,9 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
      * @param ready все условия выстрела выполнены
      * @param held огонь по цели разрешён и она достижима, хотя готовность могла пропасть на тик
      */
-    private record Outcome(FireStatus status, CannonKind kind, boolean ready, boolean held) {
+    private record Outcome(FireStatus status, CannonKind kind, boolean ready, boolean held, MountedCannon toFire) {
+        Outcome(FireStatus status, CannonKind kind, boolean ready, boolean held) {
+            this(status, kind, ready, held, null);
+        }
     }
 }
