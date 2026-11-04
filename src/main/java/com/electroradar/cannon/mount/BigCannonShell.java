@@ -27,26 +27,44 @@ import com.electroradar.cannon.intercept.LinearDragMotion;
 public record BigCannonShell(HostileShell shell, double halfSize, double durabilityMass) {
     /** Снаряд в полёте с линейным сопротивлением; иначе модель его не описывает. */
     public static Optional<BigCannonShell> observe(ServerLevel level, Entity entity) {
-        if (!(entity instanceof AbstractBigCannonProjectile projectile) || !projectile.isAlive()
-                || projectile.isInGround() || projectile.tickCount < 0
-                || !level.hasChunkAt(projectile.blockPosition())
-                || !level.getFluidState(projectile.blockPosition()).isEmpty()) {
-            return Optional.empty();
-        }
+        return inspect(level, entity).observation();
+    }
+
+    /** Та же проверка, с явной причиной отказа для диагностики потребителей. */
+    public static Inspection inspect(ServerLevel level, Entity entity) {
+        if (!(entity instanceof AbstractBigCannonProjectile projectile)) return rejected(Reason.NOT_BIG_CANNON);
+        if (!projectile.isAlive()) return rejected(Reason.DEAD);
+        if (projectile.isInGround()) return rejected(Reason.IN_GROUND);
+        if (projectile.tickCount < 0) return rejected(Reason.INVALID_AGE);
+        if (!level.hasChunkAt(projectile.blockPosition())) return rejected(Reason.UNLOADED);
+        if (!level.getFluidState(projectile.blockPosition()).isEmpty()) return rejected(Reason.FLUID);
         Optional<BallisticPropertiesComponent> ballistics = ProjectileBallistics.of(projectile);
-        if (ballistics.isEmpty() || ballistics.get().isQuadraticDrag()) return Optional.empty();
+        if (ballistics.isEmpty()) return rejected(Reason.NO_BALLISTICS);
+        if (ballistics.get().isQuadraticDrag()) return rejected(Reason.QUADRATIC_DRAG);
         DimensionMunitionProperties dimension = DimensionMunitionPropertiesHandler.getProperties(level);
         double gravity = projectile.isNoGravity() ? 0 : -ballistics.get().gravity() * dimension.gravityMultiplier();
         double drag = ballistics.get().drag() * dimension.dragMultiplier();
-        if (!(drag >= 0.0D && drag < 1.0D) || !(gravity >= 0) || !Double.isFinite(gravity)) return Optional.empty();
+        if (!(drag >= 0.0D && drag < 1.0D)) return rejected(Reason.INVALID_DRAG);
+        if (!(gravity >= 0) || !Double.isFinite(gravity)) return rejected(Reason.INVALID_GRAVITY);
         Vec3 center = projectile.getBoundingBox().getCenter();
         Vec3 velocity = projectile.getDeltaMovement();
-        if (!finite(center) || !finite(velocity)) return Optional.empty();
+        if (!finite(center)) return rejected(Reason.NON_FINITE_POSITION);
+        if (!finite(velocity)) return rejected(Reason.NON_FINITE_VELOCITY);
         HostileShell shell = new HostileShell(vector(center), vector(velocity), new LinearDragMotion(drag, gravity));
-        return Optional.of(new BigCannonShell(shell,
+        return new Inspection(Optional.of(new BigCannonShell(shell,
                 Math.max(projectile.getBbWidth(), projectile.getBbHeight()) / 2.0D,
-                Math.max(0.0D, ballistics.get().durabilityMass())));
+                Math.max(0.0D, ballistics.get().durabilityMass()))), Reason.SUPPORTED);
     }
+
+    public enum Reason {
+        SUPPORTED, NOT_BIG_CANNON, DEAD, IN_GROUND, INVALID_AGE, UNLOADED, FLUID,
+        NO_BALLISTICS, QUADRATIC_DRAG, INVALID_DRAG, INVALID_GRAVITY,
+        NON_FINITE_POSITION, NON_FINITE_VELOCITY
+    }
+
+    public record Inspection(Optional<BigCannonShell> observation, Reason reason) { }
+
+    private static Inspection rejected(Reason reason) { return new Inspection(Optional.empty(), reason); }
 
     private static Vector3 vector(Vec3 vec) {
         return new Vector3(vec.x, vec.y, vec.z);

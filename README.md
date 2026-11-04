@@ -37,6 +37,12 @@ Shift+ПКМ сбрасывает выделение. Сеть задаётся 
 - `-Delectroradar.diagnostics.queries=true` — дополнительно писать запросы потребителей;
 - `-Delectroradar.diagnostics.visuals=true` — дополнительно писать частые клиентские события секторов.
 
+Для Shell Alarm есть независимый флаг `-Delectroradar.diagnostics.shell_alarm=true`:
+журнал `[ElectroRadar/ShellAlarmDebug]` показывает входные UUID, причины отсева и результат
+прогноза зоны. При включённом флаге в очках Create с Shift видны счётчики целей сети,
+крупных снарядов и прогнозов. По умолчанию диагностика выключена.
+[Порядок проверки и поля журнала](SHELL_ALARM.md#диагностика-в-игре).
+
 ### Проверка наведения CBC
 
 Отдельный JVM-флаг `-Delectroradar.diagnostics.cannons=true` включает журнал
