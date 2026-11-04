@@ -28,17 +28,21 @@ public record BigCannonShell(HostileShell shell, double halfSize, double durabil
     /** Снаряд в полёте с линейным сопротивлением; иначе модель его не описывает. */
     public static Optional<BigCannonShell> observe(ServerLevel level, Entity entity) {
         if (!(entity instanceof AbstractBigCannonProjectile projectile) || !projectile.isAlive()
-                || projectile.isInGround()) {
+                || projectile.isInGround() || projectile.tickCount < 0
+                || !level.hasChunkAt(projectile.blockPosition())
+                || !level.getFluidState(projectile.blockPosition()).isEmpty()) {
             return Optional.empty();
         }
         Optional<BallisticPropertiesComponent> ballistics = ProjectileBallistics.of(projectile);
         if (ballistics.isEmpty() || ballistics.get().isQuadraticDrag()) return Optional.empty();
         DimensionMunitionProperties dimension = DimensionMunitionPropertiesHandler.getProperties(level);
-        double gravity = Math.abs(ballistics.get().gravity()) * dimension.gravityMultiplier();
+        double gravity = projectile.isNoGravity() ? 0 : -ballistics.get().gravity() * dimension.gravityMultiplier();
         double drag = ballistics.get().drag() * dimension.dragMultiplier();
-        if (!(drag >= 0.0D && drag < 1.0D) || !Double.isFinite(gravity)) return Optional.empty();
-        HostileShell shell = new HostileShell(vector(projectile.getBoundingBox().getCenter()),
-                vector(projectile.getDeltaMovement()), new LinearDragMotion(drag, gravity));
+        if (!(drag >= 0.0D && drag < 1.0D) || !(gravity >= 0) || !Double.isFinite(gravity)) return Optional.empty();
+        Vec3 center = projectile.getBoundingBox().getCenter();
+        Vec3 velocity = projectile.getDeltaMovement();
+        if (!finite(center) || !finite(velocity)) return Optional.empty();
+        HostileShell shell = new HostileShell(vector(center), vector(velocity), new LinearDragMotion(drag, gravity));
         return Optional.of(new BigCannonShell(shell,
                 Math.max(projectile.getBbWidth(), projectile.getBbHeight()) / 2.0D,
                 Math.max(0.0D, ballistics.get().durabilityMass())));
@@ -46,5 +50,9 @@ public record BigCannonShell(HostileShell shell, double halfSize, double durabil
 
     private static Vector3 vector(Vec3 vec) {
         return new Vector3(vec.x, vec.y, vec.z);
+    }
+
+    private static boolean finite(Vec3 vec) {
+        return Double.isFinite(vec.x) && Double.isFinite(vec.y) && Double.isFinite(vec.z);
     }
 }
