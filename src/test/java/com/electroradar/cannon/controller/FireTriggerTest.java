@@ -46,4 +46,25 @@ class FireTriggerTest {
         }
         assertFalse(trigger.update(CannonKind.AUTOCANNON, false, true));
     }
+    @Test
+    void preflightGateCoversEverySignalIncludingAutocannonGrace() {
+        for (var kind : CannonKind.values()) {
+            var trigger = new FireTrigger();
+            for (int tick = 0; tick < 80; tick++) {
+                boolean ready = tick % 17 < 6;
+                boolean held = tick % 23 < 20;
+                boolean expected = trigger.wouldFire(kind, ready, held);
+                assertEquals(expected, trigger.update(kind, ready, held), "kind " + kind + " tick " + tick);
+            }
+        }
+    }
+
+    @Test
+    void obstacleStopsAutocannonGraceImmediately() {
+        var trigger = new FireTrigger();
+        assertTrue(trigger.update(CannonKind.AUTOCANNON, true, true));
+        assertTrue(trigger.wouldFire(CannonKind.AUTOCANNON, false, true));
+        assertFalse(trigger.update(CannonKind.AUTOCANNON, false, false));
+        assertFalse(trigger.wouldFire(CannonKind.AUTOCANNON, false, true));
+    }
 }

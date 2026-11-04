@@ -16,6 +16,7 @@ import net.neoforged.neoforge.event.entity.EntityLeaveLevelEvent;
 import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 import rbasamoyai.createbigcannons.munitions.AbstractCannonProjectile;
 import com.electroradar.cannon.ballistics.Vector3;
+import com.electroradar.cannon.ballistics.TrajectoryTrace;
 import com.electroradar.radar.network.TargetRef;
 
 /** Отдельный opt-in журнал для сопоставления расчёта с реальным полётом CBC. */
@@ -59,6 +60,13 @@ public final class CannonDiagnostics {
                 p.profile(), p.solution().tick(), p.solution().fraction(), p.solution().branch(),
                 p.solution().pitch(), p.solution().yaw(), p.solution().direction(), barrel,
                 p.impact(), p.sweepImpact(), p.impact().subtract(p.sweepImpact()).length());
+    }
+
+    public void preflight(ServerLevel level, BlockPos controller, UUID target, TrajectoryTrace.Result result) {
+        if (!ENABLED) return;
+        LOGGER.info("[ElectroRadar/CannonDebug] event=preflight tick={} dimension={} controller={} target={} status={} flightTick={} point={} segments={}",
+                level.getGameTime(), level.dimension().location(), controller, target,
+                result.status(), result.tick(), result.point(), result.segments());
     }
 
     public static void armed(ServerLevel level, Plan plan, boolean rising) {
