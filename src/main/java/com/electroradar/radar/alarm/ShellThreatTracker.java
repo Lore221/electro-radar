@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 import com.electroradar.cannon.intercept.HostileShell;
 
@@ -44,6 +45,12 @@ public final class ShellThreatTracker {
 
     /** Текущие пересечения из того же разрешённого набора не требуют поддержки прогноза. */
     public void refresh(Collection<Observation> observations, ProtectionBox nextZone, Set<UUID> currentThreats) {
+        refresh(observations, nextZone, currentThreats, null);
+    }
+
+    /** Наблюдатель вызывается только при запросе диагностики и не участвует в принятии решения. */
+    public void refresh(Collection<Observation> observations, ProtectionBox nextZone, Set<UUID> currentThreats,
+                        Consumer<Decision> diagnostics) {
         Objects.requireNonNull(observations, "observations");
         Objects.requireNonNull(nextZone, "zone");
         Objects.requireNonNull(currentThreats, "currentThreats");
@@ -59,12 +66,16 @@ public final class ShellThreatTracker {
         for (Observation sample : observations) {
             if (!present.add(sample.id())) continue;
             var position = sample.shell().position();
-            if (nextZone.inflate(sample.reach()).intersects(position, position)) nextDangerous.put(sample.id(), 0);
+            boolean inside = currentThreats.contains(sample.id()) || nextZone.inflate(sample.reach()).intersects(position, position);
+            if (inside) nextDangerous.put(sample.id(), 0);
             Entry entry = entries.get(sample.id());
+            Action action = entry == null ? Action.NEW : Action.CACHED;
             if (entry == null || !entry.matches(sample)) {
+                if (entry != null) action = Action.REBUILT;
                 entries.remove(sample.id());
                 if (budget-- <= 0) {
                     incomplete++;
+                    report(diagnostics, sample, Action.BUDGET_DEFERRED, null, 0, inside);
                     continue;
                 }
                 try {
@@ -73,6 +84,7 @@ public final class ShellThreatTracker {
                 } catch (IllegalArgumentException numericOverflow) {
                     // Чужой data pack/мод может дать конечные входы с невычислимым будущим.
                     incomplete++;
+                    report(diagnostics, sample, Action.NUMERIC_FAILURE, null, 0, inside);
                     continue;
                 }
                 entries.put(sample.id(), entry);
@@ -83,9 +95,28 @@ public final class ShellThreatTracker {
                 nextDangerous.merge(sample.id(), Math.max(0, entry.prediction.firstDangerTick() - elapsed), Math::min);
             }
             if (!entry.prediction.complete()) incomplete++;
+            report(diagnostics, sample, action, entry.prediction, elapsed, inside);
         }
         entries.keySet().retainAll(present);
         dangerous = Map.copyOf(nextDangerous);
+    }
+
+    private static void report(Consumer<Decision> diagnostics, Observation sample, Action action,
+                               ShellRoutePrediction prediction, int elapsed, boolean inside) {
+        if (diagnostics != null) diagnostics.accept(new Decision(sample, action, prediction, elapsed, inside));
+    }
+
+    public enum Action { NEW, CACHED, REBUILT, BUDGET_DEFERRED, NUMERIC_FAILURE }
+
+    /** prediction отсутствует при отложенном/невычислимом прогнозе. */
+    public record Decision(Observation sample, Action action, ShellRoutePrediction prediction, int elapsed, boolean inside) {
+        public String result() {
+            if (inside) return "CURRENT_THREAT";
+            if (prediction == null) return "UNKNOWN";
+            if (prediction.dangerousAfter(elapsed)) return "FUTURE_THREAT";
+            if (!prediction.complete()) return "HORIZON_LIMIT";
+            return prediction.firstDangerTick() >= 0 ? "INTERSECTION_PASSED" : "NO_INTERSECTION";
+        }
     }
 
     public record Observation(UUID id, int age, HostileShell shell, double reach) {

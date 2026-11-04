@@ -16,6 +16,43 @@ import com.electroradar.cannon.intercept.LinearDragMotion;
 class ShellThreatTrackerTest {
     private static final ProtectionBox ZONE = new ProtectionBox(new Vector3(-2, -10, 10), new Vector3(2, 10, 20));
 
+    @Test void diagnosticObserverDoesNotChangeThreatsAndExplainsCacheAndRebuilds() {
+        var normal = new ShellThreatTracker();
+        var traced = new ShellThreatTracker();
+        var reports = new ArrayList<ShellThreatTracker.Decision>();
+        var initial = incoming(UUID.randomUUID());
+        normal.refresh(List.of(initial), ZONE);
+        traced.refresh(List.of(initial), ZONE, Set.of(), reports::add);
+        assertEquals(normal.ticksToDanger(), traced.ticksToDanger());
+        assertEquals(ShellThreatTracker.Action.NEW, reports.getLast().action());
+        assertEquals("FUTURE_THREAT", reports.getLast().result());
+        var next = observe(initial.id(), 1, initial.shell());
+        normal.refresh(List.of(next), ZONE);
+        traced.refresh(List.of(next), ZONE, Set.of(), reports::add);
+        assertEquals(normal.ticksToDanger(), traced.ticksToDanger());
+        assertEquals(ShellThreatTracker.Action.CACHED, reports.getLast().action());
+        var redirected = new ShellThreatTracker.Observation(initial.id(), 2,
+                new HostileShell(Vector3.ZERO, new Vector3(0, 0, -2), initial.shell().motion()), .25);
+        normal.refresh(List.of(redirected), ZONE);
+        traced.refresh(List.of(redirected), ZONE, Set.of(), reports::add);
+        assertEquals(normal.ticksToDanger(), traced.ticksToDanger());
+        assertEquals(ShellThreatTracker.Action.REBUILT, reports.getLast().action());
+        assertEquals("NO_INTERSECTION", reports.getLast().result());
+    }
+
+    @Test void diagnosticsDistinguishBudgetDeferralFromGeometricRejection() {
+        var tracker = new ShellThreatTracker();
+        var reports = new ArrayList<ShellThreatTracker.Decision>();
+        var samples = new ArrayList<ShellThreatTracker.Observation>();
+        for (int i = 0; i < 9; i++) samples.add(incoming(UUID.randomUUID()));
+        tracker.refresh(samples, ZONE, Set.of(), reports::add);
+        assertEquals(9, reports.size());
+        var deferred = reports.getLast();
+        assertEquals(ShellThreatTracker.Action.BUDGET_DEFERRED, deferred.action());
+        assertEquals("UNKNOWN", deferred.result());
+        assertNull(deferred.prediction());
+    }
+
     @Test void reusesPredictionForNormalFlightAndExpiresPastThreat() {
         ShellThreatTracker tracker = new ShellThreatTracker();
         UUID id = UUID.randomUUID();

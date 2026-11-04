@@ -171,5 +171,6 @@
   "message.electroradar.shell_alarm.status.clear": "No predicted intersections",
   "message.electroradar.shell_alarm.status.danger": "Dangerous shells detected",
   "message.electroradar.shell_alarm.status.incomplete": "Forecast incomplete or unsupported flight",
-  "message.electroradar.shell_alarm.count": "Dangerous shells: %s"
+  "message.electroradar.shell_alarm.count": "Dangerous shells: %s",
+  "message.electroradar.shell_alarm.input_counts": "Network targets: %s | Big shells: %s | Supported: %s"
 }
