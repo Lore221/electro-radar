@@ -60,6 +60,7 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         implements NetworkLinkTarget, IHaveGoggleInformation {
     private static final String NETWORK_ID_TAG = "electroradar_network_id";
     private static final String STATUS_TAG = "electroradar_fire_status";
+    private static final String CANNON_KIND_TAG = "electroradar_cannon_kind";
     /** Допуск наведения ограничен снизу точностью привода и сверху разумным разбросом очереди. */
     private static final double MIN_AIM_TOLERANCE_DEGREES = 0.05D;
     private static final double MAX_AIM_TOLERANCE_DEGREES = 2.0D;
@@ -72,6 +73,7 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
     private CannonDiagnostics.Plan diagnosticPlan;
 
     private ScrollOptionBehaviour<TrajectoryMode> trajectoryMode;
+    private CannonKind connectedKind;
     private NetworkId networkId;
     private ConsumerConnection connection;
     private boolean registrationFailureLogged;
@@ -94,6 +96,7 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
                 Component.translatable("message.electroradar.target_controller.trajectory"), this,
                 new CenteredSideValueBoxTransform(TargetControllerBlockEntity::isTrajectoryPanelFace));
         trajectoryMode.withCallback(value -> hintTick = OptionalInt.empty());
+        trajectoryMode.onlyActiveWhen(() -> connectedKind != null && connectedKind.selectableTrajectory());
         behaviours.add(trajectoryMode);
     }
 
@@ -115,13 +118,23 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
     void serverTick() {
         tick();
         if (!(level instanceof ServerLevel serverLevel)) return;
+        Direction facing = getBlockState().getValue(TargetControllerBlock.FACING);
+        CannonKind currentKind = MountedCannon.kindAt(serverLevel, worldPosition.relative(facing)).orElse(null);
+        if (currentKind != connectedKind) {
+            connectedKind = currentKind;
+            hintTick = OptionalInt.empty();
+            munitionCache.invalidate();
+            drive.stop();
+            sendData();
+        }
         Outcome outcome = evaluate(serverLevel);
         status = outcome.status();
         boolean next = outcome.kind() != null && trigger.update(outcome.kind(), outcome.ready(), outcome.held());
         if (outcome.kind() == null) trigger.reset();
         boolean rising = next && !firing;
         setFiring(next, outcome.kind());
-        if (next) CannonDiagnostics.armed(serverLevel, diagnosticPlan, rising);
+        // Миномёт запускается самим CBC после загрузки: сохраняем прогноз без сигнала огня.
+        if (next || outcome.kind() == CannonKind.DROP_MORTAR) CannonDiagnostics.armed(serverLevel, diagnosticPlan, rising);
         syncStatus(serverLevel.getGameTime());
     }
 
@@ -155,9 +168,8 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         TargetTrack.Estimate estimate = track.sample(target, level.getGameTime(), vector(bounds.getCenter()),
                 vector(entity.get().getDeltaMovement()), entity.get().onGround());
         Vector3 pivot = vector(cannon.pivot());
-        AimConstraints constraints = AimConstraints.pitchRange(
-                Math.max(-90.0D, cannon.minPitch()), Math.min(90.0D, cannon.maxPitch()))
-                .withFamily(trajectoryMode.get().family());
+        AimConstraints constraints = new AimConstraints(Math.max(-90.0D, cannon.minPitch()),
+                Math.min(90.0D, cannon.maxPitch()), cannon.kind().family(trajectoryMode.get().family()));
         Optional<FireSolution> solution = planner.plan(reading.profile().orElseThrow(), pivot,
                 FlightHorizon.clearance(pivot.y(), level.getMinBuildHeight(), reading.reach()),
                 constraints, estimate, target.equals(hintTarget) ? hintTick : OptionalInt.empty());
@@ -180,11 +192,11 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         double tolerance = Math.max(MIN_AIM_TOLERANCE_DEGREES,
                 Math.min(MAX_AIM_TOLERANCE_DEGREES, Math.toDegrees(Math.atan2(halfSize, Math.max(distance, 1.0E-6D)))));
         boolean aligned = misalignmentDegrees(cannon.barrelDirection(), fire.direction()) <= tolerance;
-        double minimumDistance = cannon.kind() == CannonKind.BIG_CANNON
-                ? parameters.bigCannonMinDistance() : parameters.autocannonMinDistance();
+        double minimumDistance = cannon.kind() == CannonKind.AUTOCANNON
+                ? parameters.autocannonMinDistance() : parameters.bigCannonMinDistance();
 
         FireStatus next;
-        if (!cannon.firesFrom(facing.getOpposite())) {
+        if (cannon.kind().requiresFireSignal() && !cannon.firesFrom(facing.getOpposite())) {
             next = FireStatus.WRONG_SIDE;
         } else if (distance < minimumDistance) {
             next = FireStatus.TARGET_TOO_CLOSE;
@@ -197,7 +209,7 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         }
         // Для сопровождения достаточно кеша; перед разрешением огня профиль перечитывается.
         // При смене боеприпаса сохраняем свежий профиль и пересчитываем решение в следующем тике.
-        if ((next == FireStatus.READY || next == FireStatus.AIMING
+        if (cannon.kind().requiresFireSignal() && (next == FireStatus.READY || next == FireStatus.AIMING
                 && cannon.kind() == CannonKind.AUTOCANNON && firing)
                 && !munition(level, cannon, true).equals(reading)) {
             hintTick = OptionalInt.empty();
@@ -344,7 +356,10 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
     protected void write(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
         super.write(tag, registries, clientPacket);
         if (networkId != null) tag.putUUID(NETWORK_ID_TAG, networkId.value());
-        if (clientPacket) tag.putString(STATUS_TAG, status.name());
+        if (clientPacket) {
+            tag.putString(STATUS_TAG, status.name());
+            if (connectedKind != null) tag.putString(CANNON_KIND_TAG, connectedKind.name());
+        }
     }
 
     @Override
@@ -362,6 +377,13 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
                 status = FireStatus.NO_NETWORK;
             }
         }
+        if (clientPacket) {
+            try {
+                connectedKind = tag.contains(CANNON_KIND_TAG) ? CannonKind.valueOf(tag.getString(CANNON_KIND_TAG)) : null;
+            } catch (IllegalArgumentException ignored) {
+                connectedKind = null;
+            }
+        }
         // Сигнал выстрела не сохраняется: после загрузки фронт формируется заново.
         firing = false;
     }
@@ -375,7 +397,7 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
                 Component.translatable(status.translationKey())
                         .withStyle(status == FireStatus.READY ? ChatFormatting.GREEN : ChatFormatting.GOLD))
                 .withStyle(ChatFormatting.GRAY)));
-        if (trajectoryMode != null) {
+        if (trajectoryMode != null && connectedKind != null && connectedKind.selectableTrajectory()) {
             tooltip.add(Component.literal("    ").append(Component.translatable(
                     "goggles.electroradar.target_controller.trajectory",
                     Component.translatable(trajectoryMode.get().getTranslationKey()).withStyle(ChatFormatting.AQUA))
