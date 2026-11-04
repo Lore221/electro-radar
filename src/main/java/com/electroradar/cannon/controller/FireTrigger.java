@@ -30,6 +30,10 @@ final class FireTrigger {
      */
     boolean update(CannonKind kind, boolean ready, boolean targetHeld) {
         Objects.requireNonNull(kind, "kind");
+        if (!kind.requiresFireSignal()) {
+            reset();
+            return false;
+        }
         if (kind == CannonKind.AUTOCANNON) {
             pulseCooldown = 0;
             if (ready) {
