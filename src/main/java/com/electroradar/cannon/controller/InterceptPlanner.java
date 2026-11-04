@@ -20,13 +20,11 @@ import com.electroradar.cannon.ballistics.Vector3;
  * коэффициенты профиля и горизонт.
  *
  * <p><b>Время.</b> Контроллер работает в фазе BlockEntity тика T после обновления сущностей.
- * Прямой fireShot создаёт снаряд в T, но его первый sweep выполняется в фазе сущностей T+1.
- * Поэтому отрезку n соответствует положение цели T+1+n. Для миномёта предварительное наведение
- * также рассчитано на ближайшую следующую фазу сущностей; загрузку/задержку запуска ведёт CBC.</p>
+ * Отрезку n соответствует положение цели T+d+n, где d — задержка до первого sweep снаряда,
+ * см. {@link com.electroradar.cannon.mount.CannonKind#launchDelayTicks()}: 1 при прямом fireShot,
+ * 2 у миномёта, который CBC запускает сам в фазе сущностей.</p>
  */
 final class InterceptPlanner {
-    /** Тики от решения до первого обновления снаряда (не до создания сущности). */
-    static final int LAUNCH_DELAY_TICKS = 1;
     /** Внешний предел горизонта для профилей без доказуемой границы (без гравитации и сопротивления). */
     static final int HORIZON_LIMIT_TICKS = 1_200;
 
@@ -36,29 +34,33 @@ final class InterceptPlanner {
     private FlightHorizon horizon;
 
     /**
-     * Ищет попадание с первым обновлением снаряда в {@code T + 1}; подсказка может сохранить прежнее решение.
+     * Ищет попадание с первым обновлением снаряда в {@code T + launchDelay}; подсказка может сохранить
+     * прежнее решение.
      *
      * @param pivot центр вращения установки, мировые координаты
      * @param clearance высота центра над нижней границей попадания, см. {@link FlightHorizon#clearance}
      * @param target оценка движения цели в тик {@code T}, мировые координаты
+     * @param launchDelay тики от решения до первого sweep снаряда
      * @param hint тик прежнего решения этой цели
      */
     Optional<FireSolution> plan(ProjectileProfile profile, Vector3 pivot, double clearance,
-                                AimConstraints constraints, TargetTrack.Estimate target, OptionalInt hint) {
+                                AimConstraints constraints, TargetTrack.Estimate target, int launchDelay,
+                                OptionalInt hint) {
         Objects.requireNonNull(profile, "profile");
         Objects.requireNonNull(pivot, "pivot");
         Objects.requireNonNull(constraints, "constraints");
         Objects.requireNonNull(target, "target");
         Objects.requireNonNull(hint, "hint");
-        InterceptRequest request = new InterceptRequest(flight(profile), forecast(pivot, target), constraints,
-                horizon(constraints.maxPitch(), clearance), hint);
+        InterceptRequest request = new InterceptRequest(flight(profile), forecast(pivot, target, launchDelay),
+                constraints, horizon(constraints.maxPitch(), clearance), hint);
         InterceptResult result = InterceptSearch.search(request);
         return result.solution();
     }
 
     /** Прогноз цели относительно центра вращения в тиках полёта снаряда. */
-    static TargetForecast forecast(Vector3 pivot, TargetTrack.Estimate target) {
-        double delay = LAUNCH_DELAY_TICKS;
+    static TargetForecast forecast(Vector3 pivot, TargetTrack.Estimate target, int launchDelay) {
+        if (launchDelay < 0) throw new IllegalArgumentException("launchDelay must be non-negative");
+        double delay = launchDelay;
         return new TargetForecast(target.positionAfter(delay).subtract(pivot),
                 target.velocity().add(target.acceleration().scale(delay)), target.acceleration());
     }

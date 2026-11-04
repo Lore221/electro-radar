@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.function.Supplier;
 
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
@@ -85,7 +86,6 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
     private TargetRef hintTarget;
     private OptionalInt hintTick = OptionalInt.empty();
 
-    private boolean firing;
     private FireStatus status = FireStatus.NO_NETWORK;
 
     public TargetControllerBlockEntity(BlockPos pos, BlockState state) {
@@ -128,7 +128,6 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         status = outcome.status();
         boolean next = outcome.kind() != null && trigger.update(outcome.kind(), outcome.ready(), outcome.held());
         if (outcome.kind() == null) trigger.reset();
-        firing = next;
         if (next && outcome.toFire() != null) {
             // Регистрация до вызова: EntityJoinLevelEvent вызывается синхронно внутри fireShot.
             CannonDiagnostics.armed(serverLevel, diagnosticPlan, true);
@@ -173,7 +172,8 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
                 Math.min(90.0D, cannon.maxPitch()), cannon.kind().family(trajectoryMode.get().family()));
         Optional<FireSolution> solution = planner.plan(reading.profile().orElseThrow(), pivot,
                 FlightHorizon.clearance(pivot.y(), level.getMinBuildHeight(), reading.reach()),
-                constraints, estimate, target.equals(hintTarget) ? hintTick : OptionalInt.empty());
+                constraints, estimate, cannon.kind().launchDelayTicks(),
+                target.equals(hintTarget) ? hintTick : OptionalInt.empty());
         hintTarget = target;
         hintTick = solution.map(fire -> OptionalInt.of(fire.tick())).orElse(OptionalInt.empty());
         if (solution.isEmpty()) {
@@ -206,25 +206,26 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         } else {
             next = FireStatus.READY;
         }
-        // Для сопровождения достаточно кеша; перед разрешением огня профиль перечитывается.
+        boolean wantsFire = trigger.wouldFire(cannon.kind(), next == FireStatus.READY,
+                next == FireStatus.READY || next == FireStatus.AIMING);
+        // Для сопровождения достаточно кеша; профиль перечитывается только перед попыткой огня.
         // При смене боеприпаса сохраняем свежий профиль и пересчитываем решение в следующем тике.
-        if (cannon.kind().controllerFires() && (next == FireStatus.READY || next == FireStatus.AIMING
-                && cannon.kind() == CannonKind.AUTOCANNON && firing)
-                && !munition(level, cannon, true).equals(reading)) {
+        if (wantsFire && !munition(level, cannon, true).equals(reading)) {
             hintTick = OptionalInt.empty();
             return new Outcome(FireStatus.AIMING, cannon.kind(), false, false);
         }
-        boolean wantsFire = trigger.wouldFire(cannon.kind(), next == FireStatus.READY,
-                next == FireStatus.READY || next == FireStatus.AIMING);
         boolean canAttempt = wantsFire && cannon.canFireNow();
-        // Для миномёта это проверка готовности к загрузке: сам запуск контроллер не перехватывает.
-        if (canAttempt || cannon.kind() == CannonKind.DROP_MORTAR && next == FireStatus.READY) {
+        // Для миномёта это справочная проверка готовности к загрузке: сам запуск ведёт CBC.
+        boolean advisory = cannon.kind() == CannonKind.DROP_MORTAR && next == FireStatus.READY;
+        if (canAttempt || advisory) {
             Vector3 actualDirection = vector(cannon.barrelDirection());
             var key = new TrajectoryCheckCache.Key(level, cannon.identity(), reading.profile().orElseThrow(),
                     pivot, actualDirection, fire.tick(), fire.fraction());
-            var checked = trajectoryCheck.check(key, level.getGameTime(), cannon.kind() != CannonKind.BIG_CANNON,
-                    () -> TrajectoryTrace.check(key.profile(), pivot, actualDirection, fire.tick(), fire.fraction(),
-                            new WorldTrajectoryProbe(level)));
+            Supplier<TrajectoryTrace.Result> trace = () -> TrajectoryTrace.check(key.profile(), pivot,
+                    actualDirection, fire.tick(), fire.fraction(), new WorldTrajectoryProbe(level));
+            var checked = advisory
+                    ? trajectoryCheck.advisory(key, level.getGameTime(), trace)
+                    : trajectoryCheck.check(key, level.getGameTime(), cannon.kind() != CannonKind.BIG_CANNON, trace);
             if (checked.result().status() != TrajectoryTrace.Status.CLEAR) {
                 next = checked.result().status() == TrajectoryTrace.Status.BLOCKED
                         ? FireStatus.TRAJECTORY_BLOCKED : FireStatus.TRAJECTORY_UNLOADED;
@@ -234,7 +235,7 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         if (CannonDiagnostics.enabled()) {
             Vec3 barrel = cannon.barrelDirection();
             ShotPrediction prediction = new ShotPrediction(reading.profile().orElseThrow(), pivot,
-                    InterceptPlanner.forecast(pivot, estimate), fire);
+                    InterceptPlanner.forecast(pivot, estimate, cannon.kind().launchDelayTicks()), fire);
             diagnosticPlan = new CannonDiagnostics.Plan(level.dimension().location().toString(),
                     worldPosition.immutable(), cannon.mountPos().immutable(), target.id(),
                     BuiltInRegistries.ENTITY_TYPE.getKey(entity.get().getType()).toString(),
@@ -393,8 +394,6 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
                 connectedKind = null;
             }
         }
-        // Разрешение очереди не сохраняется: после загрузки готовность проверяется заново.
-        firing = false;
     }
 
     @Override
