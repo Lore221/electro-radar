@@ -151,7 +151,7 @@
   "electroradar.config.server.target_controller.big_cannon_min_distance": "Minimum firing distance for big cannons in blocks",
   "electroradar.config.server.target_controller.autocannon_min_distance": "Minimum firing distance for autocannons in blocks",
   "block.electroradar.shell_alarm": "Shell Alarm",
-  "item.electroradar.zone_selector": "???",
+  "item.electroradar.zone_selector": "Selector",
   "item.electroradar.zone_selector.select": "RMB: select two corners (air: 16 blocks ahead).",
   "item.electroradar.zone_selector.resize": "Ctrl + scroll over a face: resize the saved zone.",
   "item.electroradar.zone_selector.apply": "RMB on Shell Alarm: apply a copy of the zone.",
