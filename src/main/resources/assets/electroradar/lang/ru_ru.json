@@ -138,7 +138,7 @@
   "electroradar.config.server.target_controller.big_cannon_min_distance": "Минимальная дистанция огня больших пушек, блоки",
   "electroradar.config.server.target_controller.autocannon_min_distance": "Минимальная дистанция огня автопушек, блоки",
   "block.electroradar.shell_alarm": "Shell Alarm",
-  "item.electroradar.zone_selector": "???",
+  "item.electroradar.zone_selector": "Выделитель",
   "item.electroradar.zone_selector.select": "ПКМ: выбрать два угла (в воздухе: 16 блоков перед вами).",
   "item.electroradar.zone_selector.resize": "Ctrl + колесо на грани: изменить сохранённую зону.",
   "item.electroradar.zone_selector.apply": "ПКМ по Shell Alarm: применить копию зоны.",

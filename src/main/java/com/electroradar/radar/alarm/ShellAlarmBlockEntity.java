@@ -13,12 +13,10 @@ import com.simibubi.create.foundation.blockEntity.SmartBlockEntity;
 import com.simibubi.create.foundation.blockEntity.behaviour.BlockEntityBehaviour;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import rbasamoyai.createbigcannons.munitions.big_cannon.AbstractBigCannonProjectile;
 
@@ -112,7 +110,7 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
                     : tracker.incompleteCount() > 0 || unsupportedCount > 0 ? Status.INCOMPLETE : Status.CLEAR;
         }
         dangerousCount = dangerousProjectiles().size();
-        if (wasDangerous != (dangerousCount > 0)) updateRedstone(world);
+        if (wasDangerous != (dangerousCount > 0)) world.updateNeighborsAt(worldPosition, getBlockState().getBlock());
         if (status != oldStatus || oldCount != dangerousCount || oldUnsupported != unsupportedCount) sendData();
     }
 
@@ -144,7 +142,7 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
 
     private void clearThreats() {
         boolean active = resetThreats();
-        if (active && level instanceof ServerLevel world) updateRedstone(world);
+        if (active && level instanceof ServerLevel world) world.updateNeighborsAt(worldPosition, getBlockState().getBlock());
     }
 
     /** @return был ли сигнал включён */
@@ -155,13 +153,6 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
         unsupportedCount = 0;
         status = networkId == null ? Status.NO_NETWORK : zone == null ? Status.NO_ZONE : Status.CLEAR;
         return active;
-    }
-
-    /** Сигнал сильный на все стороны: обновляются и соседи, и блоки, которые он питает через них. */
-    private void updateRedstone(ServerLevel world) {
-        Block block = getBlockState().getBlock();
-        world.updateNeighborsAt(worldPosition, block);
-        for (Direction direction : Direction.values()) world.updateNeighborsAt(worldPosition.relative(direction), block);
     }
 
     private void closeConnection() {
