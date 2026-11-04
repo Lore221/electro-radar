@@ -14,7 +14,7 @@ import net.minecraft.world.level.Level;
 import com.electroradar.ElectroRadar;
 import com.electroradar.radar.network.TargetRef;
 
-/** Запрос GUI выбрать свежую цель или очистить общий ручной выбор сети. */
+/** Запрос GUI выбрать ещё видимую цель или очистить общий ручной выбор сети. */
 public record MonitorSelectPayload(BlockPos rootPosition, UUID displayId, TargetRef target)
         implements CustomPacketPayload {
     public static final Type<MonitorSelectPayload> TYPE = new Type<>(

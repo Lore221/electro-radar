@@ -204,12 +204,9 @@ public final class RadarMonitorScreen extends Screen {
             if (!dragging && insideMap(mouseX, mouseY)) {
                 MonitorClientState.View view = MonitorClientState.get(key);
                 if (view != null) {
-                    findTargetAt(view, mouseX, mouseY).ifPresent(target -> {
-                        if (target.observing() && target.hasPosition()) {
+                    findTargetAt(view, mouseX, mouseY).ifPresent(target ->
                             PacketDistributor.sendToServer(new MonitorSelectPayload(
-                                    key.rootPosition(), key.displayId(), target.target()));
-                        }
-                    });
+                                    key.rootPosition(), key.displayId(), target.target())));
                 }
             }
             leftMouseDown = false;
@@ -412,7 +409,7 @@ public final class RadarMonitorScreen extends Screen {
         graphics.disableScissor();
     }
 
-    /** Наведение доступно только наблюдаемым целям; память не перекрывает живую метку рядом. */
+    /** Наведение доступно любой отметке с положением, пока она полностью не погасла. */
     private Optional<MonitorClientState.DisplayTarget> findTargetAt(MonitorClientState.View view,
                                                                     double mouseX, double mouseY) {
         MonitorSnapshotData snapshot = view.snapshot();
@@ -422,9 +419,10 @@ public final class RadarMonitorScreen extends Screen {
         double centerY = contentY + contentSize / 2.0D;
         double radius = contentSize / 2.0D;
         double hitRadius = Math.max(5.0D, markerCellPixels() * 0.5D);
+        double renderTime = MonitorClientState.renderTime(0.0F);
         return view.targets().stream()
-                .filter(MonitorClientState.DisplayTarget::observing)
                 .filter(MonitorClientState.DisplayTarget::hasPosition)
+                .filter(target -> view.targetOpacity(target, renderTime) > 0.0F)
                 .map(target -> new Hit(target, project(snapshot, target, facing), centerX, centerY, radius))
                 .filter(hit -> hit.point() != null && hit.point().insideSquare()
                         && hit.distance(mouseX, mouseY) <= hitRadius)

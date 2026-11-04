@@ -140,12 +140,15 @@ final class RadarNetworkQueries {
         return available;
     }
 
-    static boolean hasFreshAccessibleSource(List<AccessibleRadar> radars, TargetRef target) {
-        for (AccessibleRadar radar : radars) {
-            SourceLink link = radar.state().detections.get(target);
-            if (link != null && bestMeasurement(link).map(LiveResult::observing).orElse(false)) return true;
-        }
-        return false;
+    /** Проверяет то же измерение, которое попадёт в снимок монитора, включая его затухание. */
+    static boolean hasVisibleAccessibleMeasurement(List<AccessibleRadar> radars, TargetEntry entry,
+                                                   long serverTick) {
+        if (entry == null) return false;
+        return latestAccessibleMeasurement(entry, accessibleEndpoints(radars))
+                .filter(result -> result.availability() == TargetAvailability.AVAILABLE)
+                .filter(result -> result.observing() || result.freezeTick() >= 0
+                        && serverTick - result.freezeTick() < result.fadeDurationTicks())
+                .isPresent();
     }
 
     private static Set<EndpointKey> accessibleEndpoints(List<AccessibleRadar> radars) {
