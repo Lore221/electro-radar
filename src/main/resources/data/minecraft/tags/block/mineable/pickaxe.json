@@ -3,6 +3,7 @@
   "values": [
     "electroradar:overview_module",
     "electroradar:target_controller",
-    "electroradar:intercept_controller"
+    "electroradar:intercept_controller",
+    "electroradar:shell_alarm"
   ]
 }
