@@ -1,6 +1,6 @@
 package com.electroradar.cannon.controller;
 
-import net.minecraft.core.BlockPos;
+import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.HitResult;
@@ -23,10 +23,10 @@ final class WorldTrajectoryProbe implements TrajectoryTrace.Probe {
     WorldTrajectoryProbe(ServerLevel level) { this.level = level; }
 
     @Override public TrajectoryTrace.Obstacle inspect(Vector3 start, Vector3 end) {
-        int minX = BlockPos.containing(Math.min(start.x(), end.x()), 0, 0).getX() >> 4;
-        int maxX = BlockPos.containing(Math.max(start.x(), end.x()), 0, 0).getX() >> 4;
-        int minZ = BlockPos.containing(0, 0, Math.min(start.z(), end.z())).getZ() >> 4;
-        int maxZ = BlockPos.containing(0, 0, Math.max(start.z(), end.z())).getZ() >> 4;
+        int minX = SectionPos.posToSectionCoord(Math.min(start.x(), end.x()));
+        int maxX = SectionPos.posToSectionCoord(Math.max(start.x(), end.x()));
+        int minZ = SectionPos.posToSectionCoord(Math.min(start.z(), end.z()));
+        int maxZ = SectionPos.posToSectionCoord(Math.max(start.z(), end.z()));
         // Проверяем всю область отрезка до level.clip: getBlockState не должен загрузить чанк.
         for (int x = minX; x <= maxX; x++) {
             for (int z = minZ; z <= maxZ; z++) {
