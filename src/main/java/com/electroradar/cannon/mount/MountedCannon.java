@@ -9,11 +9,9 @@ import java.util.OptionalInt;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.level.Level;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
-import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate.StructureBlockInfo;
 import net.minecraft.world.phys.Vec3;
 
@@ -28,13 +26,14 @@ import rbasamoyai.createbigcannons.cannons.autocannon.breech.AbstractAutocannonB
 import rbasamoyai.createbigcannons.cannons.autocannon.material.AutocannonMaterialProperties;
 import rbasamoyai.createbigcannons.cannons.big_cannons.BigCannonBlock;
 import rbasamoyai.createbigcannons.cannons.big_cannons.IBigCannonBlockEntity;
-import rbasamoyai.createbigcannons.munitions.AbstractCannonProjectile;
+import rbasamoyai.createbigcannons.cannons.big_cannons.breeches.quickfiring_breech.QuickfiringBreechBlockEntity;
 import rbasamoyai.createbigcannons.index.CBCEntityTypes;
-import rbasamoyai.createbigcannons.munitions.big_cannon.DropMortarProjectile;
+import rbasamoyai.createbigcannons.munitions.AbstractCannonProjectile;
 import rbasamoyai.createbigcannons.munitions.autocannon.AbstractAutocannonProjectile;
 import rbasamoyai.createbigcannons.munitions.autocannon.AutocannonAmmoItem;
 import rbasamoyai.createbigcannons.munitions.autocannon.ammo_container.AutocannonAmmoContainerItem;
 import rbasamoyai.createbigcannons.munitions.big_cannon.AbstractBigCannonProjectile;
+import rbasamoyai.createbigcannons.munitions.big_cannon.DropMortarProjectile;
 import rbasamoyai.createbigcannons.munitions.big_cannon.ProjectileBlock;
 import rbasamoyai.createbigcannons.munitions.big_cannon.propellant.BigCannonPropellantBlock;
 import rbasamoyai.createbigcannons.munitions.big_cannon.propellant.IntegratedPropellantProjectile;
@@ -43,7 +42,6 @@ import rbasamoyai.createbigcannons.munitions.config.DimensionMunitionPropertiesH
 import rbasamoyai.createbigcannons.munitions.config.components.BallisticPropertiesComponent;
 
 import com.electroradar.cannon.ballistics.ProjectileProfile;
-import rbasamoyai.createbigcannons.cannons.big_cannons.breeches.quickfiring_breech.QuickfiringBreechBlockEntity;
 
 /**
  * Поворотная установка CBC с собранным орудием — короткоживущее представление на один тик.
@@ -86,17 +84,6 @@ public final class MountedCannon {
      * Находит собранное орудие на поворотной установке. Вертикальная исходная ось
      * поддерживается для миномёта; неподвижные установки не поддерживаются.
      */
-    /** Быстрая классификация для видимости переключателя, без обхода ствола/чтения боеприпаса. */
-    public static Optional<CannonKind> kindAt(Level level, BlockPos mountPos) {
-        if (!(level.getBlockEntity(mountPos) instanceof CannonMountBlockEntity mount) || !mount.isRunning()
-                || mount.getContraption() == null) return Optional.empty();
-        var contraption = mount.getContraption().getContraption();
-        if (contraption instanceof MountedBigCannonContraption big) {
-            return Optional.of(big.isDropMortar() ? CannonKind.DROP_MORTAR : CannonKind.BIG_CANNON);
-        }
-        return contraption instanceof MountedAutocannonContraption ? Optional.of(CannonKind.AUTOCANNON) : Optional.empty();
-    }
-
     public static Optional<MountedCannon> find(ServerLevel level, BlockPos mountPos) {
         if (!(level.getBlockEntity(mountPos) instanceof CannonMountBlockEntity mount) || !mount.isRunning()) {
             return Optional.empty();
@@ -198,26 +185,33 @@ public final class MountedCannon {
     public boolean canFireNow() {
         if (!mount.isRunning() || !entity.isAlive() || !controllable() || !kind.controllerFires()) return false;
         if (kind == CannonKind.AUTOCANNON) {
-            if (!(contraption.presentBlockEntities.get(contraption.getStartPos()) instanceof AbstractAutocannonBreechBlockEntity breech)) return false;
-            return AutocannonFire.withRate(breech.getFireRate(), breech::setFireRate, breech::canFire);
+            AbstractAutocannonBreechBlockEntity breech = autocannonBreech();
+            return breech != null && AutocannonFire.withRate(breech.getFireRate(), breech::setFireRate, breech::canFire);
         }
         BlockEntity breech = contraption.presentBlockEntities.get(contraption.getStartPos().relative(orientation.getOpposite()));
         return !(breech instanceof QuickfiringBreechBlockEntity quick) || quick.getOpenProgress() <= 0;
     }
 
-    /** true означает вызов штатного fireShot, а не гарантированное появление снаряда. */
+    /**
+     * true означает вызов штатного fireShot, а не гарантированное появление снаряда. Готовность
+     * казённика автопушки fireShot проверяет сам, поэтому темп 15 держится на время вызова.
+     */
     public boolean tryFire(ServerLevel level) {
         if (!canFireNow()) return false;
-        if (kind == CannonKind.AUTOCANNON) {
-            var breech = (AbstractAutocannonBreechBlockEntity) contraption.presentBlockEntities.get(contraption.getStartPos());
-            return AutocannonFire.withRate(breech.getFireRate(), breech::setFireRate, () -> {
-                if (!breech.canFire()) return false;
-                contraption.fireShot(level, entity);
-                return true;
-            });
+        AbstractAutocannonBreechBlockEntity breech = kind == CannonKind.AUTOCANNON ? autocannonBreech() : null;
+        if (breech == null) {
+            contraption.fireShot(level, entity);
+            return true;
         }
-        contraption.fireShot(level, entity);
-        return true;
+        return AutocannonFire.withRate(breech.getFireRate(), breech::setFireRate, () -> {
+            contraption.fireShot(level, entity);
+            return true;
+        });
+    }
+
+    private AbstractAutocannonBreechBlockEntity autocannonBreech() {
+        return contraption.presentBlockEntities.get(contraption.getStartPos())
+                instanceof AbstractAutocannonBreechBlockEntity breech ? breech : null;
     }
 
     /**

@@ -116,7 +116,9 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         tick();
         if (!(level instanceof ServerLevel serverLevel)) return;
         Direction facing = getBlockState().getValue(TargetControllerBlock.FACING);
-        CannonKind currentKind = MountedCannon.kindAt(serverLevel, worldPosition.relative(facing)).orElse(null);
+        // Одно чтение установки за тик: из него берутся и тип для панели, и орудие для наведения.
+        MountedCannon cannon = MountedCannon.find(serverLevel, worldPosition.relative(facing)).orElse(null);
+        CannonKind currentKind = cannon == null ? null : cannon.kind();
         if (currentKind != connectedKind) {
             connectedKind = currentKind;
             hintTick = OptionalInt.empty();
@@ -124,7 +126,7 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
             drive.stop();
             sendData();
         }
-        Outcome outcome = evaluate(serverLevel);
+        Outcome outcome = evaluate(serverLevel, cannon);
         status = outcome.status();
         boolean next = outcome.kind() != null && trigger.update(outcome.kind(), outcome.ready(), outcome.held());
         if (outcome.kind() == null) trigger.reset();
@@ -138,7 +140,7 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         syncStatus(serverLevel.getGameTime());
     }
 
-    private Outcome evaluate(ServerLevel level) {
+    private Outcome evaluate(ServerLevel level, MountedCannon cannon) {
         diagnosticPlan = null;
         ensureConnection(level);
         Optional<TargetRef> selected = connection == null ? Optional.empty() : connection.selectedTarget();
@@ -147,10 +149,7 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         if (selected.isEmpty()) return idle(FireStatus.NO_TARGET, null);
         TargetRef target = selected.get();
 
-        Direction facing = getBlockState().getValue(TargetControllerBlock.FACING);
-        Optional<MountedCannon> found = MountedCannon.find(level, worldPosition.relative(facing));
-        if (found.isEmpty()) return idle(FireStatus.NO_CANNON, null);
-        MountedCannon cannon = found.get();
+        if (cannon == null) return idle(FireStatus.NO_CANNON, null);
         if (!cannon.controllable()) return idle(FireStatus.CANNON_BUSY, cannon.kind());
 
         Optional<Entity> entity = trackedEntity(level, target);
@@ -187,12 +186,14 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
                 fire.yaw(), fire.pitch(), AimDrive.degreesPerTick(parameters.driveRpm()),
                 AimDrive.degreesPerTickSquared(parameters.accelerationRpmPerSecond()));
         cannon.aim((float) step.yaw(), (float) step.pitch());
+        // Направление после поворота этого тика: по нему CBC выстрелит, по нему же проверяются допуск и путь.
+        Vec3 barrel = cannon.barrelDirection();
 
         double distance = estimate.position().subtract(pivot).length();
         double halfSize = 0.5D * Math.min(bounds.getXsize(), bounds.getYsize()) + reading.reach();
         double tolerance = Math.max(MIN_AIM_TOLERANCE_DEGREES,
                 Math.min(MAX_AIM_TOLERANCE_DEGREES, Math.toDegrees(Math.atan2(halfSize, Math.max(distance, 1.0E-6D)))));
-        boolean aligned = misalignmentDegrees(cannon.barrelDirection(), fire.direction()) <= tolerance;
+        boolean aligned = misalignmentDegrees(barrel, fire.direction()) <= tolerance;
         double minimumDistance = cannon.kind() == CannonKind.AUTOCANNON
                 ? parameters.autocannonMinDistance() : parameters.bigCannonMinDistance();
 
@@ -208,17 +209,17 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         }
         boolean wantsFire = trigger.wouldFire(cannon.kind(), next == FireStatus.READY,
                 next == FireStatus.READY || next == FireStatus.AIMING);
-        // Для сопровождения достаточно кеша; профиль перечитывается только перед попыткой огня.
+        boolean canAttempt = wantsFire && cannon.canFireNow();
+        // Для сопровождения достаточно кеша; профиль перечитывается, только когда CBC готов выстрелить.
         // При смене боеприпаса сохраняем свежий профиль и пересчитываем решение в следующем тике.
-        if (wantsFire && !munition(level, cannon, true).equals(reading)) {
+        if (canAttempt && !munition(level, cannon, true).equals(reading)) {
             hintTick = OptionalInt.empty();
             return new Outcome(FireStatus.AIMING, cannon.kind(), false, false);
         }
-        boolean canAttempt = wantsFire && cannon.canFireNow();
         // Для миномёта это справочная проверка готовности к загрузке: сам запуск ведёт CBC.
         boolean advisory = cannon.kind() == CannonKind.DROP_MORTAR && next == FireStatus.READY;
         if (canAttempt || advisory) {
-            Vector3 actualDirection = vector(cannon.barrelDirection());
+            Vector3 actualDirection = vector(barrel);
             var key = new TrajectoryCheckCache.Key(level, cannon.identity(), reading.profile().orElseThrow(),
                     pivot, actualDirection, fire.tick(), fire.fraction());
             Supplier<TrajectoryTrace.Result> trace = () -> TrajectoryTrace.check(key.profile(), pivot,
@@ -233,7 +234,6 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
             if (!checked.reused()) diagnostics.preflight(level, worldPosition, target.id(), checked.result());
         }
         if (CannonDiagnostics.enabled()) {
-            Vec3 barrel = cannon.barrelDirection();
             ShotPrediction prediction = new ShotPrediction(reading.profile().orElseThrow(), pivot,
                     InterceptPlanner.forecast(pivot, estimate, cannon.kind().launchDelayTicks()), fire);
             diagnosticPlan = new CannonDiagnostics.Plan(level.dimension().location().toString(),
@@ -380,14 +380,14 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
             closeConnection();
             networkId = saved;
         }
-        if (clientPacket && tag.contains(STATUS_TAG)) {
-            try {
-                status = FireStatus.valueOf(tag.getString(STATUS_TAG));
-            } catch (IllegalArgumentException ignored) {
-                status = FireStatus.NO_NETWORK;
-            }
-        }
         if (clientPacket) {
+            if (tag.contains(STATUS_TAG)) {
+                try {
+                    status = FireStatus.valueOf(tag.getString(STATUS_TAG));
+                } catch (IllegalArgumentException ignored) {
+                    status = FireStatus.NO_NETWORK;
+                }
+            }
             try {
                 connectedKind = tag.contains(CANNON_KIND_TAG) ? CannonKind.valueOf(tag.getString(CANNON_KIND_TAG)) : null;
             } catch (IllegalArgumentException ignored) {
