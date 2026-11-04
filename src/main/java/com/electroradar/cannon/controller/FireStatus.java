@@ -3,8 +3,9 @@ package com.electroradar.cannon.controller;
 import java.util.Locale;
 
 /**
- * Главная причина, по которой контроллер сейчас стреляет или не стреляет. Порядок проверок задаёт
- * {@link TargetControllerBlockEntity}; здесь только устойчивые ключи перевода для очков Create.
+ * Главная причина, по которой контроллер сейчас стреляет или не стреляет. Порядок проверок задают
+ * {@link TargetControllerBlockEntity} и {@link InterceptControllerBlockEntity}; здесь только
+ * устойчивые ключи перевода для очков Create.
  */
 public enum FireStatus {
     READY,
@@ -22,7 +23,17 @@ public enum FireStatus {
     TARGET_TOO_CLOSE,
     TARGET_UNREACHABLE,
     TRAJECTORY_BLOCKED,
-    TRAJECTORY_UNLOADED;
+    TRAJECTORY_UNLOADED,
+    /** Перехватчику нужна автопушка. */
+    WRONG_CANNON,
+    /** Перехватчику нужны зенитные патроны. */
+    FLAK_REQUIRED,
+    /** В зенитном патроне нет взрывателя перехвата: программировать нечего. */
+    INTERCEPT_FUZE_REQUIRED,
+    /** Встреча возможна позже: установка заранее разворачивается к первому выстрелу окна. */
+    WINDOW_PENDING,
+    /** Встречи есть, но установка не успевает развернуться до их окончания. */
+    TOO_LATE;
 
     public String translationKey() {
         return "goggles.electroradar.target_controller.status." + name().toLowerCase(Locale.ROOT);
