@@ -25,4 +25,14 @@ public enum CannonKind {
     public boolean controllerFires() {
         return this != DROP_MORTAR;
     }
+
+    /**
+     * Тики от решения контроллера (фаза BlockEntity тика T) до первого sweep снаряда.
+     * Прямой fireShot создаёт снаряд в T, sweep — в фазе сущностей T+1. Миномёт CBC запускает
+     * сам из tick контрапции, то есть не раньше фазы сущностей T+1; добавленная во время обхода
+     * сущность обновляется только в следующем тике, поэтому первый sweep — в T+2.
+     */
+    public int launchDelayTicks() {
+        return this == DROP_MORTAR ? 2 : 1;
+    }
 }

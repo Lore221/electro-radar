@@ -18,8 +18,9 @@ class InterceptPlannerTest {
     private static final AimConstraints MOUNT = AimConstraints.pitchRange(-30.0D, 60.0D);
 
     /**
-     * Сквозная проверка соглашения о времени: снаряд, созданный в {@code T} и впервые обновлённый в {@code T + 1}, по найденному
-     * направлению, в своём тике {@code n} проходит через положение цели в {@code T + 1 + n}.
+     * Сквозная проверка соглашения о времени: снаряд, впервые обновлённый в {@code T + d}, по найденному
+     * направлению в своём тике {@code n} проходит через положение цели в {@code T + d + n}; d = 1 (прямой
+     * fireShot) и 2 (миномёт).
      * Эталон — потиковая рекурсия CBC, а не формулы ядра.
      */
     @Test
@@ -38,11 +39,12 @@ class InterceptPlannerTest {
             TargetTrack.Estimate target = new TargetTrack.Estimate(position, velocity, acceleration, 10);
             AimConstraints constraints = MOUNT.withFamily(i % 3 == 0 ? ArcFamily.HIGH : ArcFamily.LOW);
 
+            int delay = 1 + i % 2;
             Optional<FireSolution> solution = new InterceptPlanner().plan(profile, pivot, 200.0D, constraints,
-                    target, OptionalInt.empty());
+                    target, delay, OptionalInt.empty());
             if (solution.isEmpty()) continue;
             FireSolution fire = solution.get();
-            Vector3 aimed = target.positionAfter(InterceptPlanner.LAUNCH_DELAY_TICKS + fire.tick());
+            Vector3 aimed = target.positionAfter(delay + fire.tick());
             double miss = sweepDistance(profile, pivot, fire.direction(), fire.tick(), aimed);
             assertTrue(miss < 1.0E-6D * Math.max(1.0D, aimed.subtract(pivot).length()),
                     "case " + i + " miss " + miss + " at tick " + fire.tick());
@@ -60,8 +62,8 @@ class InterceptPlannerTest {
         ProjectileProfile slow = ProjectileProfile.of(2.0D, 2.0D, 0.01D, 0.05D);
         ProjectileProfile fast = ProjectileProfile.of(8.0D, 2.0D, 0.01D, 0.05D);
         // Медленный снаряд не долетает; быстрый с тем же планировщиком обязан найти решение.
-        assertTrue(planner.plan(slow, pivot, 200.0D, MOUNT, target, OptionalInt.empty()).isEmpty());
-        assertTrue(planner.plan(fast, pivot, 200.0D, MOUNT, target, OptionalInt.empty()).isPresent());
+        assertTrue(planner.plan(slow, pivot, 200.0D, MOUNT, target, 1, OptionalInt.empty()).isEmpty());
+        assertTrue(planner.plan(fast, pivot, 200.0D, MOUNT, target, 1, OptionalInt.empty()).isPresent());
     }
 
     /** Расстояние от точки до отрезка столкновений тика {@code tick} при выстреле из центра вращения. */
