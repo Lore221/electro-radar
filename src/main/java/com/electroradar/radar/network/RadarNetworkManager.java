@@ -270,7 +270,8 @@ public final class RadarNetworkManager {
         if (target != null) {
             if (!target.dimension().equals(monitor.dimension()) || network == null) return false;
             List<AccessibleRadar> radars = RadarNetworkQueries.accessibleRadars(monitor, registration, network, endpointIndex);
-            if (!RadarNetworkQueries.hasFreshAccessibleSource(radars, target)) return false;
+            if (!RadarNetworkQueries.hasVisibleAccessibleMeasurement(radars, network.targets.get(target),
+                    serverTick)) return false;
         }
         if (network == null) return target == null;
         if (Objects.equals(network.selectedTarget, target)) return true;
