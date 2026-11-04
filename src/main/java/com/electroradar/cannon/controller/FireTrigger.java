@@ -61,6 +61,13 @@ final class FireTrigger {
         return output;
     }
 
+    /** Проверка перед изменением таймеров: нужна ли проверка траектории для сигнала этого тика. */
+    boolean wouldFire(CannonKind kind, boolean ready, boolean targetHeld) {
+        if (!kind.requiresFireSignal()) return false;
+        if (kind == CannonKind.AUTOCANNON) return ready || output && targetHeld && graceTicks > 0;
+        return ready && pulseCooldown <= 0;
+    }
+
     void reset() {
         output = false;
         pulseCooldown = 0;

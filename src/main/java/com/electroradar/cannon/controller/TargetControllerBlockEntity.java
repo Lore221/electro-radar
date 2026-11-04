@@ -27,6 +27,7 @@ import com.electroradar.cannon.ballistics.AimConstraints;
 import com.electroradar.cannon.ballistics.FireSolution;
 import com.electroradar.cannon.ballistics.FlightHorizon;
 import com.electroradar.cannon.ballistics.Vector3;
+import com.electroradar.cannon.ballistics.TrajectoryTrace;
 import com.electroradar.cannon.diagnostics.CannonDiagnostics;
 import com.electroradar.cannon.diagnostics.ShotPrediction;
 import com.electroradar.cannon.mount.CannonKind;
@@ -68,6 +69,7 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
     private final TargetTrack track = new TargetTrack();
     private final AimDrive drive = new AimDrive();
     private final FireTrigger trigger = new FireTrigger();
+    private final TrajectoryCheckCache trajectoryCheck = new TrajectoryCheckCache();
     private final InterceptPlanner planner = new InterceptPlanner();
     private final CannonDiagnostics diagnostics = new CannonDiagnostics();
     private CannonDiagnostics.Plan diagnosticPlan;
@@ -214,6 +216,22 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
                 && !munition(level, cannon, true).equals(reading)) {
             hintTick = OptionalInt.empty();
             return new Outcome(FireStatus.AIMING, cannon.kind(), false, false);
+        }
+        boolean wantsSignal = trigger.wouldFire(cannon.kind(), next == FireStatus.READY,
+                next == FireStatus.READY || next == FireStatus.AIMING);
+        // Для миномёта это проверка готовности к загрузке: сам запуск контроллер не перехватывает.
+        if (wantsSignal || cannon.kind() == CannonKind.DROP_MORTAR && next == FireStatus.READY) {
+            Vector3 actualDirection = vector(cannon.barrelDirection());
+            var key = new TrajectoryCheckCache.Key(level, cannon.identity(), reading.profile().orElseThrow(),
+                    pivot, actualDirection, fire.tick(), fire.fraction());
+            var checked = trajectoryCheck.check(key, level.getGameTime(), cannon.kind() != CannonKind.BIG_CANNON,
+                    () -> TrajectoryTrace.check(key.profile(), pivot, actualDirection, fire.tick(), fire.fraction(),
+                            new WorldTrajectoryProbe(level)));
+            if (checked.result().status() != TrajectoryTrace.Status.CLEAR) {
+                next = checked.result().status() == TrajectoryTrace.Status.BLOCKED
+                        ? FireStatus.TRAJECTORY_BLOCKED : FireStatus.TRAJECTORY_UNLOADED;
+            }
+            if (!checked.reused()) diagnostics.preflight(level, worldPosition, target.id(), checked.result());
         }
         if (CannonDiagnostics.enabled()) {
             Vec3 barrel = cannon.barrelDirection();

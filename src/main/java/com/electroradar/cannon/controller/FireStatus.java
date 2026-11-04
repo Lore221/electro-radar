@@ -20,7 +20,9 @@ public enum FireStatus {
     NO_AMMUNITION,
     UNSUPPORTED_MUNITION,
     TARGET_TOO_CLOSE,
-    TARGET_UNREACHABLE;
+    TARGET_UNREACHABLE,
+    TRAJECTORY_BLOCKED,
+    TRAJECTORY_UNLOADED;
 
     public String translationKey() {
         return "goggles.electroradar.target_controller.status." + name().toLowerCase(Locale.ROOT);
