@@ -3,6 +3,7 @@ package com.electroradar.cannon.intercept;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.OptionalInt;
 
 import com.electroradar.cannon.ballistics.AimConstraints;
@@ -152,8 +153,7 @@ public final class EngagementPlanner {
         Objects.requireNonNull(target, "target");
         FlightCoefficients flight = interceptor.flight();
         int delay = interceptor.launchDelay();
-        FlightHorizon base = FlightHorizon.compute(flight, interceptor.constraints().maxPitch(),
-                interceptor.clearance(), HORIZON_LIMIT_TICKS);
+        FlightHorizon base = baseHorizon(interceptor);
 
         List<PlannedShot> shots = new ArrayList<>();
         boolean anySolution = false;
@@ -199,6 +199,35 @@ public final class EngagementPlanner {
         }
         double[] perShot = shots.stream().mapToDouble(PlannedShot::killProbability).toArray();
         return new Engagement(Status.FEASIBLE, open, close, shots, FragmentKillModel.salvo(perShot));
+    }
+
+    /**
+     * Встреча при выстреле в этом тике ({@code L = 0}) без проверки разворота: так сопровождение
+     * каждый тик пересчитывает решение по свежему состоянию снаряда, а готовность к огню проверяется
+     * по фактическому направлению ствола.
+     *
+     * @param hint тик прежней встречи с этой целью: удерживает очередь на одной ветви решения
+     */
+    public static Optional<PlannedShot> immediate(Interceptor interceptor, Policy policy, Target target,
+                                                  OptionalInt hint) {
+        Objects.requireNonNull(interceptor, "interceptor");
+        Objects.requireNonNull(policy, "policy");
+        Objects.requireNonNull(target, "target");
+        Objects.requireNonNull(hint, "hint");
+        int delay = interceptor.launchDelay();
+        int deadline = target.lastAirborneIndex() - policy.deadlineMargin() - delay;
+        if (deadline < policy.minInterceptTick()) return Optional.empty();
+        InterceptRequest request = new InterceptRequest(interceptor.flight(),
+                target.shell().asTarget(interceptor.pivot(), delay), interceptor.constraints(),
+                baseHorizon(interceptor).until(deadline), hint);
+        return InterceptSearch.search(request, 0, Integer.MAX_VALUE,
+                        solution -> acceptable(solution, target.shell(), interceptor.pivot(), delay, policy))
+                .solution().map(solution -> shot(interceptor, policy, target, 0, solution));
+    }
+
+    private static FlightHorizon baseHorizon(Interceptor interceptor) {
+        return FlightHorizon.compute(interceptor.flight(), interceptor.constraints().maxPitch(),
+                interceptor.clearance(), HORIZON_LIMIT_TICKS);
     }
 
     /** Встреча не раньше взведения и не ближе безопасной дальности. */

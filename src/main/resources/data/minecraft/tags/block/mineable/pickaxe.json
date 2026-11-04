@@ -2,6 +2,7 @@
   "replace": false,
   "values": [
     "electroradar:overview_module",
-    "electroradar:target_controller"
+    "electroradar:target_controller",
+    "electroradar:intercept_controller"
   ]
 }
