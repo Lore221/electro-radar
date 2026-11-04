@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -51,6 +52,8 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
     public ProtectionZone zone() { return zone; }
     /** Серверный неизменяемый набор. UUID не сохраняются в NBT и не рассылаются клиентам. */
     public Set<UUID> dangerousProjectiles() { return tracker.dangerousProjectiles(); }
+    /** Те же снаряды с тиками до входа в зону; по ним контроллер перехвата выбирает самую срочную цель. */
+    public Map<UUID, Integer> threats() { return tracker.ticksToDanger(); }
 
     public boolean applyZone(ProtectionZone next) {
         if (!(level instanceof ServerLevel world) || !validZone(world, next)) return false;

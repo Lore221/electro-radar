@@ -18,19 +18,21 @@ public final class ShellThreatTracker {
     private static final double VELOCITY_EPSILON = 1.0E-5D;
 
     private final Map<UUID, Entry> entries = new HashMap<>();
-    private Set<UUID> dangerous = Set.of();
+    private Map<UUID, Integer> dangerous = Map.of();
     private ProtectionBox zone;
     private int incomplete;
     private int predictionCount;
 
-    public Set<UUID> dangerousProjectiles() { return dangerous; }
+    public Set<UUID> dangerousProjectiles() { return dangerous.keySet(); }
+    /** Опасные снаряды и тики до первого пересечения зоны: 0 — уже в зоне или входит в этом ходе. */
+    public Map<UUID, Integer> ticksToDanger() { return dangerous; }
     public int incompleteCount() { return incomplete; }
     /** Диагностический счётчик тяжёлых расчётов, не увеличивается при обычном полёте. */
     public int predictionCount() { return predictionCount; }
 
     public void clear() {
         entries.clear();
-        dangerous = Set.of();
+        dangerous = Map.of();
         zone = null;
         incomplete = 0;
     }
@@ -50,13 +52,14 @@ public final class ShellThreatTracker {
             zone = nextZone;
         }
         Set<UUID> present = new HashSet<>();
-        Set<UUID> nextDangerous = new HashSet<>(currentThreats);
+        Map<UUID, Integer> nextDangerous = new HashMap<>();
+        for (UUID id : currentThreats) nextDangerous.put(id, 0);
         int budget = PREDICTIONS_PER_TICK;
         incomplete = 0;
         for (Observation sample : observations) {
             if (!present.add(sample.id())) continue;
             var position = sample.shell().position();
-            if (nextZone.inflate(sample.reach()).intersects(position, position)) nextDangerous.add(sample.id());
+            if (nextZone.inflate(sample.reach()).intersects(position, position)) nextDangerous.put(sample.id(), 0);
             Entry entry = entries.get(sample.id());
             if (entry == null || !entry.matches(sample)) {
                 entries.remove(sample.id());
@@ -76,11 +79,13 @@ public final class ShellThreatTracker {
                 predictionCount++;
             }
             int elapsed = sample.age() - entry.initial.age();
-            if (entry.prediction.dangerousAfter(elapsed)) nextDangerous.add(sample.id());
+            if (entry.prediction.dangerousAfter(elapsed)) {
+                nextDangerous.merge(sample.id(), Math.max(0, entry.prediction.firstDangerTick() - elapsed), Math::min);
+            }
             if (!entry.prediction.complete()) incomplete++;
         }
         entries.keySet().retainAll(present);
-        dangerous = Set.copyOf(nextDangerous);
+        dangerous = Map.copyOf(nextDangerous);
     }
 
     public record Observation(UUID id, int age, HostileShell shell, double reach) {

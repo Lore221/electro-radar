@@ -142,6 +142,7 @@
   "item.electroradar.intercept_fuze": "Взрыватель перехвата",
   "item.electroradar.intercept_fuze.tooltip": "Контроллер перехвата программирует его при выстреле: подрыв рядом с выбранным снарядом. Иначе срабатывает при ударе.",
   "goggles.electroradar.target_controller.status.intercept_fuze_required": "Поставьте в зенитные патроны взрыватели перехвата",
+  "goggles.electroradar.target_controller.status.no_threat": "Снаряд не выбран, Shell Alarm сети угроз не видят",
   "goggles.electroradar.target_controller.status.wrong_cannon": "Для перехвата нужна автопушка",
   "goggles.electroradar.target_controller.status.flak_required": "Зарядите зенитные снаряды",
   "goggles.electroradar.target_controller.status.window_pending": "Ожидание окна огня",

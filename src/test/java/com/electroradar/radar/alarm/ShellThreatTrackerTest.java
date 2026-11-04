@@ -131,6 +131,22 @@ class ShellThreatTrackerTest {
         assertEquals(8, tracker.predictionCount());
     }
 
+    @Test void reportsTicksUntilTheShellReachesTheZone() {
+        ShellThreatTracker tracker = new ShellThreatTracker();
+        UUID id = UUID.randomUUID();
+        HostileShell shell = new HostileShell(Vector3.ZERO, new Vector3(0, 0, 2), new LinearDragMotion(.01, .025));
+        tracker.refresh(List.of(observe(id, 0, shell)), ZONE);
+        int first = tracker.ticksToDanger().get(id);
+        assertTrue(first > 0);
+        tracker.refresh(List.of(observe(id, 1, shell)), ZONE);
+        assertEquals(first - 1, tracker.ticksToDanger().get(id));
+        assertEquals(1, tracker.predictionCount());
+        UUID inside = UUID.randomUUID();
+        tracker.refresh(List.of(observe(id, 2, shell)), ZONE, Set.of(inside));
+        assertEquals(0, tracker.ticksToDanger().get(inside));
+        assertEquals(Set.of(id, inside), tracker.dangerousProjectiles());
+    }
+
     private static ShellThreatTracker.Observation incoming(UUID id) {
         return new ShellThreatTracker.Observation(id, 0,
                 new HostileShell(Vector3.ZERO, new Vector3(0, 0, 2), new LinearDragMotion(.01, .025)), .25);

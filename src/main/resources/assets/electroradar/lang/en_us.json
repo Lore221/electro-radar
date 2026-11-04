@@ -142,6 +142,7 @@
   "item.electroradar.intercept_fuze": "Intercept Fuze",
   "item.electroradar.intercept_fuze.tooltip": "Programmed by the Intercept Controller when fired: detonates next to the selected shell. Otherwise detonates on impact.",
   "goggles.electroradar.target_controller.status.intercept_fuze_required": "Fuze the flak rounds with Intercept Fuzes",
+  "goggles.electroradar.target_controller.status.no_threat": "No shell selected and no Shell Alarm threats",
   "goggles.electroradar.target_controller.status.wrong_cannon": "Interception requires an autocannon",
   "goggles.electroradar.target_controller.status.flak_required": "Load flak rounds",
   "goggles.electroradar.target_controller.status.window_pending": "Waiting for the firing window",
