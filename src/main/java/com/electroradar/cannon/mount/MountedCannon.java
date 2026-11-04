@@ -9,6 +9,7 @@ import java.util.OptionalInt;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -29,6 +30,8 @@ import rbasamoyai.createbigcannons.cannons.autocannon.material.AutocannonMateria
 import rbasamoyai.createbigcannons.cannons.big_cannons.BigCannonBlock;
 import rbasamoyai.createbigcannons.cannons.big_cannons.IBigCannonBlockEntity;
 import rbasamoyai.createbigcannons.munitions.AbstractCannonProjectile;
+import rbasamoyai.createbigcannons.index.CBCEntityTypes;
+import rbasamoyai.createbigcannons.munitions.big_cannon.DropMortarProjectile;
 import rbasamoyai.createbigcannons.munitions.autocannon.AbstractAutocannonProjectile;
 import rbasamoyai.createbigcannons.munitions.autocannon.AutocannonAmmoItem;
 import rbasamoyai.createbigcannons.munitions.autocannon.ammo_container.AutocannonAmmoContainerItem;
@@ -76,13 +79,24 @@ public final class MountedCannon {
         this.kind = kind;
         this.orientation = contraption.initialOrientation();
         this.localMuzzle = Vec3.atCenterOf(barrelEnd.relative(orientation));
-        this.spawnRetreat = kind == CannonKind.BIG_CANNON ? BIG_CANNON_SPAWN_RETREAT : AUTOCANNON_SPAWN_RETREAT;
+        this.spawnRetreat = kind == CannonKind.AUTOCANNON ? AUTOCANNON_SPAWN_RETREAT : BIG_CANNON_SPAWN_RETREAT;
     }
 
     /**
-     * Находит собранное орудие на поворотной установке. Неподвижные установки, вертикально
-     * собранные стволы и миномёты не поддерживаются: их направление не задаётся углами установки.
+     * Находит собранное орудие на поворотной установке. Вертикальная исходная ось
+     * поддерживается для миномёта; неподвижные установки не поддерживаются.
      */
+    /** Быстрая классификация для видимости переключателя, без обхода ствола/чтения боеприпаса. */
+    public static Optional<CannonKind> kindAt(Level level, BlockPos mountPos) {
+        if (!(level.getBlockEntity(mountPos) instanceof CannonMountBlockEntity mount) || !mount.isRunning()
+                || mount.getContraption() == null) return Optional.empty();
+        var contraption = mount.getContraption().getContraption();
+        if (contraption instanceof MountedBigCannonContraption big) {
+            return Optional.of(big.isDropMortar() ? CannonKind.DROP_MORTAR : CannonKind.BIG_CANNON);
+        }
+        return contraption instanceof MountedAutocannonContraption ? Optional.of(CannonKind.AUTOCANNON) : Optional.empty();
+    }
+
     public static Optional<MountedCannon> find(ServerLevel level, BlockPos mountPos) {
         if (!(level.getBlockEntity(mountPos) instanceof CannonMountBlockEntity mount) || !mount.isRunning()) {
             return Optional.empty();
@@ -90,20 +104,22 @@ public final class MountedCannon {
         PitchOrientedContraptionEntity entity = mount.getContraption();
         if (entity == null || !entity.isAlive()
                 || !(entity.getContraption() instanceof AbstractMountedCannonContraption contraption)
-                || contraption.getStartPos() == null
-                || !contraption.initialOrientation().getAxis().isHorizontal()) {
+                || contraption.getStartPos() == null) {
             return Optional.empty();
         }
         CannonKind kind;
         BlockPos barrelEnd;
-        if (contraption instanceof MountedBigCannonContraption bigCannon && !bigCannon.isDropMortar()) {
-            kind = CannonKind.BIG_CANNON;
+        if (contraption instanceof MountedBigCannonContraption bigCannon) {
+            kind = bigCannon.isDropMortar() ? CannonKind.DROP_MORTAR : CannonKind.BIG_CANNON;
             barrelEnd = barrelEnd(contraption, contraption.getStartPos(), IBigCannonBlockEntity.class);
         } else if (contraption instanceof MountedAutocannonContraption) {
             kind = CannonKind.AUTOCANNON;
             barrelEnd = barrelEnd(contraption,
                     contraption.getStartPos().relative(contraption.initialOrientation()), IAutocannonBlockEntity.class);
         } else {
+            return Optional.empty();
+        }
+        if (kind != CannonKind.DROP_MORTAR && !contraption.initialOrientation().getAxis().isHorizontal()) {
             return Optional.empty();
         }
         return Optional.of(new MountedCannon(mount, entity, contraption, kind, barrelEnd));
@@ -149,20 +165,28 @@ public final class MountedCannon {
 
     /** Рыскание установки в соглашении Minecraft, градусы. */
     public float yaw() {
-        return mount.getYawOffset(0.0F);
+        if (orientation.getAxis().isHorizontal()) return mount.getYawOffset(0.0F);
+        Vec3 direction = barrelDirection();
+        return direction.horizontalDistanceSqr() < 1e-12 ? mount.getYawOffset(0.0F)
+                : (float) Math.toDegrees(Math.atan2(-direction.x, direction.z));
     }
 
     /** Угол места установки, положительный вверх, градусы (без округления {@code getDisplayPitch}). */
     public float pitch() {
-        return mount.getPitchOffset(0.0F);
+        return (float) angles().worldPitch(mount.getPitchOffset(0.0F));
     }
 
     public double minPitch() {
-        return -entity.maximumDepression();
+        return angles().minWorldPitch();
     }
 
     public double maxPitch() {
-        return entity.maximumElevation();
+        return angles().maxWorldPitch();
+    }
+
+    private CannonAngles angles() {
+        int vertical = orientation.getAxis().isHorizontal() ? 0 : orientation == Direction.UP ? 1 : -1;
+        return new CannonAngles(vertical, -entity.maximumDepression(), entity.maximumElevation());
     }
 
     /** Установку можно поворачивать: ею не управляет игрок, сидящий в орудии. */
@@ -185,8 +209,10 @@ public final class MountedCannon {
      */
     public boolean aim(float yaw, float pitch) {
         if (!controllable()) return false;
-        float clampedPitch = (float) Math.max(minPitch(), Math.min(maxPitch(), pitch));
-        float wrappedYaw = yaw % 360.0F;
+        double worldPitch = Math.max(minPitch(), Math.min(maxPitch(), pitch));
+        CannonAngles.Pose logical = angles().logical(yaw, worldPitch);
+        float clampedPitch = (float) logical.pitch();
+        float wrappedYaw = (float) (logical.yaw() % 360.0D);
         boolean changed = Math.abs(wrappedYaw - mount.getYawOffset(0.0F)) > 1.0E-4F
                 || Math.abs(clampedPitch - mount.getPitchOffset(0.0F)) > 1.0E-4F;
         mount.setYaw(wrappedYaw);
@@ -205,11 +231,23 @@ public final class MountedCannon {
     /** Читает снаряд следующего выстрела так же, как его соберёт {@code fireShot} CBC. */
     public CannonMunition readMunition(ServerLevel level) {
         try {
-            return kind == CannonKind.BIG_CANNON ? readBigCannon(level) : readAutocannon(level);
+            return switch (kind) {
+                case BIG_CANNON -> readBigCannon(level);
+                case AUTOCANNON -> readAutocannon(level);
+                case DROP_MORTAR -> readMortar(level);
+            };
         } catch (RuntimeException exception) {
             // Чужой снаряд или изменённая сборка не должны ронять серверный тик контроллера.
             return CannonMunition.of(CannonMunition.Status.UNSUPPORTED);
         }
+    }
+
+    /** Штатная мина известна до загрузки: CBC запускает её сам, когда игрок опускает её в ствол. */
+    private CannonMunition readMortar(ServerLevel level) {
+        var projectile = CBCEntityTypes.DROP_MORTAR_SHELL.create(level);
+        if (projectile == null) return CannonMunition.of(CannonMunition.Status.UNSUPPORTED);
+        double speed = ((DropMortarProjectile) projectile).getDropMortarProperties().dropMortarProperties().mortarPower();
+        return profile(level, projectile, speed, OptionalInt.empty());
     }
 
     private CannonMunition readBigCannon(ServerLevel level) {

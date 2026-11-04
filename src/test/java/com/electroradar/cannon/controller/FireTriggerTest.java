@@ -37,4 +37,13 @@ class FireTriggerTest {
         assertTrue(trigger.update(CannonKind.AUTOCANNON, true, true));
         assertFalse(trigger.update(CannonKind.AUTOCANNON, false, false));
     }
+    @Test
+    void mortarNeverSendsRedstoneAndClearsPreviousAutocannonBurst() {
+        FireTrigger trigger = new FireTrigger();
+        assertTrue(trigger.update(CannonKind.AUTOCANNON, true, true));
+        for (int tick = 0; tick < 30; tick++) {
+            assertFalse(trigger.update(CannonKind.DROP_MORTAR, true, true));
+        }
+        assertFalse(trigger.update(CannonKind.AUTOCANNON, false, true));
+    }
 }
