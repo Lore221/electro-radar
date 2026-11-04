@@ -13,7 +13,7 @@ import java.util.Objects;
  * @param velocity скорость, блоков за тик
  * @param acceleration ускорение, блоков за тик²
  */
-public record TargetForecast(Vector3 position, Vector3 velocity, Vector3 acceleration) {
+public record TargetForecast(Vector3 position, Vector3 velocity, Vector3 acceleration) implements TargetMotion {
     public TargetForecast {
         Objects.requireNonNull(position, "position");
         Objects.requireNonNull(velocity, "velocity");
@@ -24,6 +24,7 @@ public record TargetForecast(Vector3 position, Vector3 velocity, Vector3 acceler
         return new TargetForecast(position, Vector3.ZERO, Vector3.ZERO);
     }
 
+    @Override
     public Vector3 positionAt(int tick) {
         double n = tick;
         return new Vector3(
@@ -33,7 +34,8 @@ public record TargetForecast(Vector3 position, Vector3 velocity, Vector3 acceler
     }
 
     /** Верхняя граница скорости цели на {@code [0, tick]}: {@code |v| + |a|·n}. */
-    double speedBound(int tick) {
+    @Override
+    public double speedBound(int tick) {
         return velocity.length() + acceleration.length() * tick;
     }
 }

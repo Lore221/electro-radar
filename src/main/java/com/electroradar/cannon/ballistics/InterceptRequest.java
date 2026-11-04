@@ -16,7 +16,7 @@ import java.util.OptionalInt;
  * @param hintTick тик прежнего решения: он и соседние проверяются первыми свежим прогнозом, и
  *                 найденное там решение предпочитается более раннему (см. {@link InterceptSearch})
  */
-public record InterceptRequest(FlightCoefficients flight, TargetForecast target, AimConstraints constraints,
+public record InterceptRequest(FlightCoefficients flight, TargetMotion target, AimConstraints constraints,
                                FlightHorizon horizon, OptionalInt hintTick) {
     public InterceptRequest {
         Objects.requireNonNull(flight, "flight");
@@ -29,7 +29,7 @@ public record InterceptRequest(FlightCoefficients flight, TargetForecast target,
         }
     }
 
-    public static InterceptRequest of(FlightCoefficients flight, TargetForecast target, AimConstraints constraints,
+    public static InterceptRequest of(FlightCoefficients flight, TargetMotion target, AimConstraints constraints,
                                       FlightHorizon horizon) {
         return new InterceptRequest(flight, target, constraints, horizon, OptionalInt.empty());
     }
