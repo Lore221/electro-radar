@@ -17,7 +17,6 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate.StructureBlockInfo;
 import net.minecraft.world.phys.Vec3;
 
-import rbasamoyai.createbigcannons.cannon_control.cannon_mount.CannonMountBlock;
 import rbasamoyai.createbigcannons.cannon_control.cannon_mount.CannonMountBlockEntity;
 import rbasamoyai.createbigcannons.cannon_control.contraption.AbstractMountedCannonContraption;
 import rbasamoyai.createbigcannons.cannon_control.contraption.MountedAutocannonContraption;
@@ -44,6 +43,7 @@ import rbasamoyai.createbigcannons.munitions.config.DimensionMunitionPropertiesH
 import rbasamoyai.createbigcannons.munitions.config.components.BallisticPropertiesComponent;
 
 import com.electroradar.cannon.ballistics.ProjectileProfile;
+import rbasamoyai.createbigcannons.cannons.big_cannons.breeches.quickfiring_breech.QuickfiringBreechBlockEntity;
 
 /**
  * Поворотная установка CBC с собранным орудием — короткоживущее представление на один тик.
@@ -194,16 +194,35 @@ public final class MountedCannon {
         return entity.canBeTurnedByController(mount);
     }
 
-    /** Вход сигнала выстрела установки смотрит на соседа с этой стороны. */
-    public boolean firesFrom(Direction side) {
-        BlockState state = mount.getBlockState();
-        return state.hasProperty(CannonMountBlock.HORIZONTAL_FACING)
-                && state.getValue(CannonMountBlock.HORIZONTAL_FACING) == side;
+    /** Проверяет затвор/таймер без расходования боеприпаса. */
+    public boolean canFireNow() {
+        if (!mount.isRunning() || !entity.isAlive() || !controllable() || !kind.controllerFires()) return false;
+        if (kind == CannonKind.AUTOCANNON) {
+            if (!(contraption.presentBlockEntities.get(contraption.getStartPos()) instanceof AbstractAutocannonBreechBlockEntity breech)) return false;
+            return AutocannonFire.withRate(breech.getFireRate(), breech::setFireRate, breech::canFire);
+        }
+        BlockEntity breech = contraption.presentBlockEntities.get(contraption.getStartPos().relative(orientation.getOpposite()));
+        return !(breech instanceof QuickfiringBreechBlockEntity quick) || quick.getOpenProgress() <= 0;
+    }
+
+    /** true означает вызов штатного fireShot, а не гарантированное появление снаряда. */
+    public boolean tryFire(ServerLevel level) {
+        if (!canFireNow()) return false;
+        if (kind == CannonKind.AUTOCANNON) {
+            var breech = (AbstractAutocannonBreechBlockEntity) contraption.presentBlockEntities.get(contraption.getStartPos());
+            return AutocannonFire.withRate(breech.getFireRate(), breech::setFireRate, () -> {
+                if (!breech.canFire()) return false;
+                contraption.fireShot(level, entity);
+                return true;
+            });
+        }
+        contraption.fireShot(level, entity);
+        return true;
     }
 
     /**
      * Сразу применяет углы к установке и контрапции, как {@code applyRotation} CBC, и выставляет
-     * прошлые углы контрапции: выстрел в следующем тике уйдёт по этой команде, а не по прошлой.
+     * прошлые углы контрапции: прямой выстрел использует новое направление, а не прошлое.
      *
      * @return true, если углы изменились и клиентам отправлено обновление
      */
