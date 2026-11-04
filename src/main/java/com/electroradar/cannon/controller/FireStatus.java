@@ -24,6 +24,8 @@ public enum FireStatus {
     TARGET_UNREACHABLE,
     TRAJECTORY_BLOCKED,
     TRAJECTORY_UNLOADED,
+    /** Перехватчику не выбран снаряд на мониторе, и Shell Alarm сети не видят угроз. */
+    NO_THREAT,
     /** Перехватчику нужна автопушка. */
     WRONG_CANNON,
     /** Перехватчику нужны зенитные патроны. */

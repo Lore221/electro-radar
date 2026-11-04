@@ -1,7 +1,11 @@
 package com.electroradar.cannon.controller;
 
+import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.UUID;
@@ -18,6 +22,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
+import rbasamoyai.createbigcannons.munitions.big_cannon.AbstractBigCannonProjectile;
 import com.simibubi.create.api.equipment.goggles.IHaveGoggleInformation;
 import com.simibubi.create.foundation.blockEntity.SmartBlockEntity;
 import com.simibubi.create.foundation.blockEntity.behaviour.BlockEntityBehaviour;
@@ -37,21 +42,28 @@ import com.electroradar.cannon.mount.CannonMunition;
 import com.electroradar.cannon.mount.MountedCannon;
 import com.electroradar.config.RadarServerConfig;
 import com.electroradar.radar.RadarDiagnostics;
+import com.electroradar.radar.alarm.ShellAlarmBlockEntity;
 import com.electroradar.radar.network.ConsumerConnection;
 import com.electroradar.radar.network.EndpointKey;
 import com.electroradar.radar.network.EndpointRole;
 import com.electroradar.radar.network.LiveResult;
 import com.electroradar.radar.network.NetworkId;
 import com.electroradar.radar.network.NetworkLinkTarget;
+import com.electroradar.radar.network.RadarNetworkManager;
 import com.electroradar.radar.network.TargetAvailability;
 import com.electroradar.radar.network.TargetRef;
 import com.electroradar.radar.network.TargetSources;
 
 /**
  * Контроллер перехвата: наводит соседнюю автопушку на снаряд большой пушки, выбранный на мониторе
- * сети, и стреляет зенитными патронами со взрывателем перехвата ({@link InterceptFuzeItem}), который
- * программирует при выстреле ({@link ProgrammedFuzes}).
- * Угрозу снаряда контроллер не оценивает: цель выбирает игрок.
+ * сети или найденный Shell Alarm, и стреляет зенитными патронами со взрывателем перехвата
+ * ({@link InterceptFuzeItem}), который программирует при выстреле ({@link ProgrammedFuzes}).
+ *
+ * <p><b>Цель.</b> Снаряд большой пушки, выбранный на мониторе, важнее всего: так игрок может указать
+ * цель вручную. Иначе контроллер берёт угрозы Shell Alarm своей сети ({@link ShellAlarmBlockEntity#threats})
+ * и ведёт самую срочную — ту, что раньше войдёт в защитную зону. Выбранная угроза удерживается, пока
+ * тревога её видит; недосягаемая на время откладывается, и контроллер переходит к следующей. Сам
+ * контроллер угрозу не оценивает.</p>
  *
  * <p><b>Цикл тика.</b> Состояние снаряда читается из мира и прогнозируется точно
  * ({@link BigCannonShell}); срок его полёта до падения даёт {@link ShellImpactForecast}. Каждый тик
@@ -73,6 +85,12 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
     private static final int SETTLE_TICKS = 3;
     /** План окна дорогой (перебор моментов пуска), поэтому пересчитывается не каждый тик. */
     private static final long WINDOW_REFRESH_TICKS = 5;
+    /** Список приборов сети меняется редко: тревоги ищутся раз в секунду. */
+    private static final long ALARM_REFRESH_TICKS = 20;
+    /** На столько тиков откладывается угроза, которую нельзя обстрелять, чтобы взять следующую. */
+    private static final long REJECT_TICKS = 20;
+    private static final Set<FireStatus> REJECTING = EnumSet.of(FireStatus.TARGET_LOST,
+            FireStatus.TARGET_UNSUPPORTED, FireStatus.TARGET_UNREACHABLE, FireStatus.TOO_LATE);
     /**
      * Правила боя: окно ищется на 5 секунд вперёд; встреча не позже 2 тиков до падения, не раньше
      * 2-го отрезка и не ближе 16 блоков от пушки; взрыватель взведён ±3 тика вокруг встречи,
@@ -99,6 +117,12 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
     private long windowAt;
     private EngagementPlanner.Engagement window;
     private Object connectedCannon;
+    private List<BlockPos> alarms = List.of();
+    private long alarmsAt;
+    private boolean alarmsKnown;
+    /** Угроза Shell Alarm, которую контроллер ведёт сам; null — цели нет или она выбрана на мониторе. */
+    private UUID automatic;
+    private final Map<UUID, Long> rejected = new HashMap<>();
 
     private FireStatus status = FireStatus.NO_NETWORK;
 
@@ -127,6 +151,10 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
             drive.stop();
         }
         Outcome outcome = evaluate(serverLevel, cannon);
+        if (automatic != null && REJECTING.contains(outcome.status())) {
+            rejected.put(automatic, serverLevel.getGameTime() + REJECT_TICKS);
+            automatic = null;
+        }
         status = outcome.status();
         boolean autocannon = cannon != null && cannon.kind() == CannonKind.AUTOCANNON;
         boolean next = autocannon && trigger.update(CannonKind.AUTOCANNON, outcome.ready(), outcome.held());
@@ -143,8 +171,8 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
     private Outcome evaluate(ServerLevel level, MountedCannon cannon) {
         ensureConnection(level);
         if (connection == null) return idle(FireStatus.NO_NETWORK);
-        Optional<TargetRef> selected = connection.selectedTarget();
-        if (selected.isEmpty()) return idle(FireStatus.NO_TARGET);
+        Optional<TargetRef> selected = target(level);
+        if (selected.isEmpty()) return idle(FireStatus.NO_THREAT);
         TargetRef target = selected.get();
 
         if (cannon == null) return idle(FireStatus.NO_CANNON);
@@ -238,6 +266,53 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
                 target.id(), shot);
     }
 
+    /** Снаряд, выбранный на мониторе, иначе самая срочная из неотложенных угроз Shell Alarm сети. */
+    private Optional<TargetRef> target(ServerLevel level) {
+        Optional<TargetRef> selected = connection.selectedTarget();
+        if (selected.isPresent() && isShell(level, selected.get())) {
+            automatic = null;
+            return selected;
+        }
+        long now = level.getGameTime();
+        rejected.values().removeIf(until -> until <= now);
+        Map<UUID, Integer> threats = alarmThreats(level, now);
+        if (automatic == null || !threats.containsKey(automatic) || rejected.containsKey(automatic)) {
+            automatic = threats.entrySet().stream()
+                    .filter(threat -> !rejected.containsKey(threat.getKey()))
+                    .min(Map.Entry.<UUID, Integer>comparingByValue().thenComparing(Map.Entry.comparingByKey()))
+                    .map(Map.Entry::getKey).orElse(null);
+        }
+        return automatic == null ? Optional.empty()
+                : Optional.of(new TargetRef(level.dimension(), TargetRef.SourceKind.ENTITY, automatic));
+    }
+
+    private static boolean isShell(ServerLevel level, TargetRef target) {
+        return target.sourceKind() == TargetRef.SourceKind.ENTITY && target.dimension().equals(level.dimension())
+                && level.getEntity(target.id()) instanceof AbstractBigCannonProjectile;
+    }
+
+    /** Угрозы всех загруженных Shell Alarm этой сети в этом измерении; у общего снаряда — наименьший срок. */
+    private Map<UUID, Integer> alarmThreats(ServerLevel level, long now) {
+        if (!alarmsKnown || now < alarmsAt || now - alarmsAt >= ALARM_REFRESH_TICKS) {
+            alarms = RadarNetworkManager.forServer(level.getServer()).registeredEndpoints(networkId).stream()
+                    .filter(endpoint -> endpoint instanceof EndpointKey.Static fixed
+                            && fixed.dimension().equals(level.dimension()) && !fixed.position().equals(worldPosition))
+                    .map(endpoint -> ((EndpointKey.Static) endpoint).position())
+                    .toList();
+            alarmsAt = now;
+            alarmsKnown = true;
+        }
+        Map<UUID, Integer> threats = new HashMap<>();
+        for (BlockPos position : alarms) {
+            if (!level.isLoaded(position) || !(level.getBlockEntity(position) instanceof ShellAlarmBlockEntity alarm)
+                    || !networkId.equals(alarm.networkIdForLinking())) {
+                continue;
+            }
+            alarm.threats().forEach((id, ticks) -> threats.merge(id, ticks, Math::min));
+        }
+        return threats;
+    }
+
     /** План окна держится несколько тиков: первый выстрел окна задан моментом, а не тиком наблюдения. */
     private EngagementPlanner.Engagement window(TargetRef target, long now, EngagementPlanner.Interceptor interceptor,
                                                 EngagementPlanner.Target engaged, MountedCannon cannon, SlewModel slew) {
@@ -281,7 +356,7 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
 
     private Outcome idle(FireStatus reason) {
         drive.stop();
-        if (reason == FireStatus.NO_TARGET || reason == FireStatus.NO_NETWORK || reason == FireStatus.TARGET_LOST
+        if (reason == FireStatus.NO_THREAT || reason == FireStatus.NO_NETWORK || reason == FireStatus.TARGET_LOST
                 || reason == FireStatus.TARGET_UNSUPPORTED) {
             forgetSolution();
         }
@@ -318,6 +393,9 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
         closeConnection();
         networkId = replacement;
         forgetSolution();
+        automatic = null;
+        rejected.clear();
+        alarmsKnown = false;
         setChanged();
         return true;
     }
