@@ -32,6 +32,8 @@ public record FlightHorizon(int lastTick, Bound bound) {
         MIN_SWEEP_LENGTH,
         /** Время жизни снаряда: последний отрезок перед удалением. */
         LIFETIME,
+        /** Цель перестаёт существовать раньше (например, падает): позже перехватывать нечего. */
+        DEADLINE,
         /** Внешний предел перебора; после него попадания не исключены. */
         LIMIT
     }
@@ -39,6 +41,15 @@ public record FlightHorizon(int lastTick, Bound bound) {
     /** Пустой результат поиска на таком горизонте доказывает отсутствие попадания в модели. */
     public boolean proven() {
         return bound != Bound.LIMIT;
+    }
+
+    /**
+     * Горизонт, обрезанный сроком существования цели: тики после {@code deadlineTick} не проверяются.
+     * Если срок дальше собственной границы, горизонт не меняется.
+     */
+    public FlightHorizon until(int deadlineTick) {
+        if (deadlineTick < -1) throw new IllegalArgumentException("Invalid deadline");
+        return deadlineTick < lastTick ? new FlightHorizon(deadlineTick, Bound.DEADLINE) : this;
     }
 
     /**
