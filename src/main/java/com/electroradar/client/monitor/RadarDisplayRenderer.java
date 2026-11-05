@@ -197,7 +197,7 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
         for (MonitorClientState.DisplayTarget target : view.targets()) {
             if (!target.hasPosition()) continue;
             var point = RadarDisplayProjector.project(target.target().dimension().location(), snapshot.dimension(),
-                    centerX, centerZ, facing, target.x(), target.z(), 0.0D, 0.0D, mapDiameter);
+                    centerX, centerZ, RadarClientConfig.monitorMapUp(facing), target.x(), target.z(), 0.0D, 0.0D, mapDiameter);
             if (point == null || !intersectsMap(point.x(), point.y(), markerHalf, mapRadius)) continue;
 
             double x = centerU + point.x() * mapRadius;
@@ -232,7 +232,7 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
         for (MonitorClientState.DisplayTarget target : view.targets()) {
             if (!target.hasPosition() || !snapshot.selectedTarget().equals(target.target())) continue;
             var point = RadarDisplayProjector.project(target.target().dimension().location(), snapshot.dimension(),
-                    centerX, centerZ, facing, target.x(), target.z(), 0.0D, 0.0D, mapDiameter);
+                    centerX, centerZ, RadarClientConfig.monitorMapUp(facing), target.x(), target.z(), 0.0D, 0.0D, mapDiameter);
             if (point == null || !intersectsMap(point.x(), point.y(), frameHalf, mapRadius)) continue;
 
             double x = centerU + point.x() * mapRadius;
@@ -275,7 +275,7 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
         float blue = gridColor & 0xFF;
         int alpha = (gridColor >>> 24) & 0xFF;
         List<MonitorGridGeometry.GridLine> lines = MonitorGridGeometry.project(
-                worldCenterX, worldCenterZ, 0.0D, 0.0D, facing, mapDiameter);
+                worldCenterX, worldCenterZ, 0.0D, 0.0D, RadarClientConfig.monitorMapUp(facing), mapDiameter);
         for (MonitorGridGeometry.GridLine line : lines) {
             double offset = line.normalizedCoordinate() * mapRadius;
             if (line.vertical()) {

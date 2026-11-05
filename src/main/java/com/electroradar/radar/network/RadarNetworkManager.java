@@ -581,12 +581,17 @@ public final class RadarNetworkManager {
 
     /**
      * Записывает найденные цели в начальный набор и считает промахи. Промах получает только
-     * подтверждение того же геометрического сектора; на {@code forgetAfterMisses}-м оно снимается.
+     * подтверждение того же геометрического сектора. Источник может ограничить темп учёта
+     * промахов независимо от частоты поиска; на {@code forgetAfterMisses}-м оно снимается.
      */
     private void applySuccessfulSearch(NetworkRuntime network, EndpointKey endpoint, RadarState state,
                                        ZoneVisit zone,
                                        Map<TargetRef, Entity> found, Set<NetworkId> changed) {
         int sectorIndex = zone.sectorIndex;
+        long missInterval = state.plan.schedule().confirmationMissIntervalTicks(
+                new ObservationWindowSchedule.ObservationWindow(zone.window.activeSectorIndices(),
+                        zone.window.startTick(), zone.window.endTick(), zone.window.fadeDurationTicks()));
+        if (missInterval < 0) throw new IllegalArgumentException("Confirmation miss interval must be non-negative");
         zone.targets.clear();
         for (TargetRef target : found.keySet()) {
             if (!target.dimension().equals(endpoint.dimension())) continue;
@@ -602,6 +607,7 @@ public final class RadarNetworkManager {
                 return new SectorConfirmation();
             });
             confirmation.missedVisits = 0;
+            confirmation.nextMissTick = Math.addExact(serverTick, missInterval);
             confirmation.lastSuccessfulVisitTick = serverTick;
             zone.targets.add(target);
         }
@@ -609,6 +615,8 @@ public final class RadarNetworkManager {
         for (Map.Entry<TargetRef, SourceLink> detection : state.detections.entrySet()) {
             SectorConfirmation confirmation = detection.getValue().sectors.get(sectorIndex);
             if (confirmation == null || found.containsKey(detection.getKey())) continue;
+            if (serverTick < confirmation.nextMissTick) continue;
+            confirmation.nextMissTick = Math.addExact(serverTick, missInterval);
             confirmation.missedVisits++;
             if (confirmation.missedVisits >= network.policy.forgetAfterMisses()) {
                 forgotten.add(detection.getKey());
