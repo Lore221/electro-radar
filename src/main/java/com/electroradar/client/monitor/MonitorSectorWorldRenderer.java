@@ -10,6 +10,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 
+import com.electroradar.config.RadarClientConfig;
 import com.electroradar.radar.monitor.MonitorSnapshotData;
 import com.electroradar.radar.monitor.RadarDisplayBlockEntity;
 import com.electroradar.radar.RadarDiagnostics;
@@ -74,11 +75,13 @@ final class MonitorSectorWorldRenderer {
                         active ? activeLineHalfWidth : baseLineHalfWidth);
             }
         };
-        for (RadarVisualProfile profile : snapshot.visualProfiles()) {
+        for (RadarVisualProfile source : snapshot.visualProfiles()) {
+            var frame = frameByProfile.get(source.key());
+            RadarVisualProfile profile = frame == null ? source : frame.profile();
             MonitorSectorProjection.ProjectedCoverage coverage = MonitorSectorProjection.project(
-                    profile, snapshot.dimension(), worldCenterX, worldCenterZ, facing,
+                    profile, snapshot.dimension(), worldCenterX, worldCenterZ, RadarClientConfig.monitorMapUp(facing),
                     0.0D, 0.0D, mapDiameter);
-            MonitorSectorMesh.emit(coverage, profile.animation(), frameByProfile.get(profile.key()), colors, sink);
+            MonitorSectorMesh.emit(coverage, profile.animation(), frame, colors, sink);
         }
     }
 

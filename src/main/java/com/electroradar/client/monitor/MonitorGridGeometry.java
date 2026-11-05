@@ -5,13 +5,11 @@ import java.util.List;
 
 import net.minecraft.core.Direction;
 
-import com.electroradar.radar.monitor.RadarDisplayStructureResolver;
-
 /**
  * Общая геометрия мировой сетки монитора для GUI и экранной поверхности блока.
  *
  * <p>Сетка привязана к кратным значениям мировых X/Z, а не к пикселям окна. Поэтому при
- * перемещении карты линии проходят под теми же метками, а при смене направления панели
+ * перемещении карты линии проходят под теми же метками, а при смене ориентации карты
  * поворачиваются на четверть оборота вместе с проекцией. Нормированная координата линии
  * измеряется от центра: для вертикали положительное значение направлено вправо, для
  * горизонтали — вниз по экрану.</p>
@@ -45,18 +43,18 @@ final class MonitorGridGeometry {
      * Смещение центра — клиентское состояние перетаскиваемого GUI; world-renderer передаёт нули.
      */
     static List<GridLine> project(double centerX, double centerZ, double centerOffsetX,
-                                  double centerOffsetZ, Direction facing, double mapDiameterBlocks) {
+                                  double centerOffsetZ, Direction mapUp, double mapDiameterBlocks) {
         double radius = Math.max(0.5D, mapDiameterBlocks * 0.5D);
         double step = stepBlocks(mapDiameterBlocks);
-        Direction right = RadarDisplayStructureResolver.right(facing);
+        Direction right = mapUp.getClockWise();
         double shiftedCenterX = centerX + centerOffsetX;
         double shiftedCenterZ = centerZ + centerOffsetZ;
         ArrayList<GridLine> lines = new ArrayList<>();
 
         appendWorldAxis(lines, shiftedCenterX, radius, step,
-                right.getStepX() != 0, right.getStepX(), facing.getStepX());
+                right.getStepX() != 0, right.getStepX(), mapUp.getStepX());
         appendWorldAxis(lines, shiftedCenterZ, radius, step,
-                right.getStepZ() != 0, right.getStepZ(), facing.getStepZ());
+                right.getStepZ() != 0, right.getStepZ(), mapUp.getStepZ());
         return List.copyOf(lines);
     }
 
@@ -70,7 +68,7 @@ final class MonitorGridGeometry {
             if (projectsHorizontally) {
                 lines.add(new GridLine(true, delta * rightSign / radius));
             } else {
-                // Экранная Y направлена вниз, тогда как вектор facing задаёт направление к верху карты.
+                // Экранная Y направлена вниз, тогда как выбранный вектор задаёт верх карты.
                 lines.add(new GridLine(false, -delta * facingSign / radius));
             }
         }

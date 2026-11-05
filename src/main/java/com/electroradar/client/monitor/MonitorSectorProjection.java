@@ -28,18 +28,18 @@ final class MonitorSectorProjection {
     }
 
     static ProjectedCoverage project(RadarVisualProfile profile, ResourceLocation mapDimension,
-                                     double mapCenterX, double mapCenterZ, Direction facing,
+                                     double mapCenterX, double mapCenterZ, Direction mapUp,
                                      double offsetX, double offsetZ, double mapDiameter) {
         if (!profile.dimension().equals(mapDimension)) return ProjectedCoverage.EMPTY;
         RadarVisualGeometry.Coverage source = RadarVisualGeometry.build(profile);
         ArrayList<ProjectedSegment> outline = new ArrayList<>(source.outline().size());
         for (RadarVisualGeometry.Segment segment : source.outline()) {
-            projectSegment(profile, mapDimension, mapCenterX, mapCenterZ, facing,
+            projectSegment(profile, mapDimension, mapCenterX, mapCenterZ, mapUp,
                     offsetX, offsetZ, mapDiameter, segment).ifPresent(outline::add);
         }
         ArrayList<ProjectedSegment> separators = new ArrayList<>(source.separators().size());
         for (RadarVisualGeometry.Segment segment : source.separators()) {
-            projectSegment(profile, mapDimension, mapCenterX, mapCenterZ, facing,
+            projectSegment(profile, mapDimension, mapCenterX, mapCenterZ, mapUp,
                     offsetX, offsetZ, mapDiameter, segment).ifPresent(separators::add);
         }
         ArrayList<ProjectedSector> sectors = new ArrayList<>(source.sectors().size());
@@ -49,7 +49,7 @@ final class MonitorSectorProjection {
                 ArrayList<MapPoint> polygon = new ArrayList<>(3);
                 for (RadarVisualGeometry.Point point : List.of(triangle.a(), triangle.b(), triangle.c())) {
                     RadarDisplayProjector.MapPoint projected = projectPoint(profile, mapDimension,
-                            mapCenterX, mapCenterZ, facing, offsetX, offsetZ, mapDiameter, point);
+                            mapCenterX, mapCenterZ, mapUp, offsetX, offsetZ, mapDiameter, point);
                     if (projected == null) {
                         polygon.clear();
                         break;
@@ -61,7 +61,7 @@ final class MonitorSectorProjection {
             }
             ArrayList<ProjectedSegment> boundary = new ArrayList<>(sector.boundary().size());
             for (RadarVisualGeometry.Segment segment : sector.boundary()) {
-                projectSegment(profile, mapDimension, mapCenterX, mapCenterZ, facing,
+                projectSegment(profile, mapDimension, mapCenterX, mapCenterZ, mapUp,
                         offsetX, offsetZ, mapDiameter, segment).ifPresent(boundary::add);
             }
             if (!polygons.isEmpty()) sectors.add(new ProjectedSector(sector.index(), polygons, boundary));
@@ -71,13 +71,13 @@ final class MonitorSectorProjection {
 
     private static java.util.Optional<ProjectedSegment> projectSegment(
             RadarVisualProfile profile, ResourceLocation mapDimension,
-            double mapCenterX, double mapCenterZ, Direction facing,
+            double mapCenterX, double mapCenterZ, Direction mapUp,
             double offsetX, double offsetZ, double mapDiameter,
             RadarVisualGeometry.Segment segment) {
         RadarDisplayProjector.MapPoint start = projectPoint(profile, mapDimension,
-                mapCenterX, mapCenterZ, facing, offsetX, offsetZ, mapDiameter, segment.start());
+                mapCenterX, mapCenterZ, mapUp, offsetX, offsetZ, mapDiameter, segment.start());
         RadarDisplayProjector.MapPoint end = projectPoint(profile, mapDimension,
-                mapCenterX, mapCenterZ, facing, offsetX, offsetZ, mapDiameter, segment.end());
+                mapCenterX, mapCenterZ, mapUp, offsetX, offsetZ, mapDiameter, segment.end());
         if (start == null || end == null) return java.util.Optional.empty();
         return clipSegment(new MapPoint(start.x(), start.y()), new MapPoint(end.x(), end.y()));
     }
@@ -85,11 +85,11 @@ final class MonitorSectorProjection {
     private static RadarDisplayProjector.MapPoint projectPoint(RadarVisualProfile profile,
                                                                ResourceLocation mapDimension,
                                                                double mapCenterX, double mapCenterZ,
-                                                               Direction facing, double offsetX,
+                                                               Direction mapUp, double offsetX,
                                                                double offsetZ, double mapDiameter,
                                                                RadarVisualGeometry.Point point) {
         return RadarDisplayProjector.project(profile.dimension(), mapDimension,
-                mapCenterX, mapCenterZ, facing, point.x(), point.z(),
+                mapCenterX, mapCenterZ, mapUp, point.x(), point.z(),
                 offsetX, offsetZ, mapDiameter);
     }
 

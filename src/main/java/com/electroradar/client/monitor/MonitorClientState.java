@@ -25,7 +25,7 @@ import com.electroradar.radar.network.TargetRef;
 import com.electroradar.radar.visual.RadarVisualProfile;
 
 /**
- * Клиентский кэш мониторов: последний полный снимок, геометрия радаров и сборка частей.
+ * Клиентский кэш мониторов: серверный снимок, геометрия и отдельная история показанных точек.
  *
  * <p>Каждый снимок полный, поэтому новый просто заменяет старый. Старые и повторные серии
  * отбрасываются по {@code sequence}. Геометрия хранится отдельно с её {@code geometryVersion}:
@@ -39,6 +39,7 @@ public final class MonitorClientState {
     private static final Map<MonitorDisplayKey, View> VIEWS = new HashMap<>();
     private static final Map<MonitorDisplayKey, Geometry> GEOMETRY = new HashMap<>();
     private static final Map<MonitorDisplayKey, PendingSeries> PENDING = new HashMap<>();
+    private static final Map<MonitorDisplayKey, MonitorTargetSweepState> TARGET_SWEEPS = new HashMap<>();
     private static final long GEOMETRY_REQUEST_COOLDOWN_TICKS = 20L;
     private static final Map<MonitorDisplayKey, Long> GEOMETRY_REQUESTS = new HashMap<>();
     private static ClientLevel currentLevel;
@@ -51,14 +52,18 @@ public final class MonitorClientState {
     public record DisplayTarget(TargetRef target, boolean observing, boolean hasPosition,
                                 double x, double y, double z, String entityTypeId,
                                 boolean rememberedPoint, double rememberedFadeStartClientTick,
-                                long rememberedFadeDurationTicks) {
+                                double rememberedFadeDurationTicks, double serverFadeStartClientTick,
+                                long serverFadeDurationTicks) {
         public boolean detectedThisWindow() { return observing; }
 
         public float rememberedOpacity(double clientRenderTime) {
-            if (!rememberedPoint) return 1.0F;
-            if (rememberedFadeDurationTicks <= 0L) return 0.0F;
-            double age = Math.max(0.0D, clientRenderTime - rememberedFadeStartClientTick);
-            return (float) Math.clamp(1.0D - age / rememberedFadeDurationTicks, 0.0D, 1.0D);
+            double local = !rememberedPoint ? 1.0D : rememberedFadeDurationTicks <= 0 ? 0.0D
+                    : Math.clamp(1 - Math.max(0, clientRenderTime - rememberedFadeStartClientTick)
+                            / rememberedFadeDurationTicks, 0, 1);
+            double server = serverFadeDurationTicks < 0 ? 1.0D : serverFadeDurationTicks == 0 ? 0.0D
+                    : Math.clamp(1 - Math.max(0, clientRenderTime - serverFadeStartClientTick)
+                            / serverFadeDurationTicks, 0, 1);
+            return (float) Math.min(local, server);
         }
     }
 
@@ -70,9 +75,9 @@ public final class MonitorClientState {
         }
 
         public float targetOpacity(DisplayTarget target, double renderTime) {
-            // Право наблюдения уже проверено сервером по полному hitbox. Центр отметки
-            // может лежать в соседнем секторе и не должен запускать дополнительное затухание.
-            return target.rememberedPoint() ? target.rememberedOpacity(renderTime) : 1.0F;
+            // Локальная остановка изображения независима от серверного observing.
+            // Серверный fade остаётся верхней границей жизни доступной отметки.
+            return target.rememberedOpacity(renderTime);
         }
     }
 
@@ -159,6 +164,12 @@ public final class MonitorClientState {
         Minecraft.getInstance().setScreen(new RadarMonitorScreen(key));
     }
 
+    /** Исходный серверный снимок; клиентская анимация его не изменяет. */
+    static MonitorSnapshotData snapshot(MonitorDisplayKey key) {
+        View view = VIEWS.get(key);
+        return view == null ? null : view.snapshot();
+    }
+
     public static View get(MonitorDisplayKey key) { return get(key, 0.0F); }
 
     public static View get(MonitorDisplayKey key, float partialTick) {
@@ -171,14 +182,17 @@ public final class MonitorClientState {
         }
         View stored = VIEWS.get(key);
         if (stored == null) return null;
-        return new View(stored.key(), stored.snapshot(), stored.targets(),
-                MonitorSectorAnimationState.activeVisuals(key, partialTick));
+        var frames = MonitorSectorAnimationState.activeVisuals(key, partialTick);
+        MonitorTargetSweepState sweep = TARGET_SWEEPS.get(key);
+        return new View(stored.key(), stored.snapshot(), sweep == null ? List.of()
+                : sweep.targets(key, frames, renderTime(partialTick)), frames);
     }
 
     public static void clear() {
         VIEWS.clear();
         GEOMETRY.clear();
         PENDING.clear();
+        TARGET_SWEEPS.clear();
         GEOMETRY_REQUESTS.clear();
         MonitorSectorAnimationState.clear();
         currentLevel = null;
@@ -203,28 +217,24 @@ public final class MonitorClientState {
         VIEWS.remove(key);
         GEOMETRY.remove(key);
         PENDING.remove(key);
+        TARGET_SWEEPS.remove(key);
         GEOMETRY_REQUESTS.remove(key);
         MonitorSectorAnimationState.remove(key);
     }
 
     private static void apply(MonitorDisplayKey key, MonitorSnapshotData snapshot) {
-        ArrayList<DisplayTarget> displayTargets = new ArrayList<>(snapshot.targets().size());
-        double receivedAt = clientTickTime;
-        for (MonitorTargetData target : snapshot.targets()) {
-            boolean remembered = target.hasPosition() && !target.observing();
-            // freezeTick переводится в клиентское время по тику отправки снимка.
-            double fadeStart = remembered ? receivedAt + target.freezeTick() - snapshot.observedServerTick() : 0.0D;
-            displayTargets.add(new DisplayTarget(target.target(), target.observing(), target.hasPosition(),
-                    target.x(), target.y(), target.z(), target.entityTypeId(), remembered, fadeStart,
-                    remembered ? target.fadeDurationTicks() : 0L));
-        }
+        double receivedAt = renderTime(0.0F);
+        MonitorTargetSweepState sweep = TARGET_SWEEPS.computeIfAbsent(key, ignored -> new MonitorTargetSweepState());
+        sweep.targets(key, MonitorSectorAnimationState.visualsAt(key, receivedAt), receivedAt);
+        sweep.accept(snapshot, receivedAt);
         MonitorSectorAnimationState.accept(key, snapshot, receivedAt);
-        VIEWS.put(key, new View(key, snapshot, displayTargets, List.of()));
+        VIEWS.put(key, new View(key, snapshot, List.of(), List.of()));
+        sweep.targets(key, MonitorSectorAnimationState.visualsAt(key, receivedAt), receivedAt);
         if (RadarDiagnostics.visualDiagnosticsEnabled()) {
             RadarDiagnostics.log("monitor_state_applied", null, null, null, clientTickTime,
                     () -> "displayId=" + snapshot.displayId() + " sequence=" + snapshot.sequence()
                             + " geometryVersion=" + snapshot.geometryVersion()
-                            + " targets=" + displayTargets.size()
+                            + " targets=" + snapshot.targets().size()
                             + " profiles=" + snapshot.visualProfiles().size());
         }
     }
@@ -249,13 +259,21 @@ public final class MonitorClientState {
     static void advanceClientClock() {
         ClientLevel level = currentLevel();
         if (level != null && !Minecraft.getInstance().isPaused()) clientTickTime++;
+        if (level != null) {
+            double now = renderTime(0.0F);
+            TARGET_SWEEPS.forEach((key, sweep) ->
+                    sweep.targets(key, MonitorSectorAnimationState.visualsAt(key, now), now));
+        }
     }
 
     static long clientTickTimeForDiagnostics() { return clientTickTime; }
 
     public static double renderTime(float partialTick) {
-        currentLevel();
-        lastRenderTime = Math.max(lastRenderTime, clientTickTime + Math.clamp(partialTick, 0.0F, 1.0F));
+        ClientLevel level = currentLevel();
+        // Vanilla синхронизирует gameTime мира всем игрокам. Это только часы
+        // изображения: серверные sampledTick/freezeTick остаются часами менеджера.
+        double now = level == null ? 0.0D : level.getGameTime() + Math.clamp(partialTick, 0.0F, 1.0F);
+        lastRenderTime = Math.max(lastRenderTime, now);
         return lastRenderTime;
     }
 
@@ -265,6 +283,7 @@ public final class MonitorClientState {
             VIEWS.clear();
             GEOMETRY.clear();
             PENDING.clear();
+            TARGET_SWEEPS.clear();
             GEOMETRY_REQUESTS.clear();
             MonitorSectorAnimationState.clear();
             currentLevel = level;
