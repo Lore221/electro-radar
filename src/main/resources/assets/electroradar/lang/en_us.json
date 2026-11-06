@@ -153,8 +153,8 @@
   "electroradar.config.server.target_controller.autocannon_min_distance": "Minimum firing distance for autocannons in blocks",
   "block.electroradar.shell_alarm": "Shell Alarm",
   "item.electroradar.zone_selector": "Selector",
-  "item.electroradar.zone_selector.select": "RMB: select two corners (air: 16 blocks ahead).",
-  "item.electroradar.zone_selector.resize": "Ctrl + scroll over a face: resize the saved zone.",
+  "item.electroradar.zone_selector.select": "RMB: select corners. Ctrl: air target; Ctrl + scroll: distance (1–100).",
+  "item.electroradar.zone_selector.resize": "Ctrl + scroll over a face: resize. Direction reverses inside the zone.",
   "item.electroradar.zone_selector.apply": "RMB on Shell Alarm: apply a copy of the zone.",
   "item.electroradar.zone_selector.clear": "Shift + RMB: clear and start a new selection.",
   "message.electroradar.zone.cleared": "Selection cleared.",
@@ -172,5 +172,6 @@
   "message.electroradar.shell_alarm.status.danger": "Dangerous shells detected",
   "message.electroradar.shell_alarm.status.incomplete": "Forecast incomplete or unsupported flight",
   "message.electroradar.shell_alarm.count": "Dangerous shells: %s",
-  "message.electroradar.shell_alarm.input_counts": "Network targets: %s | Big shells: %s | Supported: %s"
+  "message.electroradar.shell_alarm.input_counts": "Network targets: %s | Big shells: %s | Supported: %s",
+  "message.electroradar.zone.no_target": "No target. Aim at a block or hold Ctrl to select in the air."
 }
