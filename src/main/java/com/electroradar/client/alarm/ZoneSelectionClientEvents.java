@@ -1,6 +1,7 @@
 package com.electroradar.client.alarm;
 
 import java.util.UUID;
+import org.lwjgl.glfw.GLFW;
 import com.simibubi.create.AllKeys;
 import com.simibubi.create.foundation.utility.RaycastHelper;
 import net.createmod.catnip.math.VecHelper;
@@ -35,13 +36,13 @@ public final class ZoneSelectionClientEvents {
     private static int lastSlot = -1;
     private static UUID lastSelection;
     private static int range = 10;
-    private static boolean useHeld;
+    private static final ZoneSelectionInput INPUT = new ZoneSelectionInput();
 
     private ZoneSelectionClientEvents() { }
 
     @SubscribeEvent public static void tick(ClientTickEvent.Post event) {
         Minecraft mc = Minecraft.getInstance();
-        if (!mc.options.keyUse.isDown()) useHeld = false;
+        INPUT.releaseIfKeyUp(mc.options.keyUse.isDown());
         InteractionHand hand = activeHand();
         if (mc.level == null || mc.player == null || mc.screen != null || hand == null) {
             OUTLINES.clear();
@@ -95,16 +96,20 @@ public final class ZoneSelectionClientEvents {
     @SubscribeEvent public static void use(InputEvent.InteractionKeyMappingTriggered event) {
         Minecraft mc = Minecraft.getInstance();
         InteractionHand hand = activeHand();
-        if (!event.isUseItem() || mc.player == null || mc.level == null || mc.screen != null
-                || hand == null || event.getHand() != hand) return;
-        event.setCanceled(true);
-        event.setSwingHand(false);
-        // Vanilla retries use while the key is held; fixing corners is a press action in Create.
-        if (useHeld) return;
-        useHeld = true;
-        PacketDistributor.sendToServer(new ZoneSelectPayload(hand,
-                ZoneSelectionItem.selectionId(mc.player.getItemInHand(hand)),
-                AllKeys.ACTIVATE_TOOL.isPressed(), range, mc.player.isShiftKeyDown()));
+        if (mc.player == null || mc.level == null || mc.screen != null || hand == null) return;
+        INPUT.use(event, hand, selectedHand -> PacketDistributor.sendToServer(new ZoneSelectPayload(selectedHand,
+                ZoneSelectionItem.selectionId(mc.player.getItemInHand(selectedHand)),
+                AllKeys.ACTIVATE_TOOL.isPressed(), range, mc.player.isShiftKeyDown())));
+    }
+
+    @SubscribeEvent public static void mouseReleased(InputEvent.MouseButton.Post event) {
+        if (event.getAction() == GLFW.GLFW_RELEASE
+                && Minecraft.getInstance().options.keyUse.matchesMouse(event.getButton())) INPUT.releaseIfKeyUp(false);
+    }
+
+    @SubscribeEvent public static void keyReleased(InputEvent.Key event) {
+        if (event.getAction() == GLFW.GLFW_RELEASE
+                && Minecraft.getInstance().options.keyUse.matches(event.getKey(), event.getScanCode())) INPUT.releaseIfKeyUp(false);
     }
 
     @SubscribeEvent public static void scroll(InputEvent.MouseScrollingEvent event) {

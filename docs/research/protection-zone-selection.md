@@ -74,3 +74,18 @@ The naming/export flow serves a different artifact in Create. Whether Electro-Ra
 Real-library regression route: instantiate `new Outliner()` for isolation, call `chaseAABB(slot, start)`, retrieve `getOutlines().get(slot).getOutline()`, cast to `AABBOutline`, and read public `getBounds()`. Chase a new box with the same slot, assert identical outline instance, tick via `tickOutlines()`, and assert halfway bounds. Refresh each subsequent tick to avoid TTL expiry.
 
 For rendering interpolation, subclass the actual `ChasingAABBOutline` and override protected `renderBox` to capture its AABB argument without invoking GPU rendering. Install it with `showOutline(slot, instance)`, use the real `chaseAABB` and `tickOutlines`, then call its real `render` at partial ticks 0, 0.5, and 1. Its overridden sink observes the actual interpolation path. `prevBB` and `targetBB` are package-private, so there is no need to access them or mirror interpolation math in production code. Whether plain JUnit can initialize these classes in this repository's runtime must be checked by executing the test; source inspection alone does not establish that.
+
+
+## Executed verification
+
+- `./gradlew test --tests com.electroradar.client.alarm.ZoneSelectionOutlinesTest` reproduced the
+  baseline failure: expected halfway maximum X = 5, actual X = 9. After retaining the outline,
+  the real-library test passes; render capture at partial ticks 0 / 0.5 / 1 gives X = 1 / 3 / 5.
+- `ZoneSelectionInputTest.offhandSelectorHandlesTheInitialMainHandEventWithoutVanillaFallthrough`
+  failed before the hand-event fix and passes after it. The actual NeoForge 21.1.259
+  `patches/net/minecraft/client/Minecraft.java.patch` returns from `startUseItem` after a canceled
+  event; its event Javadoc about visiting both hands regardless of cancellation is misleading
+  for this patch. Dispatch the chosen hand immediately from the initial event.
+- `./gradlew build`: 117 tests, zero failures/errors/skips. This is not in-game visual acceptance.
+- Review also checked real `Player.canInteractWithBlock(pos, 1)` eye-to-block-AABB reach and
+  direct mouse/keyboard release handling so rapid physical presses need no intervening tick.
