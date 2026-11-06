@@ -22,6 +22,7 @@ import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.BlockHitResult;
 
 /** Два ПКМ задают объём; Shift+ПКМ сбрасывает план, Ctrl+колесо двигает выбранную грань. */
 public final class ZoneSelectionItem extends Item {
@@ -57,11 +58,10 @@ public final class ZoneSelectionItem extends Item {
             reset(stack);
             message(player, "cleared");
         } else if (level.getBlockEntity(pos) instanceof ShellAlarmBlockEntity alarm) {
-            Optional<ProtectionZone> selected = zone(stack);
-            if (selected.isEmpty()) message(player, "incomplete");
-            else message(player, alarm.applyZone(selected.get()) ? "applied" : "wrong_dimension");
+            apply(player, stack, alarm);
         } else {
-            select(stack, player, ZoneSelectionTargeting.block(player, context.getHand(), new net.minecraft.world.phys.BlockHitResult(context.getClickLocation(), context.getClickedFace(), pos, false)));
+            BlockHitResult hit = new BlockHitResult(context.getClickLocation(), context.getClickedFace(), pos, false);
+            select(stack, player, ZoneSelectionTargeting.block(player, context.getHand(), hit));
         }
         return InteractionResult.CONSUME;
     }
@@ -85,20 +85,24 @@ public final class ZoneSelectionItem extends Item {
                 || !selectionId(stack).equals(expectedSelection)) return;
         if (clear) { reset(stack); message(player, "cleared"); return; }
         var hit = air ? null : ZoneSelectionTargeting.trace(player);
-        if (hit != null && player.distanceToSqr(net.minecraft.world.phys.Vec3.atCenterOf(hit.getBlockPos()))
-                <= Math.pow(player.blockInteractionRange() + 1, 2)
+        if (hit != null && player.canInteractWithBlock(hit.getBlockPos(), 1)
                 && level.getBlockEntity(hit.getBlockPos()) instanceof ShellAlarmBlockEntity alarm) {
             if (!level.mayInteract(player, hit.getBlockPos())) return;
-            var selected = zone(stack);
-            if (selected.isEmpty()) message(player, "incomplete");
-            else message(player, alarm.applyZone(selected.get()) ? "applied" : "wrong_dimension");
+            apply(player, stack, alarm);
             return;
         }
         if (zone(stack).isPresent()) { message(player, "ready"); return; }
-        BlockPos target = ZoneSelectionTargeting.target(player, hand, air, range);
+        BlockPos target = air ? ZoneSelectionTargeting.target(player, hand, true, range)
+                : hit == null ? null : ZoneSelectionTargeting.block(player, hand, hit);
         if (target == null) { message(player, "no_target"); return; }
         if (!level.mayInteract(player, target)) return;
         select(stack, player, target);
+    }
+
+    private static void apply(Player player, ItemStack stack, ShellAlarmBlockEntity alarm) {
+        var selected = zone(stack);
+        if (selected.isEmpty()) message(player, "incomplete");
+        else message(player, alarm.applyZone(selected.get()) ? "applied" : "wrong_dimension");
     }
 
     private static void select(ItemStack stack, Player player, BlockPos pos) {

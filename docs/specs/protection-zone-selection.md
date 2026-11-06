@@ -14,6 +14,8 @@ Both hands remain supported. The server owns item data and all zone validation.
 - Ctrl: target in air at adjustable distance (default 10, limits 1–100); Ctrl+wheel adjusts distance
   until the second corner. Without a hit and without Ctrl, selection does not advance.
 - Each use press fixes at most one corner. Holding use must not finish a zone automatically.
+  Mouse and rebound keyboard release events rearm selection even between client ticks.
+  The initial main-hand event dispatches the active selector hand and cancels Vanilla processing.
 - After two corners, Ctrl+wheel resizes the highlighted face. Positive outside contracts,
   positive inside expands. Fractional deltas round away from zero; resize packets are limited
   to 100 blocks per action; contraction stops at one block.
@@ -24,7 +26,7 @@ Both hands remain supported. The server owns item data and all zone validation.
   Remove stale visuals on deactivation, dimension, hand, slot and selection changes.
 - Packets carry intent, not target coordinates. The server rejects invalid ranges, missing/wrong
   items, spectators, stale selection UUIDs and invalid world bounds. Applying to Alarm keeps
-  normal interaction reach. Existing resize UUID validation remains in place.
+  the vanilla `canInteractWithBlock(pos, 1)` reach predicate. Existing resize UUID validation remains in place.
 
 ## Evidence
 
