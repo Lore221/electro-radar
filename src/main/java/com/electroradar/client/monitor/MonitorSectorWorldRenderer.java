@@ -1,5 +1,7 @@
 package com.electroradar.client.monitor;
 
+import com.electroradar.radar.monitor.MapFacing;
+
 import java.util.Map;
 
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -36,7 +38,7 @@ final class MonitorSectorWorldRenderer {
                      Direction facing, BlockPos origin, MonitorClientState.View view,
                      MonitorSnapshotData snapshot, double worldCenterX, double worldCenterZ, double mapDiameter,
                      double centerU, double centerV, double contentLeft, double contentBottom,
-                     double contentSide, double mapRadius, int packedOverlay) {
+                     double contentSide, double mapRadius, int packedOverlay, MapFacing mapFacing) {
         if (snapshot.visualProfiles().isEmpty()) return;
         if (!styleLogged) {
             styleLogged = true;
@@ -76,14 +78,14 @@ final class MonitorSectorWorldRenderer {
         };
         for (RadarVisualProfile profile : snapshot.visualProfiles()) {
             MonitorSectorProjection.ProjectedCoverage coverage = MonitorSectorProjection.project(
-                    profile, snapshot.dimension(), worldCenterX, worldCenterZ, facing,
+                    profile, snapshot.dimension(), worldCenterX, worldCenterZ, mapFacing,
                     0.0D, 0.0D, mapDiameter);
             MonitorSectorMesh.emit(coverage, profile.animation(), frameByProfile.get(profile.key()), colors, sink);
         }
     }
 
     /** Преобразует треугольник общего прохода в поверхность монитора. */
-    private static void drawTriangle(RadarDisplayBlockEntity display, PoseStack poseStack,
+    static void drawTriangle(RadarDisplayBlockEntity display, PoseStack poseStack,
                                    VertexConsumer consumer, Direction facing, BlockPos origin,
                                    MonitorSectorProjection.MapPoint first,
                                    MonitorSectorProjection.MapPoint second,
@@ -107,7 +109,7 @@ final class MonitorSectorWorldRenderer {
     }
 
     /** Представляет линию тонким quad, отсекая также его толщину по внутреннему квадрату карты. */
-    private static void drawLine(RadarDisplayBlockEntity display, PoseStack poseStack,
+    static void drawLine(RadarDisplayBlockEntity display, PoseStack poseStack,
                                  VertexConsumer consumer, Direction facing, BlockPos origin,
                                  MonitorSectorProjection.ProjectedSegment line,
                                  double centerU, double centerV, double mapRadius,

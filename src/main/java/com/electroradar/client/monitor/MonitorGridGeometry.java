@@ -1,5 +1,7 @@
 package com.electroradar.client.monitor;
 
+import com.electroradar.radar.monitor.MapFacing;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -44,39 +46,31 @@ final class MonitorGridGeometry {
      * Строит видимые отрезки глобальной квадратной сетки в осях экрана.
      * Смещение центра — клиентское состояние перетаскиваемого GUI; world-renderer передаёт нули.
      */
-    static List<GridLine> project(double centerX, double centerZ, double centerOffsetX,
-                                  double centerOffsetZ, Direction facing, double mapDiameterBlocks) {
-        double radius = Math.max(0.5D, mapDiameterBlocks * 0.5D);
-        double step = stepBlocks(mapDiameterBlocks);
-        Direction right = RadarDisplayStructureResolver.right(facing);
-        double shiftedCenterX = centerX + centerOffsetX;
-        double shiftedCenterZ = centerZ + centerOffsetZ;
-        ArrayList<GridLine> lines = new ArrayList<>();
-
-        appendWorldAxis(lines, shiftedCenterX, radius, step,
-                right.getStepX() != 0, right.getStepX(), facing.getStepX());
-        appendWorldAxis(lines, shiftedCenterZ, radius, step,
-                right.getStepZ() != 0, right.getStepZ(), facing.getStepZ());
-        return List.copyOf(lines);
-    }
-
-    /** Добавляет линии одного мирового измерения и переводит его на горизонталь или вертикаль экрана. */
-    private static void appendWorldAxis(List<GridLine> lines, double center, double radius, double step,
-                                        boolean projectsHorizontally, int rightSign, int facingSign) {
-        double firstLine = Math.ceil((center - radius) / step) * step;
-        double lastLine = Math.floor((center + radius) / step) * step;
-        for (double worldCoordinate = firstLine; worldCoordinate <= lastLine; worldCoordinate += step) {
-            double delta = worldCoordinate - center;
-            if (projectsHorizontally) {
-                lines.add(new GridLine(true, delta * rightSign / radius));
-            } else {
-                // Экранная Y направлена вниз, тогда как вектор facing задаёт направление к верху карты.
-                lines.add(new GridLine(false, -delta * facingSign / radius));
+    static List<MonitorSectorProjection.ProjectedSegment> project(double centerX, double centerZ,
+            double offsetX, double offsetZ, MapFacing facing, double diameter) {
+        double radius = Math.max(0.5D, diameter * 0.5D);
+        double reach = radius * Math.sqrt(2.0D);
+        double step = stepBlocks(diameter);
+        var right = facing.right();
+        double cx = centerX + offsetX, cz = centerZ + offsetZ;
+        ArrayList<MonitorSectorProjection.ProjectedSegment> result = new ArrayList<>();
+        for (int axis = 0; axis < 2; axis++) {
+            double center = axis == 0 ? cx : cz;
+            double first = Math.ceil((center - reach) / step) * step;
+            for (int i = 0; i <= MAX_INTERVALS_PER_AXIS * 2; i++) {
+                double value = first + i * step;
+                if (value > center + reach) break;
+                double ax = axis == 0 ? value - cx : -reach;
+                double az = axis == 0 ? -reach : value - cz;
+                double bx = axis == 0 ? value - cx : reach;
+                double bz = axis == 0 ? reach : value - cz;
+                var a = new MonitorSectorProjection.MapPoint((ax * right.getStepX() + az * right.getStepZ()) / radius,
+                        (ax * facing.getStepX() + az * facing.getStepZ()) / radius);
+                var b = new MonitorSectorProjection.MapPoint((bx * right.getStepX() + bz * right.getStepZ()) / radius,
+                        (bx * facing.getStepX() + bz * facing.getStepZ()) / radius);
+                MonitorSectorProjection.clipSegment(a, b).ifPresent(result::add);
             }
         }
-    }
-
-    /** Тип линии и её экранная координата относительно центра карты в диапазоне [-1; 1]. */
-    record GridLine(boolean vertical, double normalizedCoordinate) {
+        return List.copyOf(result);
     }
 }

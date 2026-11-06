@@ -1,5 +1,8 @@
 package com.electroradar.client.monitor;
 
+import com.electroradar.radar.monitor.MapFacing;
+import com.electroradar.radar.spatial.RadarSpatial;
+
 import java.util.List;
 
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -154,22 +157,26 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
         MonitorClientState.View view = null;
         if (minecraft.level != null) {
             MonitorDisplayKey key = new MonitorDisplayKey(minecraft.level.dimension().location(),
-                    display.rootPosition(), display.displayId(), display.loadId());
+                    display.rootPosition(), display.displayId(), display.loadId(),
+                    RadarSpatial.placement(minecraft.level, display.rootPosition()).orElseThrow().endpoint());
             view = MonitorClientState.get(key, partialTick);
         }
         MonitorSnapshotData snapshot = view == null ? null : view.snapshot();
-        double centerX = display.rectangleOrigin().getX() + 0.5D;
-        double centerZ = display.rectangleOrigin().getZ() + 0.5D;
+        var frame = display.mapFrame(partialTick);
+        double centerX = frame.centerX();
+        double centerZ = frame.centerZ();
         double squareSide = Math.min(width, height);
         Direction right = RadarDisplayStructureResolver.right(facing);
-        centerX += right.getStepX() * ((width - 1) * 0.5D);
-        centerZ += right.getStepZ() * ((width - 1) * 0.5D);
+
         double mapDiameter = MonitorMapScale.diameter(snapshot, centerX, centerZ);
 
         if (view != null && snapshot != null) {
             MonitorSectorWorldRenderer.draw(display, poseStack, buffers, facing, origin,
                     view, snapshot, centerX, centerZ, mapDiameter, centerU, centerV,
-                    contentLeft, contentBottom, contentSide, mapRadius, packedOverlay);
+                    contentLeft, contentBottom, contentSide, mapRadius, packedOverlay, frame.facing());
+            MonitorSilhouetteRenderer.world(display, poseStack, buffers, facing, origin, view, centerX, centerZ,
+                    frame.facing(), mapDiameter, centerU, centerV, contentLeft, contentBottom,
+                    contentSide, mapRadius, packedOverlay, partialTick);
             drawTargetIcons(display, poseStack, buffers, facing, origin, view, snapshot,
                     centerX, centerZ, centerU, centerV, contentLeft, contentBottom, contentSide,
                     mapRadius, squareSide, mapDiameter, packedOverlay, partialTick);
@@ -180,7 +187,7 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
 
         // Линии не притворяются секторами или CEE: это только масштабная мировая координатная сетка.
         drawGrid(display, poseStack, buffers, facing, origin, centerX, centerZ,
-                centerU, centerV, contentLeft, contentBottom, contentSide, mapRadius, mapDiameter, packedOverlay);
+                centerU, centerV, contentLeft, contentBottom, contentSide, mapRadius, mapDiameter, packedOverlay, frame.facing());
     }
 
     /** Первый проход меток: атласный знак с размером ячейки, зависящим от масштаба карты. */
@@ -197,7 +204,7 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
         for (MonitorClientState.DisplayTarget target : view.targets()) {
             if (!target.hasPosition()) continue;
             var point = RadarDisplayProjector.project(target.target().dimension().location(), snapshot.dimension(),
-                    centerX, centerZ, facing, target.x(), target.z(), 0.0D, 0.0D, mapDiameter);
+                    centerX, centerZ, display.mapFrame(partialTick).facing(), target.x(), target.z(), 0.0D, 0.0D, mapDiameter);
             if (point == null || !intersectsMap(point.x(), point.y(), markerHalf, mapRadius)) continue;
 
             double x = centerU + point.x() * mapRadius;
@@ -232,7 +239,7 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
         for (MonitorClientState.DisplayTarget target : view.targets()) {
             if (!target.hasPosition() || !snapshot.selectedTarget().equals(target.target())) continue;
             var point = RadarDisplayProjector.project(target.target().dimension().location(), snapshot.dimension(),
-                    centerX, centerZ, facing, target.x(), target.z(), 0.0D, 0.0D, mapDiameter);
+                    centerX, centerZ, display.mapFrame(partialTick).facing(), target.x(), target.z(), 0.0D, 0.0D, mapDiameter);
             if (point == null || !intersectsMap(point.x(), point.y(), frameHalf, mapRadius)) continue;
 
             double x = centerU + point.x() * mapRadius;
@@ -267,36 +274,18 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
                                  MultiBufferSource buffers, Direction facing, BlockPos origin,
                                  double worldCenterX, double worldCenterZ, double centerU, double centerV,
                                  double contentLeft, double contentBottom, double contentSide,
-                                 double mapRadius, double mapDiameter, int packedOverlay) {
+                                 double mapRadius, double mapDiameter, int packedOverlay, MapFacing mapFacing) {
         double lineHalfWidth = Math.max(0.0008D, contentSide / 1024.0D);
         int gridColor = RadarClientConfig.palette().screen().worldGrid();
         float red = (gridColor >>> 16) & 0xFF;
         float green = (gridColor >>> 8) & 0xFF;
         float blue = gridColor & 0xFF;
         int alpha = (gridColor >>> 24) & 0xFF;
-        List<MonitorGridGeometry.GridLine> lines = MonitorGridGeometry.project(
-                worldCenterX, worldCenterZ, 0.0D, 0.0D, facing, mapDiameter);
-        for (MonitorGridGeometry.GridLine line : lines) {
-            double offset = line.normalizedCoordinate() * mapRadius;
-            if (line.vertical()) {
-                double x = centerU + offset;
-                double clippedLeft = Math.max(contentLeft, x - lineHalfWidth);
-                double clippedRight = Math.min(contentLeft + contentSide, x + lineHalfWidth);
-                if (clippedRight <= clippedLeft) continue;
-                drawSolidAtlasRect(display, poseStack, buffers, facing, origin,
-                        clippedLeft, contentBottom, clippedRight, contentBottom + contentSide,
-                        red, green, blue, alpha,
-                        packedOverlay, VERTICAL_GRID_FACE_OFFSET);
-            } else {
-                double y = centerV - offset;
-                double clippedBottom = Math.max(contentBottom, y - lineHalfWidth);
-                double clippedTop = Math.min(contentBottom + contentSide, y + lineHalfWidth);
-                if (clippedTop <= clippedBottom) continue;
-                drawSolidAtlasRect(display, poseStack, buffers, facing, origin,
-                        contentLeft, clippedBottom, contentLeft + contentSide, clippedTop,
-                        red, green, blue, alpha,
-                        packedOverlay, HORIZONTAL_GRID_FACE_OFFSET);
-            }
+        var consumer = buffers.getBuffer(RenderType.entityTranslucentEmissive(MonitorBlipSprite.TEXTURE));
+        for (var line : MonitorGridGeometry.project(worldCenterX, worldCenterZ, 0, 0, mapFacing, mapDiameter)) {
+            MonitorSectorWorldRenderer.drawLine(display, poseStack, consumer, facing, origin, line,
+                    centerU, centerV, mapRadius, contentLeft, contentBottom, contentSide,
+                    gridColor, packedOverlay, VERTICAL_GRID_FACE_OFFSET, lineHalfWidth);
         }
     }
 

@@ -1,5 +1,8 @@
 package com.electroradar.radar.network;
 
+import com.electroradar.radar.spatial.RadarSpatial;
+import com.electroradar.radar.spatial.StructureBody;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -93,10 +96,15 @@ public final class RadarNetworkManager {
     public static void onServerTick(ServerTickEvent.Pre event) {
         RadarNetworkManager manager;
         synchronized (MANAGERS) { manager = MANAGERS.get(event.getServer()); }
-        if (manager != null) manager.beginServerTick();
+        if (manager != null) {
+            RadarSpatial.backend().beginPhase(event.getServer());
+            try { manager.beginServerTick(); }
+            finally { RadarSpatial.backend().completePhase(); }
+        }
     }
 
     public static void onServerStopped(ServerStoppedEvent event) {
+        RadarSpatial.backend().clear();
         RadarNetworkManager manager;
         synchronized (MANAGERS) { manager = MANAGERS.remove(event.getServer()); }
         if (manager != null && !manager.closed) {
@@ -270,8 +278,8 @@ public final class RadarNetworkManager {
         if (target != null) {
             if (!target.dimension().equals(monitor.dimension()) || network == null) return false;
             List<AccessibleRadar> radars = RadarNetworkQueries.accessibleRadars(monitor, registration, network, endpointIndex);
-            if (!RadarNetworkQueries.hasVisibleAccessibleMeasurement(radars, network.targets.get(target),
-                    serverTick)) return false;
+            if (!(network.ownStructures.containsKey(target) && RadarNetworkQueries.ownAccess(network, target, endpointIndex))
+                    && !RadarNetworkQueries.hasVisibleAccessibleMeasurement(radars, network.targets.get(target), serverTick)) return false;
         }
         if (network == null) return target == null;
         if (Objects.equals(network.selectedTarget, target)) return true;
@@ -302,6 +310,13 @@ public final class RadarNetworkManager {
         PhaseEntityCache entityCache = new PhaseEntityCache();
         try {
             for (NetworkRuntime network : networks.values()) {
+                refreshOwnStructures(network, changed);
+                for (TargetRef known : network.targets.keySet()) {
+                    if (known.sourceKind() == TargetRef.SourceKind.MOVING_STRUCTURE) {
+                        ServerLevel knownLevel = server.getLevel(known.dimension());
+                        if (knownLevel != null) RadarSpatial.backend().structure(knownLevel, known.id());
+                    }
+                }
                 if (network.radars.isEmpty()) {
                     resetWindow(network);
                     continue;
@@ -333,6 +348,21 @@ public final class RadarNetworkManager {
             entityCache.clear();
         }
         markChanged(changed);
+    }
+
+    private void refreshOwnStructures(NetworkRuntime network, Set<NetworkId> changed) {
+        Map<TargetRef, LiveResult> next = new HashMap<>();
+        for (var entry : endpointIndex.entrySet()) {
+            if (!(entry.getKey() instanceof EndpointKey.Moving moving) || !entry.getValue().networkId.equals(network.id)
+                    || entry.getValue().role != EndpointRole.RADAR && entry.getValue().role != EndpointRole.MONITOR) continue;
+            ServerLevel level = server.getLevel(moving.dimension());
+            if (level == null) continue;
+            RadarSpatial.backend().structure(level, moving.structureId()).ifPresent(body ->
+                    next.put(body.target(), LiveResult.observedStructure(serverTick, body)));
+        }
+        if (!network.ownStructures.keySet().equals(next.keySet()) || next.entrySet().stream()
+                .anyMatch(e -> !e.getValue().sameVisibleState(network.ownStructures.get(e.getKey())))) changed.add(network.id);
+        network.ownStructures.clear(); network.ownStructures.putAll(next);
     }
 
     /**
@@ -388,6 +418,16 @@ public final class RadarNetworkManager {
                 || network.slotSerial % state.networkWindowMultiple == 0);
         if (planBoundary && !refreshPlan(network, endpoint, state, parameters, changed)) return;
         if (state.plan == null) return;
+        if (!planBoundary && endpoint instanceof EndpointKey.Moving) {
+            RadarObservationPlan previous = state.plan;
+            Optional<RadarObservationPlan> positioned = state.source.refreshPlacement(previous);
+            if (positioned.isEmpty()) {
+                endVisit(network, endpoint, state, changed);
+                return;
+            }
+            state.plan = positioned.orElseThrow();
+            if (!state.plan.profile().equals(previous.profile())) changed.add(network.id);
+        }
 
         ObservationWindowSchedule.ObservationWindow window = scheduledWindow(network, endpoint, state,
                 networkWindow, changed);
@@ -553,7 +593,7 @@ public final class RadarNetworkManager {
         RadarObservationPlan.Sector sector = state.plan.sectors().get(zone.sectorIndex);
         if (sector.area().isEmpty()) {
             zone.metrics.outcome = "empty_geometry";
-            applySuccessfulSearch(network, endpoint, state, zone, Map.of(), changed);
+            applySuccessfulSearch(network, endpoint, state, zone, Set.of(), changed);
             return;
         }
         ServerLevel level = server.getLevel(endpoint.dimension());
@@ -576,7 +616,11 @@ public final class RadarNetworkManager {
         for (Map.Entry<TargetRef, Entity> found : result.entities().entrySet()) {
             cache.remember(found.getKey(), found.getValue());
         }
-        applySuccessfulSearch(network, endpoint, state, zone, result.entities(), changed);
+        Set<TargetRef> found = new HashSet<>(result.entities().keySet());
+        for (var body : RadarSpatial.backend().structures(level)) {
+            if (body.intersects(sector.area())) found.add(body.target());
+        }
+        applySuccessfulSearch(network, endpoint, state, zone, found, changed);
     }
 
     /**
@@ -585,10 +629,10 @@ public final class RadarNetworkManager {
      */
     private void applySuccessfulSearch(NetworkRuntime network, EndpointKey endpoint, RadarState state,
                                        ZoneVisit zone,
-                                       Map<TargetRef, Entity> found, Set<NetworkId> changed) {
+                                       Set<TargetRef> found, Set<NetworkId> changed) {
         int sectorIndex = zone.sectorIndex;
         zone.targets.clear();
-        for (TargetRef target : found.keySet()) {
+        for (TargetRef target : found) {
             if (!target.dimension().equals(endpoint.dimension())) continue;
             SourceLink link = state.detections.computeIfAbsent(target, ignored -> {
                 TargetEntry entry = network.targets.computeIfAbsent(target, unused -> new TargetEntry());
@@ -608,7 +652,7 @@ public final class RadarNetworkManager {
         List<TargetRef> forgotten = new ArrayList<>();
         for (Map.Entry<TargetRef, SourceLink> detection : state.detections.entrySet()) {
             SectorConfirmation confirmation = detection.getValue().sectors.get(sectorIndex);
-            if (confirmation == null || found.containsKey(detection.getKey())) continue;
+            if (confirmation == null || found.contains(detection.getKey())) continue;
             confirmation.missedVisits++;
             if (confirmation.missedVisits >= network.policy.forgetAfterMisses()) {
                 forgotten.add(detection.getKey());
@@ -641,12 +685,26 @@ public final class RadarNetworkManager {
             SectorConfirmation confirmation = link == null ? null : link.sectors.get(sectorIndex);
             if (confirmation == null) continue;
             try {
+                if (target.sourceKind() == TargetRef.SourceKind.MOVING_STRUCTURE) {
+                    ServerLevel level = server.getLevel(target.dimension());
+                    var body = level == null ? Optional.<StructureBody>empty()
+                            : RadarSpatial.backend().structure(level, target.id());
+                    if (body.isEmpty() || !body.get().intersects(sector.area())) {
+                        freezeConfirmation(confirmation, zone.window.fadeDurationTicks(), changed, network.id);
+                    } else {
+                        LiveResult next = LiveResult.observedStructure(serverTick, body.get());
+                        if (!next.sameVisibleState(confirmation.measurement)) changed.add(network.id);
+                        confirmation.measurement = next;
+                        confirmation.lastSuccessfulVisitTick = serverTick;
+                    }
+                    continue;
+                }
                 Entity entity = cache.resolve(target);
                 if (entity == null || !EntityRadarScanner.anyHitboxInside(entity, sector.area())) {
                     freezeConfirmation(confirmation, zone.window.fadeDurationTicks(), changed, network.id);
                     continue;
                 }
-                LiveResult next = LiveResult.observed(serverTick, entity.position(), entity.getType());
+                LiveResult next = LiveResult.observed(serverTick, RadarSpatial.worldPosition(entity), entity.getType());
                 if (!next.sameVisibleState(confirmation.measurement)) changed.add(network.id);
                 confirmation.measurement = next;
                 confirmation.lastSuccessfulVisitTick = serverTick;

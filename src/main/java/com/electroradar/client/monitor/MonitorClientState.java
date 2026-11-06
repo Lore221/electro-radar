@@ -1,5 +1,9 @@
 package com.electroradar.client.monitor;
 
+import com.electroradar.radar.network.EndpointKey;
+import com.electroradar.radar.spatial.RadarSpatial;
+import com.electroradar.radar.spatial.Silhouette;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -41,6 +45,8 @@ public final class MonitorClientState {
     private static final Map<MonitorDisplayKey, PendingSeries> PENDING = new HashMap<>();
     private static final long GEOMETRY_REQUEST_COOLDOWN_TICKS = 20L;
     private static final Map<MonitorDisplayKey, Long> GEOMETRY_REQUESTS = new HashMap<>();
+    private record AwaitingRoot(long geometryVersion, boolean open, long receivedTick) { }
+    private static final Map<MonitorDisplayKey, AwaitingRoot> AWAITING_ROOT = new HashMap<>();
     private static ClientLevel currentLevel;
     private static long clientTickTime;
     private static double lastRenderTime;
@@ -51,7 +57,7 @@ public final class MonitorClientState {
     public record DisplayTarget(TargetRef target, boolean observing, boolean hasPosition,
                                 double x, double y, double z, String entityTypeId,
                                 boolean rememberedPoint, double rememberedFadeStartClientTick,
-                                long rememberedFadeDurationTicks) {
+                                long rememberedFadeDurationTicks, Silhouette silhouette) {
         public boolean detectedThisWindow() { return observing; }
 
         public float rememberedOpacity(double clientRenderTime) {
@@ -79,9 +85,12 @@ public final class MonitorClientState {
     /** Принимает одну часть; снимок применяется, когда собрана вся серия. */
     public static void accept(MonitorSnapshotPayload part) {
         ClientLevel level = currentLevel();
-        if (!validRoot(level, part.dimension(), part.rootPosition(), part.displayId(), part.loadId())) return;
+        if (!validRoot(level, part.dimension(), part.rootPosition(), part.displayId(), part.loadId(), part.rootEndpoint())) {
+            awaitRoot(new MonitorDisplayKey(part.rootEndpoint(), part.displayId(), part.loadId()), part.geometryVersion(), false);
+            return;
+        }
         MonitorDisplayKey key = new MonitorDisplayKey(part.dimension(), part.rootPosition(),
-                part.displayId(), part.loadId());
+                part.displayId(), part.loadId(), part.rootEndpoint());
         if (!newerThanView(key, part)) return;
 
         PendingSeries pending = PENDING.get(key);
@@ -118,7 +127,7 @@ public final class MonitorClientState {
             snapshot = new MonitorSnapshotData(header.displayId(), header.rootPosition(), header.dimension(),
                     header.loadId(), header.sequence(), header.geometryVersion(), header.observedServerTick(),
                     header.linked(), header.selectedTargetUnavailable(), header.selectedTarget(),
-                    pending.targets(), profiles, phases);
+                    pending.targets(), profiles, phases, header.rootEndpoint());
         } catch (IllegalArgumentException malformed) {
             return;
         }
@@ -148,14 +157,17 @@ public final class MonitorClientState {
         if (last != null && clientTickTime - last < GEOMETRY_REQUEST_COOLDOWN_TICKS) return;
         GEOMETRY_REQUESTS.put(key, clientTickTime);
         PacketDistributor.sendToServer(new MonitorGeometryRequestPayload(key.rootPosition(), key.dimension(),
-                key.displayId(), key.loadId(), geometryVersion));
+                key.displayId(), key.loadId(), geometryVersion, key.endpoint()));
     }
 
     public static void handle(MonitorOpenPayload payload) {
         ClientLevel level = currentLevel();
-        if (!validRoot(level, payload.dimension(), payload.rootPosition(), payload.displayId(), payload.loadId())) return;
+        if (!validRoot(level, payload.dimension(), payload.rootPosition(), payload.displayId(), payload.loadId(), payload.rootEndpoint())) {
+            awaitRoot(new MonitorDisplayKey(payload.rootEndpoint(), payload.displayId(), payload.loadId()), 0L, true);
+            return;
+        }
         MonitorDisplayKey key = new MonitorDisplayKey(payload.dimension(), payload.rootPosition(),
-                payload.displayId(), payload.loadId());
+                payload.displayId(), payload.loadId(), payload.rootEndpoint());
         Minecraft.getInstance().setScreen(new RadarMonitorScreen(key));
     }
 
@@ -164,7 +176,7 @@ public final class MonitorClientState {
     public static View get(MonitorDisplayKey key, float partialTick) {
         Minecraft minecraft = Minecraft.getInstance();
         ClientLevel level = currentLevel();
-        if (!validRoot(level, key.dimension(), key.rootPosition(), key.displayId(), key.loadId())) {
+        if (!validRoot(level, key.dimension(), key.rootPosition(), key.displayId(), key.loadId(), key.endpoint())) {
             forget(key);
             if (minecraft.screen instanceof RadarMonitorScreen screen && screen.isFor(key)) minecraft.setScreen(null);
             return null;
@@ -187,7 +199,26 @@ public final class MonitorClientState {
     }
 
     /** Убирает состояние экранов, чей корень выгружен или заменён, и брошенные серии частей. */
+    private static void awaitRoot(MonitorDisplayKey key, long version, boolean open) {
+        if (currentLevel == null || !currentLevel.dimension().location().equals(key.dimension())) return;
+        var old = AWAITING_ROOT.get(key);
+        if (old == null && AWAITING_ROOT.size() >= MAX_PENDING_SERIES) return;
+        AWAITING_ROOT.put(key, new AwaitingRoot(version, open || old != null && old.open(),
+                old == null ? clientTickTime : old.receivedTick()));
+    }
+
     public static void pruneLoadedRoots() {
+        ClientLevel pendingLevel = currentLevel();
+        for (var entry : List.copyOf(AWAITING_ROOT.entrySet())) {
+            var key = entry.getKey(); var awaiting = entry.getValue();
+            if (clientTickTime - awaiting.receivedTick() > PENDING_TIMEOUT_TICKS) { AWAITING_ROOT.remove(key); continue; }
+            if (matchesRoot(pendingLevel, key)) {
+                AWAITING_ROOT.remove(key);
+                requestGeometry(key, awaiting.geometryVersion());
+                if (awaiting.open()) Minecraft.getInstance().setScreen(new RadarMonitorScreen(key));
+            }
+        }
+
         ClientLevel level = currentLevel();
         if (level == null) return;
         List<MonitorDisplayKey> invalid = new ArrayList<>();
@@ -216,7 +247,7 @@ public final class MonitorClientState {
             double fadeStart = remembered ? receivedAt + target.freezeTick() - snapshot.observedServerTick() : 0.0D;
             displayTargets.add(new DisplayTarget(target.target(), target.observing(), target.hasPosition(),
                     target.x(), target.y(), target.z(), target.entityTypeId(), remembered, fadeStart,
-                    remembered ? target.fadeDurationTicks() : 0L));
+                    remembered ? target.fadeDurationTicks() : 0L, target.silhouette()));
         }
         MonitorSectorAnimationState.accept(key, snapshot, receivedAt);
         VIEWS.put(key, new View(key, snapshot, displayTargets, List.of()));
@@ -237,13 +268,14 @@ public final class MonitorClientState {
     }
 
     private static boolean matchesRoot(ClientLevel level, MonitorDisplayKey key) {
-        return matchesLoadedRoot(level, key.rootPosition(), key.displayId(), key.loadId());
+        return validRoot(level, key.dimension(), key.rootPosition(), key.displayId(), key.loadId(), key.endpoint());
     }
 
     private static boolean validRoot(ClientLevel level, ResourceLocation dimension,
-                                     BlockPos position, UUID displayId, UUID loadId) {
-        return level != null && level.dimension().location().equals(dimension)
-                && matchesLoadedRoot(level, position, displayId, loadId);
+                                     BlockPos position, UUID displayId, UUID loadId, EndpointKey endpoint) {
+        BlockPos resolved = level == null ? null : RadarSpatial.resolve(level, endpoint).orElse(null);
+        return resolved != null && level != null && level.dimension().location().equals(dimension)
+                && matchesLoadedRoot(level, resolved, displayId, loadId);
     }
 
     static void advanceClientClock() {
@@ -262,6 +294,7 @@ public final class MonitorClientState {
     private static ClientLevel currentLevel() {
         ClientLevel level = Minecraft.getInstance().level;
         if (level != currentLevel) {
+            AWAITING_ROOT.clear();
             VIEWS.clear();
             GEOMETRY.clear();
             PENDING.clear();

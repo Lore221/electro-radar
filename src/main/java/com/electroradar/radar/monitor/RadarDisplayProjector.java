@@ -31,11 +31,18 @@ public final class RadarDisplayProjector {
                                    double centerX, double centerZ, Direction facing,
                                    double x, double z, double centerOffsetX, double centerOffsetZ,
                                    double mapDiameter) {
+        return project(targetDimension, mapDimension, centerX, centerZ, MapFacing.of(facing),
+                x, z, centerOffsetX, centerOffsetZ, mapDiameter);
+    }
+
+    public static MapPoint project(ResourceLocation targetDimension, ResourceLocation mapDimension,
+            double centerX, double centerZ, MapFacing facing, double x, double z,
+            double centerOffsetX, double centerOffsetZ, double mapDiameter) {
         if (!targetDimension.equals(mapDimension)) return null;
         double safeDiameter = Math.max(1.0D, mapDiameter);
         double dx = x - (centerX + centerOffsetX);
         double dz = z - (centerZ + centerOffsetZ);
-        Direction right = RadarDisplayStructureResolver.right(facing);
+        MapFacing right = facing.right();
         double horizontal = dx * right.getStepX() + dz * right.getStepZ();
         double forward = dx * facing.getStepX() + dz * facing.getStepZ();
         return new MapPoint(horizontal / (safeDiameter * 0.5D),

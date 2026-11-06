@@ -32,6 +32,7 @@ final class RadarNetworkQueries {
         List<AccessibleRadar> radars = accessibleRadars(consumer, registration, network, endpointIndex);
         Set<TargetRef> targets = new HashSet<>();
         for (AccessibleRadar radar : radars) targets.addAll(radar.state().detections.keySet());
+        for (TargetRef target : network.ownStructures.keySet()) if (ownAccess(network, target, endpointIndex)) targets.add(target);
         List<TargetRef> ordered = targets.stream().filter(target -> target.dimension().equals(consumer.dimension()))
                 .sorted(RadarNetworkState.TARGET_ORDER).toList();
         logQuery("target_identity_query", registration.networkId, consumer, network.contentVersion, serverTick,
@@ -61,12 +62,13 @@ final class RadarNetworkQueries {
         List<T> results = new ArrayList<>(ordered.size());
         for (TargetRef ref : ordered) {
             TargetEntry entry = network.targets.get(ref);
-            if (entry == null || entry.sources.keySet().stream().noneMatch(accessible::contains)) continue;
-            Optional<LiveResult> live = latestAccessibleMeasurement(entry, accessible);
+            LiveResult own = ownAccess(network, ref, endpointIndex) ? network.ownStructures.get(ref) : null;
+            if (own == null && (entry == null || entry.sources.keySet().stream().noneMatch(accessible::contains))) continue;
+            Optional<LiveResult> live = own == null ? latestAccessibleMeasurement(entry, accessible) : Optional.of(own);
             LiveResult result = live.orElseGet(() -> LiveResult.unavailable(0L, -1L, 0L));
             boolean observing = result.observing();
             TargetView view = new TargetView(ref, observing, result,
-                    () -> accessibleSources(entry, accessible));
+                    () -> entry == null ? List.of() : accessibleSources(entry, accessible));
             try {
                 results.add(Objects.requireNonNull(projection.project(view),
                         "TargetProjection must not return null"));
@@ -99,6 +101,8 @@ final class RadarNetworkQueries {
         if (network == null || !target.dimension().equals(consumer.dimension())) {
             return new TargetSources(target, contentVersion, List.of(), Optional.empty());
         }
+        LiveResult own = ownAccess(network, target, endpointIndex) ? network.ownStructures.get(target) : null;
+        if (own != null) return new TargetSources(target, contentVersion, List.of(), Optional.of(own), true);
         TargetEntry entry = network.targets.get(target);
         if (entry == null) return new TargetSources(target, contentVersion, List.of(), Optional.empty());
         List<AccessibleRadar> radars = accessibleRadars(consumer, registration, network, endpointIndex);
@@ -149,6 +153,16 @@ final class RadarNetworkQueries {
                 .filter(result -> result.observing() || result.freezeTick() >= 0
                         && serverTick - result.freezeTick() < result.fadeDurationTicks())
                 .isPresent();
+    }
+
+    static boolean ownAccess(NetworkRuntime network, TargetRef target, Map<EndpointKey, Registration> endpointIndex) {
+        if (target.sourceKind() != TargetRef.SourceKind.MOVING_STRUCTURE) return false;
+        for (var entry : endpointIndex.entrySet()) {
+            if (entry.getKey() instanceof EndpointKey.Moving moving && moving.structureId().equals(target.id())
+                    && moving.dimension().equals(target.dimension()) && entry.getValue().networkId.equals(network.id)
+                    && (entry.getValue().role == EndpointRole.RADAR || entry.getValue().role == EndpointRole.MONITOR)) return true;
+        }
+        return false;
     }
 
     private static Set<EndpointKey> accessibleEndpoints(List<AccessibleRadar> radars) {

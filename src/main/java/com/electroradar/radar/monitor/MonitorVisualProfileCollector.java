@@ -24,8 +24,6 @@ final class MonitorVisualProfileCollector {
         try {
             RadarNetworkManager manager = RadarNetworkManager.forServer(serverLevel.getServer());
             List<RadarNetworkManager.RadarVisualWindow> windows = manager.registeredEndpoints(networkId).stream()
-                    .filter(EndpointKey.Static.class::isInstance)
-                    .map(EndpointKey.Static.class::cast)
                     .filter(endpoint -> endpoint.dimension().equals(serverLevel.dimension()))
                     .map(manager::visualWindowForRadar).flatMap(Optional::stream)
                     .sorted(Comparator.comparing(window -> window.profile().radarPosition())).toList();
@@ -34,7 +32,7 @@ final class MonitorVisualProfileCollector {
             for (RadarNetworkManager.RadarVisualWindow window : windows) {
                 profiles.add(window.profile());
                 phases.add(new MonitorVisualPhase(window.profile().radarPosition(), window.activeSectorIndices(),
-                        window.startTick(), window.endTick()));
+                        window.startTick(), window.endTick(), window.profile().source()));
             }
             failureLogged = false;
             return new VisualWindow(profiles, phases);

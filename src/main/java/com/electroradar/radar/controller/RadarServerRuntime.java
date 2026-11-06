@@ -1,5 +1,10 @@
 package com.electroradar.radar.controller;
 
+import com.electroradar.radar.spatial.HorizontalCourse;
+import com.electroradar.radar.spatial.Placement;
+import com.electroradar.radar.spatial.RadarSpatial;
+import net.minecraft.world.phys.Vec3;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -32,7 +37,9 @@ final class RadarServerRuntime implements RadarObservationSource {
     private boolean loadedNetworkId;
     private int sectorOrderVariant;
     private RegistrationToken token;
-    private EndpointKey.Static endpoint;
+    private EndpointKey endpoint;
+    private final HorizontalCourse course = new HorizontalCourse();
+    private RadarServerConfig.Snapshot preparedParameters;
     private RadarControllerBlockEntity owner;
     private RadarAreaGeometry.GeometrySnapshot cachedGeometry;
     private GeometryKey cachedKey;
@@ -128,6 +135,8 @@ final class RadarServerRuntime implements RadarObservationSource {
     /** BlockEntity ticker обслуживает lifecycle и регистрацию; сканирования здесь больше нет. */
     public void tick(RadarControllerBlockEntity owner, ServerLevel level) {
         this.owner = owner;
+        EndpointKey next = endpoint(level, owner.getBlockPos());
+        if (token != null && !java.util.Objects.equals(endpoint, next)) unregister("placement_changed", owner);
         ensureNetworkId(owner, level);
         ensureSectorOrder(owner, level);
         register(level, owner.getBlockPos());
@@ -159,9 +168,11 @@ final class RadarServerRuntime implements RadarObservationSource {
         RadarObservationPlan previous = lastPreparedPlan;
         if (previous != null && previous.geometryRevision() == geometryRevision
                 && previous.sectorOrderVariant() == sectorOrderVariant
-                && previous.configRevision() == parameters.revision()) return Optional.of(previous);
+                && previous.configRevision() == parameters.revision()
+                && previous.profile().equals(geometry.profile())) return Optional.of(previous);
         RadarObservationPlan plan;
-        if (previous != null && previous.geometryRevision() == geometryRevision
+        if (previous != null && previous.profile().equals(geometry.profile())
+                && previous.geometryRevision() == geometryRevision
                 && previous.sectorOrderVariant() == sectorOrderVariant) {
             // D может измениться при reload, хотя SAT/профиль/перестановка геометрически прежние.
             plan = new RadarObservationPlan(level.dimension().location(), previous.profile(), previous.sectors(),
@@ -178,6 +189,7 @@ final class RadarServerRuntime implements RadarObservationSource {
                     RadarTargetFilter.ELIGIBLE, schedule);
         }
         lastPreparedPlan = plan;
+        preparedParameters = parameters;
         RadarDiagnostics.log("radar_profile_published", networkId, endpoint, null, tick(level),
                 "geometryRevision=" + geometryRevision + " configRevision=" + parameters.revision()
                         + " mode=" + mode + " aperture=" + kind.serializedName()
@@ -216,14 +228,22 @@ final class RadarServerRuntime implements RadarObservationSource {
                 ? parameters.overview().maxModules() : parameters.maxPanels();
         int boundedCount = Math.min(Math.max(0, apertureCount), activeLimit);
         RadarServerConfig.ModeParameters modeParameters = mode.parameters(parameters);
+        var placement = RadarSpatial.placement(level, owner.getBlockPos()).orElseThrow();
+        var forward = kind == RadarApertureKind.OVERVIEW ? new Vec3(0, 0, -1)
+                : course.resolve(placement.transform().direction(new Vec3(
+                        scanFacing(owner).getStepX(), 0, scanFacing(owner).getStepZ())));
         GeometryKey key = new GeometryKey(parameters.range(), parameters.overview(), modeParameters,
                 kind, boundedCount, mode, scanFacing(owner), owner.getBlockPos().immutable(),
-                sectorOrderVariant);
+                sectorOrderVariant, placement.center(), forward);
         if (cachedGeometry != null && key.equals(cachedKey)) return cachedGeometry;
-        cachedGeometry = RadarAreaGeometry.create(level.dimension().location(), key.position(), key.scanFacing(),
+        boolean shapeChanged = cachedKey == null || !cachedKey.sameShape(key);
+        cachedGeometry = RadarAreaGeometry.create(level.dimension().location(), key.position(), key.center(), key.forward(),
                 mode, kind, apertureCount, parameters, sectorOrderVariant);
+        cachedGeometry = new RadarAreaGeometry.GeometrySnapshot(cachedGeometry.profile().withSource(placement.endpoint()),
+                cachedGeometry.sectors(), cachedGeometry.range(), cachedGeometry.minYOffset(), cachedGeometry.maxYOffset(),
+                cachedGeometry.horizontalAngle());
         cachedKey = key;
-        geometryRevision = Math.incrementExact(geometryRevision);
+        if (shapeChanged) geometryRevision = Math.incrementExact(geometryRevision);
         return cachedGeometry;
     }
 
@@ -231,6 +251,11 @@ final class RadarServerRuntime implements RadarObservationSource {
     private static Direction scanFacing(RadarControllerBlockEntity controller) {
         return controller.assembly().apertureKind() == RadarApertureKind.OVERVIEW
                 ? Direction.NORTH : controller.getBlockState().getValue(RadarControllerBlock.FACING);
+    }
+
+    @Override
+    public Optional<RadarObservationPlan> refreshPlacement(RadarObservationPlan previous) {
+        return preparedParameters == null ? Optional.empty() : createObservationPlan(preparedParameters);
     }
 
     public void invalidateProfile() {
@@ -247,6 +272,8 @@ final class RadarServerRuntime implements RadarObservationSource {
         }
         unregister("aperture_kind_changed", owner);
         this.owner = owner;
+        EndpointKey next = endpoint(level, owner.getBlockPos());
+        if (token != null && !java.util.Objects.equals(endpoint, next)) unregister("placement_changed", owner);
         ensureNetworkId(owner, level);
         ensureSectorOrder(owner, level);
         register(level, owner.getBlockPos());
@@ -303,7 +330,7 @@ final class RadarServerRuntime implements RadarObservationSource {
     }
 
     private void register(ServerLevel level, BlockPos pos) {
-        if (token != null || networkId == null) return;
+        if (token != null || networkId == null || endpoint(level, pos) == null) return;
         endpoint = endpoint(level, pos);
         try {
             token = RadarNetworkManager.forServer(level.getServer()).registerRadar(endpoint, networkId, POLICY, this);
@@ -319,8 +346,8 @@ final class RadarServerRuntime implements RadarObservationSource {
         }
     }
 
-    private static EndpointKey.Static endpoint(ServerLevel level, BlockPos pos) {
-        return new EndpointKey.Static(level.dimension(), pos);
+    private static EndpointKey endpoint(ServerLevel level, BlockPos pos) {
+        return RadarSpatial.placement(level, pos).map(Placement::endpoint).orElse(null);
     }
 
     private long tick(ServerLevel level) {
@@ -328,7 +355,7 @@ final class RadarServerRuntime implements RadarObservationSource {
         catch (RuntimeException ignored) { return -1L; }
     }
 
-    public EndpointKey.Static endpoint() { return endpoint; }
+    public EndpointKey endpoint() { return endpoint; }
     public long currentTick(ServerLevel level) { return tick(level); }
 
     private record GeometryKey(RadarServerConfig.RangeParameters rangeParameters,
@@ -336,5 +363,13 @@ final class RadarServerRuntime implements RadarObservationSource {
                                RadarServerConfig.ModeParameters modeParameters,
                                RadarApertureKind apertureKind, int countedAperture,
                                RadarMode mode, Direction scanFacing, BlockPos position,
-                               int sectorOrderVariant) { }
+                               int sectorOrderVariant, Vec3 center,
+                               Vec3 forward) {
+        boolean sameShape(GeometryKey other) {
+            return rangeParameters.equals(other.rangeParameters) && overviewParameters.equals(other.overviewParameters)
+                    && modeParameters.equals(other.modeParameters) && apertureKind == other.apertureKind
+                    && countedAperture == other.countedAperture && mode == other.mode
+                    && scanFacing == other.scanFacing && sectorOrderVariant == other.sectorOrderVariant;
+        }
+    }
 }

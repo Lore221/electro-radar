@@ -1,5 +1,7 @@
 package com.electroradar.client.monitor;
 
+import com.electroradar.radar.network.EndpointKey;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -30,14 +32,14 @@ final class MonitorSectorAnimationState {
             return;
         }
         Map<RadarVisualProfile.Key, ProfileCycle> cycles = CYCLES.computeIfAbsent(key, ignored -> new HashMap<>());
-        Map<net.minecraft.core.BlockPos, MonitorVisualPhase> phases = new HashMap<>();
-        for (MonitorVisualPhase phase : current.visualPhases()) phases.put(phase.radarPosition(), phase);
+        Map<EndpointKey, MonitorVisualPhase> phases = new HashMap<>();
+        for (MonitorVisualPhase phase : current.visualPhases()) phases.put(phase.radarEndpoint(), phase);
         Set<RadarVisualProfile.Key> activeKeys = new HashSet<>();
         for (RadarVisualProfile profile : current.visualProfiles()) activeKeys.add(profile.key());
         cycles.keySet().removeIf(profileKey -> !activeKeys.contains(profileKey));
 
         for (RadarVisualProfile profile : current.visualProfiles()) {
-            MonitorVisualPhase phase = phases.get(profile.radarPosition());
+            MonitorVisualPhase phase = phases.get(profile.source());
             ProfileCycle old = cycles.get(profile.key());
             // След старой геометрии нельзя переносить на новые индексы того же источника.
             if (old != null && !old.profile.equals(profile)) old = null;

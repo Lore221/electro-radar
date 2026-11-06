@@ -5,6 +5,10 @@ plugins {
 
 repositories {
     mavenCentral()
+    maven {
+        url = 'https://maven.ryanhcode.dev/releases'
+        content { includeGroup 'dev.ryanhcode.sable'; includeGroup 'dev.ryanhcode.sable-companion' }
+    }
     maven { url = 'https://maven.createmod.net' }
     maven { url = 'https://mvn.devos.one/snapshots' }
     maven {
@@ -24,6 +28,9 @@ base {
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 
 dependencies {
+    // Optional API only: Sable supplies Companion at runtime; neither is bundled here.
+    compileOnly("dev.ryanhcode.sable:sable-neoforge-1.21.1:2.0.6") { transitive = false }
+    compileOnly("dev.ryanhcode.sable-companion:sable-companion-common-1.21.1:1.6.0") { transitive = false }
     // Версии перенесены из Power-radar для Minecraft 1.21.1; slim-вариант Create
     // не дублирует NeoForge и зависимости, которые подключены ниже отдельно.
     implementation("com.simibubi.create:create-${project.minecraft_version}:6.0.10-280:slim") {

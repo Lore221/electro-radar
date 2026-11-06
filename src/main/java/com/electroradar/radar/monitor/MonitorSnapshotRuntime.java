@@ -1,5 +1,7 @@
 package com.electroradar.radar.monitor;
 
+import com.electroradar.radar.spatial.RadarSpatial;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -45,6 +47,7 @@ final class MonitorSnapshotRuntime {
     /** Следующая рассылка обязательна и несёт геометрию, даже если sequence не изменилась. */
     private boolean broadcastRequired = true;
 
+    private final java.util.Set<java.util.UUID> knownWatchers = new java.util.HashSet<>();
     private boolean rebuildRequired = true;
     private ConsumerConnection lastConnection;
     private long lastContentVersion = Long.MIN_VALUE;
@@ -52,6 +55,7 @@ final class MonitorSnapshotRuntime {
     private NetworkId lastNetworkId;
 
     void resetForLoad() {
+        knownWatchers.clear();
         latestSnapshot = null;
         snapshotSequence = 0L;
         geometryVersion = 0L;
@@ -83,6 +87,18 @@ final class MonitorSnapshotRuntime {
             lastStructureVersion = owner.structureVersion();
             lastNetworkId = owner.networkId();
         }
+        if (latestSnapshot != null) {
+            var watchers = RadarSpatial.backend().watchers(serverLevel, owner.getBlockPos());
+            java.util.Set<java.util.UUID> current = new java.util.HashSet<>();
+            for (ServerPlayer watcher : watchers) {
+                current.add(watcher.getUUID());
+                if (!knownWatchers.contains(watcher.getUUID())) {
+                    MonitorPayloads.sendToPlayer(watcher, latestSnapshot.withServerTiming(currentTick(serverLevel)), false);
+                }
+            }
+            knownWatchers.retainAll(current);
+            knownWatchers.addAll(current);
+        }
         send(owner, serverLevel, openGui, recipient);
     }
 
@@ -98,7 +114,8 @@ final class MonitorSnapshotRuntime {
         MonitorSnapshotData candidate = new MonitorSnapshotData(owner.displayId(), owner.getBlockPos(),
                 serverLevel.dimension().location(), owner.loadId(), snapshotSequence + 1, candidateGeometry,
                 currentTick(serverLevel), owner.networkId() != null, selection.unavailable(), selection.target(),
-                targets.targets(), visual.profiles(), visual.phases());
+                targets.targets(), visual.profiles(), visual.phases(),
+                RadarSpatial.placement(serverLevel, owner.getBlockPos()).orElseThrow().endpoint());
         if (candidate.sameContent(latestSnapshot)) return;
         if (geometryChanged) {
             geometryVersion = candidateGeometry;
@@ -153,6 +170,11 @@ final class MonitorSnapshotRuntime {
     private static MonitorTargetData projectTarget(TargetView view) {
         TargetRef target = view.target();
         LiveResult live = view.liveResult();
+        if (live.structure().isPresent() && live.position().isPresent()) {
+            Vec3 point = live.position().get();
+            return new MonitorTargetData(target, live.observing(), true, point.x, point.y, point.z, "",
+                    live.freezeTick(), live.fadeDurationTicks(), live.structure().get().silhouette());
+        }
         if (live.position().isEmpty() || live.entityType().isEmpty()) {
             return new MonitorTargetData(target, false, false, 0, 0, 0, "",
                     live.freezeTick(), live.fadeDurationTicks());

@@ -168,6 +168,33 @@ final class RadarAssemblyController {
         }
     }
 
+    /** Normalize before Simulated computes its restoration transform. */
+    public void normalizeForTransfer(RadarControllerBlockEntity owner, ServerLevel level) {
+        if (!hasActiveAssembly()) return;
+        ControlledContraptionEntity current = resolveEntity(owner, level);
+        if (current != null && owns(current)) {
+            current.setAngle(0);
+            tiltActive = false;
+        }
+        owner.getPersistentData().putBoolean("electroradar_resume_assembly", true);
+    }
+
+    /** Returns the restored panel positions; never adopts or disassembles another controller's entity. */
+    public java.util.List<BlockPos> detachForTransfer(RadarControllerBlockEntity owner, ServerLevel level) {
+        if (!hasActiveAssembly()) return java.util.List.of();
+        normalizeForTransfer(owner, level);
+        ControlledContraptionEntity current = resolveEntity(owner, level);
+        java.util.List<BlockPos> panels = new java.util.ArrayList<>();
+        if (current != null && owns(current) && current.getContraption() instanceof RadarPanelContraption aperture) {
+            for (BlockPos local : aperture.getBlocks().keySet()) panels.add(owner.getBlockPos().above().offset(local));
+            current.setAngle(0);
+            current.disassemble();
+            aperture.refreshRestoredAperture(level, owner.getBlockPos());
+        }
+        clearRuntime(); owner.runtime().invalidateProfile(); owner.setChanged();
+        return java.util.List.copyOf(panels);
+    }
+
     public void toggleAssembly(RadarControllerBlockEntity owner, ServerLevel level, net.minecraft.world.entity.player.Player player) {
         if (assembled || entityUuid != null) {
             ControlledContraptionEntity current = resolveEntity(owner, level);

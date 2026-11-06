@@ -11,6 +11,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import com.electroradar.radar.monitor.MapFacing;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.block.state.BlockState;
@@ -139,7 +140,7 @@ public final class RadarMonitorScreen extends Screen {
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (button == 1 && insideMap(mouseX, mouseY)) {
-            PacketDistributor.sendToServer(new MonitorSelectPayload(key.rootPosition(), key.displayId(), null));
+            PacketDistributor.sendToServer(new MonitorSelectPayload(key.rootPosition(), key.displayId(), null, key.endpoint(), key.loadId()));
             return true;
         }
         if (button == 0 && insideMap(mouseX, mouseY)) {
@@ -178,8 +179,8 @@ public final class RadarMonitorScreen extends Screen {
         double worldUnitsPerPixel = mapDiameterBlocks / (double) Math.max(1, contentSize);
         double deltaX = mouseX - lastDragX;
         double deltaY = mouseY - lastDragY;
-        Direction facing = facing();
-        Direction right = RadarDisplayStructureResolver.right(facing);
+        MapFacing facing = facing();
+        MapFacing right = RadarDisplayStructureResolver.right(facing);
         // При движении мыши метки и сетка должны следовать за курсором, поэтому центр карты
         // сдвигается в противоположную горизонтальную и соответствующую вертикальную сторону.
         centerOffsetX += -deltaX * worldUnitsPerPixel * right.getStepX()
@@ -206,7 +207,7 @@ public final class RadarMonitorScreen extends Screen {
                 if (view != null) {
                     findTargetAt(view, mouseX, mouseY).ifPresent(target ->
                             PacketDistributor.sendToServer(new MonitorSelectPayload(
-                                    key.rootPosition(), key.displayId(), target.target())));
+                                    key.rootPosition(), key.displayId(), target.target(), key.endpoint(), key.loadId())));
                 }
             }
             leftMouseDown = false;
@@ -236,15 +237,20 @@ public final class RadarMonitorScreen extends Screen {
                 ? Optional.empty() : findTargetAt(view, mouseX, mouseY);
         graphics.enableScissor(contentX, contentY, contentX + contentSize, contentY + contentSize);
         if (view != null && snapshot != null) {
-            Direction facing = facing();
+            MapFacing facing = facing();
             MapCenter center = mapCenter(facing);
             MonitorSectorGuiRenderer.draw(graphics, view, snapshot.dimension(),
                     center.x(), center.z(), facing, centerOffsetX, centerOffsetZ,
                     mapDiameterBlocks, contentX, contentY, contentSize);
+            MonitorSilhouetteRenderer.gui(graphics, view, center.x(), center.z(), facing,
+                    centerOffsetX, centerOffsetZ, mapDiameterBlocks, contentX, contentY, contentSize, partialTick);
             drawTargetLayer(graphics, view, snapshot, hovered, partialTick);
         }
         drawGrid(graphics);
         graphics.disableScissor();
+        if (hovered.isPresent() && hovered.get().silhouette().detailLimited()) {
+            graphics.renderTooltip(font, net.minecraft.network.chat.Component.translatable("electroradar.monitor.silhouette_limited"), mouseX, mouseY);
+        }
         drawGridScaleOverlay(graphics);
         drawStatus(graphics);
     }
@@ -270,7 +276,7 @@ public final class RadarMonitorScreen extends Screen {
     /** Выводит только те цели, для которых клиентский снимок содержит безопасную позицию. */
     private void drawTargets(VertexConsumer vertices, Matrix4f pose, MonitorClientState.View view,
                              MonitorSnapshotData snapshot, float partialTick) {
-        Direction facing = facing();
+        MapFacing facing = facing();
         int centerX = contentX + contentSize / 2;
         int centerY = contentY + contentSize / 2;
         double radius = contentSize / 2.0D;
@@ -296,7 +302,7 @@ public final class RadarMonitorScreen extends Screen {
                                   MonitorSnapshotData snapshot,
                                   Optional<MonitorClientState.DisplayTarget> hovered,
                                   float partialTick) {
-        Direction facing = facing();
+        MapFacing facing = facing();
         int centerX = contentX + contentSize / 2;
         int centerY = contentY + contentSize / 2;
         double radius = contentSize / 2.0D;
@@ -336,19 +342,10 @@ public final class RadarMonitorScreen extends Screen {
         VertexConsumer vertices = graphics.bufferSource().getBuffer(RenderType.gui());
         Matrix4f pose = graphics.pose().last().pose();
         try {
-            for (MonitorGridGeometry.GridLine line : MonitorGridGeometry.project(
+            for (var line : MonitorGridGeometry.project(
                     center.x(), center.z(), centerOffsetX, centerOffsetZ, facing(), mapDiameterBlocks)) {
-                double pixelOffset = line.normalizedCoordinate() * contentSize / 2.0D;
-                int left = line.vertical()
-                        ? (int) Math.round(contentX + contentSize / 2.0D + pixelOffset) : contentX;
-                int top = line.vertical()
-                        ? contentY : (int) Math.round(contentY + contentSize / 2.0D + pixelOffset);
-                int right = line.vertical() ? left + 1 : contentX + contentSize;
-                int bottom = line.vertical() ? contentY + contentSize : top + 1;
-                vertices.addVertex(pose, right, bottom, 0.0F).setColor(color);
-                vertices.addVertex(pose, right, top, 0.0F).setColor(color);
-                vertices.addVertex(pose, left, top, 0.0F).setColor(color);
-                vertices.addVertex(pose, left, bottom, 0.0F).setColor(color);
+                MonitorSectorGuiRenderer.drawLine(vertices, pose, line, contentX + contentSize * 0.5D,
+                        contentY + contentSize * 0.5D, contentSize * 0.5D, color, 1);
             }
         } finally {
             graphics.flush();
@@ -414,7 +411,7 @@ public final class RadarMonitorScreen extends Screen {
                                                                     double mouseX, double mouseY) {
         MonitorSnapshotData snapshot = view.snapshot();
         if (snapshot == null) return Optional.empty();
-        Direction facing = facing();
+        MapFacing facing = facing();
         double centerX = contentX + contentSize / 2.0D;
         double centerY = contentY + contentSize / 2.0D;
         double radius = contentSize / 2.0D;
@@ -434,7 +431,7 @@ public final class RadarMonitorScreen extends Screen {
     /** Проецирует цель от центра прямоугольной сборки; перетаскивание остаётся локальным GUI-сдвигом. */
     private RadarDisplayProjector.MapPoint project(MonitorSnapshotData snapshot,
                                                     MonitorClientState.DisplayTarget target,
-                                                    Direction facing) {
+                                                    MapFacing facing) {
         MapCenter center = mapCenter(facing);
         return RadarDisplayProjector.project(target.target().dimension().location(), snapshot.dimension(),
                 center.x(), center.z(), facing, target.x(), target.z(), centerOffsetX, centerOffsetZ,
@@ -445,22 +442,14 @@ public final class RadarMonitorScreen extends Screen {
      * Возвращает центр всей загруженной сборки в мировых X/Z; при отсутствии геометрии
      * использует позицию корня. Чётная ширина даёт корректный центр между блоками.
      */
-    private MapCenter mapCenter(Direction facing) {
-        double centerX = key.rootPosition().getX() + 0.5D;
-        double centerZ = key.rootPosition().getZ() + 0.5D;
+    private MapCenter mapCenter(MapFacing ignored) {
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.level != null && minecraft.level.hasChunkAt(key.rootPosition())
-                && minecraft.level.getBlockEntity(key.rootPosition()) instanceof RadarDisplayBlockEntity root
-                && root.isRoot() && key.displayId().equals(root.displayId())
-                && key.loadId().equals(root.loadId())
-                && root.rectangleWidth() > 0 && root.rectangleHeight() > 0) {
-            BlockPos origin = root.rectangleOrigin();
-            Direction right = RadarDisplayStructureResolver.right(facing);
-            double halfPanelOffset = (root.rectangleWidth() - 1) * 0.5D;
-            centerX = origin.getX() + 0.5D + right.getStepX() * halfPanelOffset;
-            centerZ = origin.getZ() + 0.5D + right.getStepZ() * halfPanelOffset;
+        BlockPos position = minecraft.level == null ? null : key.storagePosition(minecraft.level);
+        if (position != null && minecraft.level.getBlockEntity(position) instanceof RadarDisplayBlockEntity root) {
+            var frame = root.mapFrame(minecraft.getTimer().getGameTimeDeltaPartialTick(true));
+            return new MapCenter(frame.centerX(), frame.centerZ());
         }
-        return new MapCenter(centerX, centerZ);
+        return new MapCenter(0, 0);
     }
 
     /** Сторона 8×8 старой ячейки меняется обратно пропорционально видимому диапазону. */
@@ -473,13 +462,13 @@ public final class RadarMonitorScreen extends Screen {
         return Math.max(1, (int) Math.round(scaledPixels));
     }
 
-    private Direction facing() {
+    private MapFacing facing() {
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.level != null && minecraft.level.hasChunkAt(key.rootPosition())) {
-            BlockState state = minecraft.level.getBlockState(key.rootPosition());
-            if (state.hasProperty(RadarDisplayBlock.FACING)) return state.getValue(RadarDisplayBlock.FACING);
+        BlockPos position = minecraft.level == null ? null : key.storagePosition(minecraft.level);
+        if (position != null && minecraft.level.getBlockEntity(position) instanceof RadarDisplayBlockEntity root) {
+            return root.mapFrame(minecraft.getTimer().getGameTimeDeltaPartialTick(true)).facing();
         }
-        return Direction.NORTH;
+        return MapFacing.of(Direction.NORTH);
     }
 
     /** Рассчитывает квадрат корпуса, внутренний квадрат экранной текстуры и рабочее окно 3/128. */

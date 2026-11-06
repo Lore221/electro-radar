@@ -1,5 +1,11 @@
 package com.electroradar.radar.monitor;
 
+import com.electroradar.radar.spatial.HorizontalCourse;
+import com.electroradar.radar.spatial.InstrumentTransferScope;
+import com.electroradar.radar.spatial.Placement;
+import com.electroradar.radar.spatial.RadarSpatial;
+import com.electroradar.radar.spatial.SpatialTransform;
+
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
@@ -184,6 +190,23 @@ public final class RadarDisplayBlockEntity extends BlockEntity implements Networ
         return rootPosition == null || rootPosition.equals(worldPosition);
     }
 
+    private final HorizontalCourse mapCourse = new HorizontalCourse();
+    public record MapFrame(double centerX, double centerZ, MapFacing facing) { }
+    public MapFrame mapFrame(float partialTick) {
+        Direction facing = getBlockState().getValue(RadarDisplayBlock.FACING);
+        Direction right = RadarDisplayStructureResolver.right(facing);
+        Vec3 center = Vec3.atCenterOf(rectangleOrigin()).add(
+                right.getStepX() * ((rectangleWidth() - 1) * 0.5D), (rectangleHeight() - 1) * 0.5D,
+                right.getStepZ() * ((rectangleWidth() - 1) * 0.5D));
+        var placement = level == null ? java.util.Optional.<Placement>empty()
+                : RadarSpatial.backend().renderPlacement(level, worldPosition, partialTick);
+        var transform = placement.map(Placement::transform)
+                .orElse(SpatialTransform.IDENTITY);
+        Vec3 world = transform.toWorld(center);
+        Vec3 forward = mapCourse.resolve(transform.direction(new Vec3(facing.getStepX(), 0, facing.getStepZ())));
+        return new MapFrame(world.x, world.z, new MapFacing(forward.x, forward.z));
+    }
+
     public UUID displayId() {
         return displayId;
     }
@@ -300,7 +323,8 @@ public final class RadarDisplayBlockEntity extends BlockEntity implements Networ
 
     /** Возвращает корневой BlockEntity только если его чанк уже загружен. */
     RadarDisplayBlockEntity loadedRoot() {
-        if (level == null || !level.hasChunkAt(rootPosition())) {
+        if (level == null || !level.hasChunkAt(rootPosition())
+                || !RadarSpatial.sameSpace(level, worldPosition, rootPosition())) {
             return null;
         }
         BlockEntity candidate = level.getBlockEntity(rootPosition());
@@ -397,8 +421,7 @@ public final class RadarDisplayBlockEntity extends BlockEntity implements Networ
     public void handleGeometryRequest(ServerPlayer player, UUID requestedDisplayId, UUID requestedLoadId) {
         if (!(level instanceof ServerLevel serverLevel) || !isRoot() || displayId == null || loadId == null
                 || !displayId.equals(requestedDisplayId) || !loadId.equals(requestedLoadId)) return;
-        if (!serverLevel.getChunkSource().chunkMap
-                .getPlayers(new net.minecraft.world.level.ChunkPos(worldPosition), false).contains(player)) return;
+        if (!RadarSpatial.backend().watchers(serverLevel, worldPosition).contains(player)) return;
         long now = serverLevel.getGameTime();
         Long previous = geometryRequests.get(player.getUUID());
         if (previous != null && now >= previous && now - previous < GEOMETRY_REQUEST_COOLDOWN_TICKS) return;
@@ -439,7 +462,7 @@ public final class RadarDisplayBlockEntity extends BlockEntity implements Networ
         }
         try {
             connection = new ConsumerConnection(serverLevel.getServer(),
-                    new EndpointKey.Static(serverLevel.dimension(), worldPosition),
+                    RadarSpatial.placement(serverLevel, worldPosition).orElseThrow().endpoint(),
                     networkId, EndpointRole.MONITOR);
             registrationFailureLogged = false;
             connectionCheckFailureLogged = false;
@@ -481,7 +504,8 @@ public final class RadarDisplayBlockEntity extends BlockEntity implements Networ
                         || !worldPosition.equals(panel.rootPosition())) {
                     continue;
                 }
-                if (player.distanceToSqr(Vec3.atCenterOf(panelPosition)) <= 64.0D) return true;
+                var placement = RadarSpatial.placement(serverLevel, panelPosition);
+                if (placement.isPresent() && player.distanceToSqr(placement.get().center()) <= 64.0D) return true;
             }
         }
         return false;
@@ -629,6 +653,7 @@ public final class RadarDisplayBlockEntity extends BlockEntity implements Networ
     }
 
     private static void onPanelRemoved(Level level, BlockPos position, RadarDisplayBlockEntity removed) {
+        if (InstrumentTransferScope.moving(level, position)) return;
         if (!(level instanceof ServerLevel serverLevel) || removed == null || removed.displayId == null) {
             return;
         }
@@ -691,6 +716,21 @@ public final class RadarDisplayBlockEntity extends BlockEntity implements Networ
         }
     }
 
+    public java.util.List<RadarDisplayBlockEntity> transferMembers() {
+        if (!(level instanceof ServerLevel serverLevel) || displayId == null) return java.util.List.of(this);
+        return RadarDisplayAssembly.collectMembers(serverLevel, displayId, rootPosition(),
+                getBlockState().getValue(RadarDisplayBlock.FACING));
+    }
+    public void prepareForStructureTransfer() { closeConnection("structure_transfer"); }
+    public void finishStructureTransfer(BlockPos root, UUID identity) {
+        closeConnection("structure_transfer_complete");
+        rootPosition = root.immutable(); displayId = identity;
+        rectangleOrigin = null; rectangleWidth = 0; rectangleHeight = 0;
+        structureVersion++; loadId = UUID.randomUUID();
+        snapshots.resetForLoad(); geometryRequests.clear(); assemblyDirty = true;
+        setChanged(); syncClient();
+    }
+
     private void syncClient() {
         if (level == null || level.isClientSide) return;
         BlockState state = getBlockState();
@@ -699,9 +739,15 @@ public final class RadarDisplayBlockEntity extends BlockEntity implements Networ
 
     private void writePersistentData(CompoundTag tag) {
         if (displayId != null) tag.putUUID(DISPLAY_ID_TAG, displayId);
-        if (rootPosition != null) tag.putLong(ROOT_POS_TAG, rootPosition.asLong());
+        if (rootPosition != null) {
+            tag.putLong(ROOT_POS_TAG, rootPosition.asLong());
+            tag.putLong("electroradar_root_offset", rootPosition.subtract(worldPosition).asLong());
+        }
         if (networkId != null) tag.putUUID(NETWORK_ID_TAG, networkId.value());
-        if (rectangleOrigin != null) tag.putLong(RECT_ORIGIN_TAG, rectangleOrigin.asLong());
+        if (rectangleOrigin != null) {
+            tag.putLong(RECT_ORIGIN_TAG, rectangleOrigin.asLong());
+            tag.putLong("electroradar_rectangle_offset", rectangleOrigin.subtract(worldPosition).asLong());
+        }
         tag.putInt(RECT_WIDTH_TAG, rectangleWidth);
         tag.putInt(RECT_HEIGHT_TAG, rectangleHeight);
         tag.putLong(STRUCTURE_VERSION_TAG, structureVersion);
@@ -710,8 +756,14 @@ public final class RadarDisplayBlockEntity extends BlockEntity implements Networ
     /** NetworkId остаётся серверной привязкой; клиенту передаются только данные сборки и рендера. */
     private void writeClientData(CompoundTag tag) {
         if (displayId != null) tag.putUUID(DISPLAY_ID_TAG, displayId);
-        if (rootPosition != null) tag.putLong(ROOT_POS_TAG, rootPosition.asLong());
-        if (rectangleOrigin != null) tag.putLong(RECT_ORIGIN_TAG, rectangleOrigin.asLong());
+        if (rootPosition != null) {
+            tag.putLong(ROOT_POS_TAG, rootPosition.asLong());
+            tag.putLong("electroradar_root_offset", rootPosition.subtract(worldPosition).asLong());
+        }
+        if (rectangleOrigin != null) {
+            tag.putLong(RECT_ORIGIN_TAG, rectangleOrigin.asLong());
+            tag.putLong("electroradar_rectangle_offset", rectangleOrigin.subtract(worldPosition).asLong());
+        }
         tag.putInt(RECT_WIDTH_TAG, rectangleWidth);
         tag.putInt(RECT_HEIGHT_TAG, rectangleHeight);
         tag.putLong(STRUCTURE_VERSION_TAG, structureVersion);
@@ -719,9 +771,11 @@ public final class RadarDisplayBlockEntity extends BlockEntity implements Networ
 
     private void readPersistentData(CompoundTag tag) {
         displayId = tag.hasUUID(DISPLAY_ID_TAG) ? tag.getUUID(DISPLAY_ID_TAG) : null;
-        rootPosition = tag.contains(ROOT_POS_TAG) ? BlockPos.of(tag.getLong(ROOT_POS_TAG)) : null;
+        rootPosition = tag.contains("electroradar_root_offset") ? worldPosition.offset(BlockPos.of(tag.getLong("electroradar_root_offset")))
+                : tag.contains(ROOT_POS_TAG) ? BlockPos.of(tag.getLong(ROOT_POS_TAG)) : null;
         networkId = tag.hasUUID(NETWORK_ID_TAG) ? new NetworkId(tag.getUUID(NETWORK_ID_TAG)) : null;
-        rectangleOrigin = tag.contains(RECT_ORIGIN_TAG) ? BlockPos.of(tag.getLong(RECT_ORIGIN_TAG)) : null;
+        rectangleOrigin = tag.contains("electroradar_rectangle_offset") ? worldPosition.offset(BlockPos.of(tag.getLong("electroradar_rectangle_offset")))
+                : tag.contains(RECT_ORIGIN_TAG) ? BlockPos.of(tag.getLong(RECT_ORIGIN_TAG)) : null;
         rectangleWidth = Math.max(0, tag.getInt(RECT_WIDTH_TAG));
         rectangleHeight = Math.max(0, tag.getInt(RECT_HEIGHT_TAG));
         structureVersion = Math.max(0, tag.getLong(STRUCTURE_VERSION_TAG));

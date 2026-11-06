@@ -1,5 +1,7 @@
 package com.electroradar.radar.monitor;
 
+import com.electroradar.radar.network.EndpointKey;
+
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -39,9 +41,12 @@ public record MonitorSnapshotData(
         TargetRef selectedTarget,
         List<MonitorTargetData> targets,
         List<RadarVisualProfile> visualProfiles,
-        List<MonitorVisualPhase> visualPhases
+        List<MonitorVisualPhase> visualPhases,
+        EndpointKey rootEndpoint
 ) {
     public MonitorSnapshotData {
+        Objects.requireNonNull(rootEndpoint, "rootEndpoint");
+        if (!rootEndpoint.dimension().location().equals(dimension)) throw new IllegalArgumentException("Root dimension mismatch");
         Objects.requireNonNull(displayId, "displayId");
         rootPosition = Objects.requireNonNull(rootPosition, "rootPosition").immutable();
         Objects.requireNonNull(dimension, "dimension");
@@ -65,12 +70,12 @@ public record MonitorSnapshotData(
                 throw new IllegalArgumentException("Monitor snapshot targets must be unique and same-dimension");
             }
         }
-        Set<BlockPos> phasePositions = new HashSet<>();
+        Set<EndpointKey> phasePositions = new HashSet<>();
         for (MonitorVisualPhase phase : visualPhases) {
             RadarVisualProfile profile = visualProfiles.stream()
-                    .filter(candidate -> candidate.radarPosition().equals(phase.radarPosition()))
+                    .filter(candidate -> candidate.source().equals(phase.radarEndpoint()))
                     .findFirst().orElse(null);
-            if (!phasePositions.add(phase.radarPosition()) || profile == null
+            if (!phasePositions.add(phase.radarEndpoint()) || profile == null
                     || phase.activeSectorIndices().stream().anyMatch(index -> index >= profile.sectorCount())) {
                 throw new IllegalArgumentException("Monitor phase has no unique geometry profile");
             }
@@ -88,7 +93,7 @@ public record MonitorSnapshotData(
         if (serverTick < 0) throw new IllegalArgumentException("Server tick must be non-negative");
         return new MonitorSnapshotData(displayId, rootPosition, dimension, loadId, sequence, geometryVersion,
                 serverTick, linked, selectedTargetUnavailable, selectedTarget, targets, visualProfiles,
-                visualPhases);
+                visualPhases, rootEndpoint);
     }
 
     /** Видимое клиенту содержимое совпадает, без учёта номеров и тика отправки. */

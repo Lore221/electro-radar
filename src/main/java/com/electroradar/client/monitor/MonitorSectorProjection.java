@@ -3,7 +3,7 @@ package com.electroradar.client.monitor;
 import java.util.ArrayList;
 import java.util.List;
 
-import net.minecraft.core.Direction;
+import com.electroradar.radar.monitor.MapFacing;
 import net.minecraft.resources.ResourceLocation;
 
 import com.electroradar.radar.monitor.RadarDisplayProjector;
@@ -28,7 +28,7 @@ final class MonitorSectorProjection {
     }
 
     static ProjectedCoverage project(RadarVisualProfile profile, ResourceLocation mapDimension,
-                                     double mapCenterX, double mapCenterZ, Direction facing,
+                                     double mapCenterX, double mapCenterZ, MapFacing facing,
                                      double offsetX, double offsetZ, double mapDiameter) {
         if (!profile.dimension().equals(mapDimension)) return ProjectedCoverage.EMPTY;
         RadarVisualGeometry.Coverage source = RadarVisualGeometry.build(profile);
@@ -71,7 +71,7 @@ final class MonitorSectorProjection {
 
     private static java.util.Optional<ProjectedSegment> projectSegment(
             RadarVisualProfile profile, ResourceLocation mapDimension,
-            double mapCenterX, double mapCenterZ, Direction facing,
+            double mapCenterX, double mapCenterZ, MapFacing facing,
             double offsetX, double offsetZ, double mapDiameter,
             RadarVisualGeometry.Segment segment) {
         RadarDisplayProjector.MapPoint start = projectPoint(profile, mapDimension,
@@ -85,7 +85,7 @@ final class MonitorSectorProjection {
     private static RadarDisplayProjector.MapPoint projectPoint(RadarVisualProfile profile,
                                                                ResourceLocation mapDimension,
                                                                double mapCenterX, double mapCenterZ,
-                                                               Direction facing, double offsetX,
+                                                               MapFacing facing, double offsetX,
                                                                double offsetZ, double mapDiameter,
                                                                RadarVisualGeometry.Point point) {
         return RadarDisplayProjector.project(profile.dimension(), mapDimension,
@@ -94,7 +94,7 @@ final class MonitorSectorProjection {
     }
 
     /** Liang–Barsky сохраняет пересечение линии с краем карты вместо её полного скрытия. */
-    private static java.util.Optional<ProjectedSegment> clipSegment(MapPoint first, MapPoint second) {
+    static java.util.Optional<ProjectedSegment> clipSegment(MapPoint first, MapPoint second) {
         double dx = second.x - first.x;
         double dy = second.y - first.y;
         double[] interval = {0.0D, 1.0D};
@@ -123,7 +123,7 @@ final class MonitorSectorProjection {
     }
 
     /** Отсекает полигон последовательными полуплоскостями квадрата карты. */
-    private static List<MapPoint> clipPolygon(List<MapPoint> source) {
+    static List<MapPoint> clipPolygon(List<MapPoint> source) {
         if (source.size() < 3) return List.of();
         List<MapPoint> result = source;
         result = clipAgainst(result, Edge.LEFT);

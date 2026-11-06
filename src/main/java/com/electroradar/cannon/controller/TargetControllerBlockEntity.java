@@ -1,5 +1,7 @@
 package com.electroradar.cannon.controller;
 
+import com.electroradar.radar.spatial.RadarSpatial;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -152,7 +154,7 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         if (cannon == null) return idle(FireStatus.NO_CANNON, null);
         if (!cannon.controllable()) return idle(FireStatus.CANNON_BUSY, cannon.kind());
 
-        Optional<Entity> entity = trackedEntity(level, target);
+        Optional<AimTarget> entity = trackedTarget(level, target);
         if (entity.isEmpty()) return idle(target.sourceKind() == TargetRef.SourceKind.ENTITY
                 && target.dimension().equals(level.dimension()) ? FireStatus.TARGET_LOST
                 : FireStatus.TARGET_UNSUPPORTED, cannon.kind());
@@ -163,9 +165,9 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
                     ? FireStatus.NO_AMMUNITION : FireStatus.UNSUPPORTED_MUNITION, cannon.kind());
         }
 
-        AABB bounds = entity.get().getBoundingBox();
+        AABB bounds = entity.get().bounds();
         TargetTrack.Estimate estimate = track.sample(target, level.getGameTime(), vector(bounds.getCenter()),
-                vector(entity.get().getDeltaMovement()), entity.get().onGround());
+                vector(entity.get().velocity()), entity.get().onGround());
         Vector3 pivot = vector(cannon.pivot());
         AimConstraints constraints = new AimConstraints(Math.max(-90.0D, cannon.minPitch()),
                 Math.min(90.0D, cannon.maxPitch()), cannon.kind().family(trajectoryMode.get().family()));
@@ -221,9 +223,9 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         if (canAttempt || advisory) {
             Vector3 actualDirection = vector(barrel);
             var key = new TrajectoryCheckCache.Key(level, cannon.identity(), reading.profile().orElseThrow(),
-                    pivot, actualDirection, fire.tick(), fire.fraction());
+                    pivot, actualDirection, fire.tick(), fire.fraction(), target);
             Supplier<TrajectoryTrace.Result> trace = () -> TrajectoryTrace.check(key.profile(), pivot,
-                    actualDirection, fire.tick(), fire.fraction(), new WorldTrajectoryProbe(level));
+                    actualDirection, fire.tick(), fire.fraction(), new WorldTrajectoryProbe(level, target));
             var checked = advisory
                     ? trajectoryCheck.advisory(key, level.getGameTime(), trace)
                     : trajectoryCheck.check(key, level.getGameTime(), cannon.kind() != CannonKind.BIG_CANNON, trace);
@@ -238,7 +240,7 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
                     InterceptPlanner.forecast(pivot, estimate, cannon.kind().launchDelayTicks()), fire);
             diagnosticPlan = new CannonDiagnostics.Plan(level.dimension().location().toString(),
                     worldPosition.immutable(), cannon.mountPos().immutable(), target.id(),
-                    BuiltInRegistries.ENTITY_TYPE.getKey(entity.get().getType()).toString(),
+                    entity.get().description(),
                     pivot.add(vector(barrel).scale(cannon.spawnOffset())), estimate.position(), prediction);
             diagnostics.solution(level, diagnosticPlan, next, barrel);
         }
@@ -252,16 +254,29 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
      * Цель, которую сеть разрешает обстреливать: доступный радар наблюдает её или помнит в пределах
      * своего цикла. Положение для наведения читается у живой сущности в этом измерении.
      */
-    private Optional<Entity> trackedEntity(ServerLevel level, TargetRef target) {
-        if (target.sourceKind() != TargetRef.SourceKind.ENTITY || !target.dimension().equals(level.dimension())) {
-            return Optional.empty();
-        }
+    private record AimTarget(AABB bounds, Vec3 velocity, boolean onGround, String description) { }
+
+    private Optional<AimTarget> trackedTarget(ServerLevel level, TargetRef target) {
+        if (!target.dimension().equals(level.dimension())) return Optional.empty();
         TargetSources sources = connection.sourcesForTarget(target);
         boolean permitted = sources.confirmed() && sources.liveResult()
                 .map(LiveResult::availability).filter(TargetAvailability.AVAILABLE::equals).isPresent();
         if (!permitted) return Optional.empty();
+        if (target.sourceKind() == TargetRef.SourceKind.MOVING_STRUCTURE) {
+            return RadarSpatial.backend().structure(level, target.id()).map(body -> {
+                var measured = body.measurement();
+                Vec3 center = measured.aimCenter();
+                double radius = Math.max(0.01D, measured.aimRadius());
+                return new AimTarget(new AABB(center, center).inflate(radius), measured.velocity(), false, "sable:" + target.id());
+            });
+        }
         Entity entity = level.getEntity(target.id());
-        return entity != null && entity.isAlive() ? Optional.of(entity) : Optional.empty();
+        if (entity == null || !entity.isAlive()) return Optional.empty();
+        var placement = RadarSpatial.placement(level, entity.blockPosition());
+        if (placement.isEmpty()) return Optional.empty();
+        var frame = placement.get().transform();
+        return Optional.of(new AimTarget(frame.bounds(entity.getBoundingBox()), frame.direction(entity.getDeltaMovement()),
+                entity.onGround(), BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString()));
     }
 
     private CannonMunition munition(ServerLevel level, MountedCannon cannon) {

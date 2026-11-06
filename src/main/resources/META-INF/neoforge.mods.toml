@@ -57,3 +57,13 @@ config="electroradar.mixins.json"
 
 [[mixins]]
 config="electroradar.cbc-control.mixins.json"
+
+[[dependencies.${mod_id}]]
+modId="sable"
+type="optional"
+versionRange="[2.0.6,2.0.7)"
+ordering="AFTER"
+side="BOTH"
+
+[[mixins]]
+config="electroradar.sable.mixins.json"

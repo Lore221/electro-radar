@@ -1,5 +1,7 @@
 package com.electroradar.radar.monitor.network;
 
+import com.electroradar.radar.spatial.RadarSpatial;
+
 import java.util.List;
 
 import net.minecraft.server.level.ServerLevel;
@@ -25,7 +27,7 @@ import com.electroradar.radar.monitor.RadarMonitorDiagnostics;
  * в момент передачи ему чанка, поэтому восстановление по запросу клиента не нужно.</p>
  */
 public final class MonitorPayloads {
-    public static final String PROTOCOL_VERSION = "7";
+    public static final String PROTOCOL_VERSION = "8";
 
     private MonitorPayloads() {
     }
@@ -61,7 +63,7 @@ public final class MonitorPayloads {
     public static void sendToPlayer(ServerPlayer player, MonitorSnapshotData snapshot, boolean openGui) {
         if (openGui) {
             PacketDistributor.sendToPlayer(player, new MonitorOpenPayload(snapshot.displayId(),
-                    snapshot.rootPosition(), snapshot.dimension(), snapshot.loadId()));
+                    snapshot.rootPosition(), snapshot.dimension(), snapshot.loadId(), snapshot.rootEndpoint()));
         }
         for (MonitorSnapshotPayload part : MonitorSnapshotPayload.split(snapshot, true)) {
             PacketDistributor.sendToPlayer(player, part);
@@ -70,9 +72,11 @@ public final class MonitorPayloads {
 
     /** Рассылает снимок наблюдателям чанка корня; геометрию — только когда она изменилась. */
     public static void sendToTracking(ServerLevel level, MonitorSnapshotData snapshot, boolean includeGeometry) {
-        ChunkPos chunk = new ChunkPos(snapshot.rootPosition());
+        var position = RadarSpatial.resolve(level, snapshot.rootEndpoint());
+        if (position.isEmpty()) return;
+        var recipients = RadarSpatial.backend().watchers(level, position.get());
         for (MonitorSnapshotPayload part : MonitorSnapshotPayload.split(snapshot, includeGeometry)) {
-            PacketDistributor.sendToPlayersTrackingChunk(level, chunk, part);
+            for (ServerPlayer player : recipients) PacketDistributor.sendToPlayer(player, part);
         }
     }
 
@@ -80,9 +84,9 @@ public final class MonitorPayloads {
     private static void handleGeometryRequest(MonitorGeometryRequestPayload payload, IPayloadContext context) {
         if (!(context.player() instanceof ServerPlayer player)) return;
         ServerLevel level = player.serverLevel();
-        if (!level.dimension().location().equals(payload.dimension())
-                || !level.hasChunkAt(payload.rootPosition())) return;
-        if (level.getBlockEntity(payload.rootPosition()) instanceof RadarDisplayBlockEntity root) {
+        var position = RadarSpatial.resolve(level, payload.rootEndpoint());
+        if (!level.dimension().location().equals(payload.dimension()) || position.isEmpty()) return;
+        if (level.getBlockEntity(position.get()) instanceof RadarDisplayBlockEntity root) {
             root.handleGeometryRequest(player, payload.displayId(), payload.loadId());
         }
     }
@@ -90,16 +94,11 @@ public final class MonitorPayloads {
     private static void handleSelection(MonitorSelectPayload payload, IPayloadContext context) {
         if (!(context.player() instanceof ServerPlayer player)) return;
         ServerLevel level = player.serverLevel();
-        if (!level.hasChunkAt(payload.rootPosition())) {
-            RadarMonitorDiagnostics.selectionRejected(level, null, payload.rootPosition(),
-                    payload.displayId(), player, payload.target(), "root_chunk_not_loaded");
-            return;
-        }
-        if (level.getBlockEntity(payload.rootPosition()) instanceof RadarDisplayBlockEntity root) {
+        var position = RadarSpatial.resolve(level, payload.rootEndpoint());
+        if (position.isEmpty()) return;
+        if (level.getBlockEntity(position.get()) instanceof RadarDisplayBlockEntity root
+                && root.loadId().equals(payload.loadId())) {
             root.handleSelection(player, payload.displayId(), payload.target());
-        } else {
-            RadarMonitorDiagnostics.selectionRejected(level, null, payload.rootPosition(),
-                    payload.displayId(), player, payload.target(), "root_block_entity_missing");
         }
     }
 }
