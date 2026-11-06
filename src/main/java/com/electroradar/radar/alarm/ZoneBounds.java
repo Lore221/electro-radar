@@ -26,13 +26,12 @@ public record ZoneBounds(int minX, int minY, int minZ, int maxX, int maxY, int m
 
     /** axis: X=0/Y=1/Z=2; direction: нижняя грань=-1, верхняя=1; step: расширение=1. */
     public ZoneBounds resize(int axis, int direction, int step) {
-        if (axis < 0 || axis > 2 || (direction != -1 && direction != 1) || (step != -1 && step != 1)) {
+        if (axis < 0 || axis > 2 || (direction != -1 && direction != 1) || (step == 0 || step < -100 || step > 100)) {
             throw new IllegalArgumentException("Invalid resize");
         }
         int[] lo = {minX, minY, minZ}, hi = {maxX, maxY, maxZ};
-        if (direction < 0) lo[axis] -= step;
-        else hi[axis] += step;
-        if (lo[axis] > hi[axis]) return this;
+        if (direction < 0) lo[axis] = Math.min(hi[axis], lo[axis] - step);
+        else hi[axis] = Math.max(lo[axis], hi[axis] + step);
         return new ZoneBounds(lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]);
     }
 }

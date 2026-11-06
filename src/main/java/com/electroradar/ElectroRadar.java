@@ -9,6 +9,7 @@ import com.electroradar.cannon.controller.InterceptControllerContent;
 import com.electroradar.cannon.controller.TargetControllerContent;
 import com.electroradar.radar.alarm.ShellAlarmContent;
 import com.electroradar.radar.alarm.ZoneResizePayload;
+import com.electroradar.radar.alarm.ZoneSelectPayload;
 import com.electroradar.cannon.diagnostics.CannonDiagnostics;
 import com.electroradar.config.RadarClientConfig;
 import com.electroradar.config.RadarServerConfig;
@@ -46,6 +47,7 @@ public final class ElectroRadar {
         modEventBus.addListener(NetworkOutlinePayloads::register);
         modEventBus.addListener(RadarPanelTiltPayloads::register);
         modEventBus.addListener(ZoneResizePayload::register);
+        modEventBus.addListener(ZoneSelectPayload::register);
         NeoForge.EVENT_BUS.addListener(CannonDiagnostics::onJoin);
         NeoForge.EVENT_BUS.addListener(CannonDiagnostics::onLeave);
         NeoForge.EVENT_BUS.addListener(CannonDiagnostics::onServerStopped);

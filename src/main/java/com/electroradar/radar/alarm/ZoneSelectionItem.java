@@ -61,20 +61,44 @@ public final class ZoneSelectionItem extends Item {
             if (selected.isEmpty()) message(player, "incomplete");
             else message(player, alarm.applyZone(selected.get()) ? "applied" : "wrong_dimension");
         } else {
-            select(stack, player, pos);
+            select(stack, player, ZoneSelectionTargeting.block(player, context.getHand(), new net.minecraft.world.phys.BlockHitResult(context.getClickLocation(), context.getClickedFace(), pos, false)));
         }
         return InteractionResult.CONSUME;
     }
 
-    /** Выбор точки в воздухе позволяет задать верхний угол без установки временных блоков. */
+    /** The client sends Ctrl/range intent through ZoneSelectPayload for air selection. */
     @Override public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
         ItemStack stack = player.getItemInHand(hand);
         if (!player.mayBuild()) return InteractionResultHolder.fail(stack);
         if (!level.isClientSide) {
             if (player.isShiftKeyDown()) { reset(stack); message(player, "cleared"); }
-            else select(stack, player, BlockPos.containing(player.getEyePosition().add(player.getLookAngle().scale(16))));
+            else message(player, "no_target");
         }
         return InteractionResultHolder.sidedSuccess(stack, level.isClientSide);
+    }
+
+    public static void interact(Player player, InteractionHand hand, Optional<UUID> expectedSelection,
+            boolean air, int range, boolean clear) {
+        ItemStack stack = player.getItemInHand(hand);
+        if (!(stack.getItem() instanceof ZoneSelectionItem) || !player.mayBuild() || player.isSpectator()
+                || !(player.level() instanceof ServerLevel level) || range < 1 || range > 100
+                || !selectionId(stack).equals(expectedSelection)) return;
+        if (clear) { reset(stack); message(player, "cleared"); return; }
+        var hit = air ? null : ZoneSelectionTargeting.trace(player);
+        if (hit != null && player.distanceToSqr(net.minecraft.world.phys.Vec3.atCenterOf(hit.getBlockPos()))
+                <= Math.pow(player.blockInteractionRange() + 1, 2)
+                && level.getBlockEntity(hit.getBlockPos()) instanceof ShellAlarmBlockEntity alarm) {
+            if (!level.mayInteract(player, hit.getBlockPos())) return;
+            var selected = zone(stack);
+            if (selected.isEmpty()) message(player, "incomplete");
+            else message(player, alarm.applyZone(selected.get()) ? "applied" : "wrong_dimension");
+            return;
+        }
+        if (zone(stack).isPresent()) { message(player, "ready"); return; }
+        BlockPos target = ZoneSelectionTargeting.target(player, hand, air, range);
+        if (target == null) { message(player, "no_target"); return; }
+        if (!level.mayInteract(player, target)) return;
+        select(stack, player, target);
     }
 
     private static void select(ItemStack stack, Player player, BlockPos pos) {
@@ -102,7 +126,7 @@ public final class ZoneSelectionItem extends Item {
     public static void resize(Player player, InteractionHand hand, UUID expectedSelection, Direction face, int step) {
         ItemStack stack = player.getItemInHand(hand);
         if (!(stack.getItem() instanceof ZoneSelectionItem) || !player.mayBuild()
-                || !(player.level() instanceof ServerLevel level) || (step != -1 && step != 1)
+                || !(player.level() instanceof ServerLevel level) || (step == 0 || step < -100 || step > 100)
                 || !selectionId(stack).filter(expectedSelection::equals).isPresent()) return;
         zone(stack).ifPresent(old -> {
             if (!old.dimension().equals(level.dimension().location())) { message(player, "wrong_dimension"); return; }
