@@ -11,7 +11,7 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 
 import com.electroradar.ElectroRadar;
 
-/** Клиент просит сдвинуть одну грань на блок; координаты и ItemStack клиент не присылает. */
+/** Клиент просит сдвинуть одну грань на 1–100 блоков; координаты и ItemStack клиент не присылает. */
 public record ZoneResizePayload(InteractionHand hand, UUID selectionId, Direction face, int step) implements CustomPacketPayload {
     public static final Type<ZoneResizePayload> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(ElectroRadar.MOD_ID, "zone_resize"));
     public static final StreamCodec<RegistryFriendlyByteBuf, ZoneResizePayload> STREAM_CODEC = StreamCodec.of(

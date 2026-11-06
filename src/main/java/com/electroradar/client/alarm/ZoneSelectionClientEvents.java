@@ -1,78 +1,133 @@
 package com.electroradar.client.alarm;
 
+import java.util.UUID;
+import com.simibubi.create.AllKeys;
+import com.simibubi.create.foundation.utility.RaycastHelper;
+import net.createmod.catnip.math.VecHelper;
 import net.createmod.catnip.outliner.Outliner;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
-import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.InputEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
-
 import com.electroradar.ElectroRadar;
 import com.electroradar.radar.alarm.ProtectionZone;
 import com.electroradar.radar.alarm.ShellAlarmBlockEntity;
 import com.electroradar.radar.alarm.ZoneResizePayload;
+import com.electroradar.radar.alarm.ZoneSelectPayload;
 import com.electroradar.radar.alarm.ZoneSelectionItem;
+import com.electroradar.radar.alarm.ZoneSelectionTargeting;
 
-/** Catnip Outliner — только визуализация. Выбор и изменение предмета выполняет сервер. */
+/** Input intent goes to the server; Catnip owns outline ticking and frame interpolation. */
 @EventBusSubscriber(modid = ElectroRadar.MOD_ID, value = Dist.CLIENT)
 public final class ZoneSelectionClientEvents {
-    private static final Object SELECTION = new Object();
-    private static final Object APPLIED = new Object();
-    private static Direction selectedFace;
+    private static final ZoneSelectionOutlines OUTLINES = new ZoneSelectionOutlines(Outliner.getInstance());
+    private static Object lastLevel;
+    private static InteractionHand lastHand;
+    private static int lastSlot = -1;
+    private static UUID lastSelection;
+    private static int range = 10;
+    private static boolean useHeld;
 
     private ZoneSelectionClientEvents() { }
 
     @SubscribeEvent public static void tick(ClientTickEvent.Post event) {
         Minecraft mc = Minecraft.getInstance();
-        selectedFace = null;
-        Outliner.getInstance().remove(SELECTION);
-        Outliner.getInstance().remove(APPLIED);
-        if (mc.level == null || mc.player == null || mc.screen != null) return;
+        if (!mc.options.keyUse.isDown()) useHeld = false;
         InteractionHand hand = activeHand();
-        if (hand == null) return;
+        if (mc.level == null || mc.player == null || mc.screen != null || hand == null) {
+            OUTLINES.clear();
+            lastLevel = null;
+            lastHand = null;
+            lastSelection = null;
+            range = 10;
+            return;
+        }
         ItemStack stack = mc.player.getItemInHand(hand);
+        UUID id = ZoneSelectionItem.selectionId(stack).orElse(null);
+        int slot = hand == InteractionHand.MAIN_HAND ? mc.player.getInventory().selected : -1;
+        if (lastLevel != mc.level || lastHand != hand || lastSlot != slot
+                || lastSelection != null && !lastSelection.equals(id)) {
+            OUTLINES.clear();
+            range = 10;
+        }
+        lastLevel = mc.level;
+        lastHand = hand;
+        lastSlot = slot;
+        lastSelection = id;
+        AABB selection = null;
+        AABB applied = null;
+        Direction face = null;
+        int color = 0x58BDEB;
         var saved = ZoneSelectionItem.zone(stack);
-        if (saved.isPresent() && saved.get().dimension().equals(mc.level.dimension().location())) {
-            AABB bounds = saved.get().bounds();
-            selectedFace = pointedFace(bounds, mc.player.getEyePosition(), mc.player.getLookAngle());
-            Outliner.getInstance().chaseAABB(SELECTION, bounds).colored(0x58BDEB).lineWidth(1 / 16f)
-                    .highlightFace(selectedFace);
+        if (saved.isPresent()) {
+            if (saved.get().dimension().equals(mc.level.dimension().location())) {
+                selection = saved.get().bounds();
+                face = pointedFace(selection);
+            }
         } else {
-            ZoneSelectionItem.firstCorner(stack, mc.level.dimension().location()).ifPresent(first -> {
-                BlockPos target = mc.hitResult instanceof BlockHitResult hit
-                        && hit.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK ? hit.getBlockPos()
-                        : BlockPos.containing(mc.player.getEyePosition().add(mc.player.getLookAngle().scale(16)));
+            BlockPos target = ZoneSelectionTargeting.target(mc.player, hand, AllKeys.ACTIVATE_TOOL.isPressed(), range);
+            var first = ZoneSelectionItem.firstCorner(stack, mc.level.dimension().location());
+            if (first.isPresent()) {
                 try {
-                    ProtectionZone preview = new ProtectionZone(mc.level.dimension().location(), first, target);
-                    Outliner.getInstance().chaseAABB(SELECTION, preview.bounds()).colored(0xE7B74F).lineWidth(1 / 16f);
-                } catch (IllegalArgumentException outsideLimits) { /* Размер подтверждает сервер. */ }
-            });
+                    selection = new ProtectionZone(mc.level.dimension().location(), first.get(),
+                            target == null ? first.get() : target).bounds();
+                } catch (IllegalArgumentException outsideLimits) { /* Server validates the final zone. */ }
+            } else if (target != null) selection = new AABB(target);
+            color = 0xE7B74F;
         }
         if (mc.hitResult instanceof BlockHitResult hit && mc.level.hasChunkAt(hit.getBlockPos())
                 && mc.level.getBlockEntity(hit.getBlockPos()) instanceof ShellAlarmBlockEntity alarm
                 && alarm.zone() != null && alarm.zone().dimension().equals(mc.level.dimension().location())) {
-            Outliner.getInstance().chaseAABB(APPLIED, alarm.zone().bounds()).colored(0x70D680).lineWidth(1 / 24f);
+            applied = alarm.zone().bounds();
         }
+        OUTLINES.update(selection, face, color, applied);
+    }
+
+    @SubscribeEvent public static void use(InputEvent.InteractionKeyMappingTriggered event) {
+        Minecraft mc = Minecraft.getInstance();
+        InteractionHand hand = activeHand();
+        if (!event.isUseItem() || mc.player == null || mc.level == null || mc.screen != null
+                || hand == null || event.getHand() != hand) return;
+        event.setCanceled(true);
+        event.setSwingHand(false);
+        // Vanilla retries use while the key is held; fixing corners is a press action in Create.
+        if (useHeld) return;
+        useHeld = true;
+        PacketDistributor.sendToServer(new ZoneSelectPayload(hand,
+                ZoneSelectionItem.selectionId(mc.player.getItemInHand(hand)),
+                AllKeys.ACTIVATE_TOOL.isPressed(), range, mc.player.isShiftKeyDown()));
     }
 
     @SubscribeEvent public static void scroll(InputEvent.MouseScrollingEvent event) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || mc.screen != null || !Screen.hasControlDown()) return;
+        if (mc.player == null || mc.level == null || mc.screen != null || !AllKeys.ctrlDown()
+                || !Double.isFinite(event.getScrollDeltaY()) || event.getScrollDeltaY() == 0) return;
         InteractionHand hand = activeHand();
-        if (hand == null || selectedFace == null || event.getScrollDeltaY() == 0) return;
+        if (hand == null) return;
         event.setCanceled(true);
-        ZoneSelectionItem.selectionId(mc.player.getItemInHand(hand)).ifPresent(id ->
-                PacketDistributor.sendToServer(new ZoneResizePayload(hand, id, selectedFace, event.getScrollDeltaY() > 0 ? 1 : -1)));
+        ItemStack stack = mc.player.getItemInHand(hand);
+        var saved = ZoneSelectionItem.zone(stack);
+        if (saved.isEmpty()) {
+            range = ZoneSelectionControls.range(range, event.getScrollDeltaY());
+            return;
+        }
+        if (!saved.get().dimension().equals(mc.level.dimension().location())) return;
+        AABB bounds = saved.get().bounds();
+        Direction face = pointedFace(bounds);
+        if (face == null) return;
+        boolean inside = bounds.contains(mc.gameRenderer.getMainCamera().getPosition());
+        int step = ZoneSelectionControls.resizeStep(event.getScrollDeltaY(), inside);
+        ZoneSelectionItem.selectionId(stack).ifPresent(id ->
+                PacketDistributor.sendToServer(new ZoneResizePayload(hand, id, face, step)));
     }
 
     private static InteractionHand activeHand() {
@@ -82,15 +137,12 @@ public final class ZoneSelectionClientEvents {
         return player.getOffhandItem().getItem() instanceof ZoneSelectionItem ? InteractionHand.OFF_HAND : null;
     }
 
-    private static Direction pointedFace(AABB box, Vec3 start, Vec3 look) {
-        Vec3 end = start.add(look.scale(96));
-        var hit = box.contains(start) ? box.clip(end, start) : box.clip(start, end);
-        if (hit.isEmpty()) return null;
-        Vec3 p = hit.get();
-        double[] distances = {Math.abs(p.y - box.minY), Math.abs(p.y - box.maxY),
-                Math.abs(p.z - box.minZ), Math.abs(p.z - box.maxZ), Math.abs(p.x - box.minX), Math.abs(p.x - box.maxX)};
-        int nearest = 0;
-        for (int i = 1; i < distances.length; i++) if (distances[i] < distances[nearest]) nearest = i;
-        return Direction.from3DDataValue(nearest);
+    private static Direction pointedFace(AABB bounds) {
+        Minecraft mc = Minecraft.getInstance();
+        AABB hitbox = bounds.inflate(.45);
+        boolean inside = hitbox.contains(mc.gameRenderer.getMainCamera().getPosition());
+        var hit = RaycastHelper.rayTraceUntil(mc.player, 70,
+                pos -> inside ^ hitbox.contains(VecHelper.getCenterOf(pos)));
+        return hit.missed() ? null : inside ? hit.getFacing().getOpposite() : hit.getFacing();
     }
 }
