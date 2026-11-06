@@ -166,7 +166,7 @@ public final class RadarPanelContraption extends BearingContraption {
         panels.anchor = controllerPos.above();
         if (!level.hasChunkAt(controllerPos)) return;
         if (level.getBlockEntity(controllerPos) instanceof RadarControllerBlockEntity controller
-                && controller.assembly().owns(entity)) return;
+                && controller.assembly().owns(entity, controller)) return;
 
         // Даже при отказе разборки Create не должен продолжить тик и безвозвратно удалить entity.
         event.setCanceled(true);

@@ -1,5 +1,7 @@
 package com.electroradar.radar.controller;
 
+import com.electroradar.radar.spatial.RadarSpatial;
+
 import java.util.UUID;
 
 import com.simibubi.create.content.contraptions.AbstractContraptionEntity;
@@ -41,6 +43,13 @@ final class RadarAssemblyController {
     private int apertureCount;
     private RadarApertureKind apertureKind = RadarApertureKind.PANEL;
     private transient ControlledContraptionEntity entity;
+    private transient RadarControllerBlockEntity ownerEntity;
+    private transient ControlledContraptionEntity externalCandidate;
+    private transient java.util.Map<BlockPos, net.minecraft.world.level.block.state.BlockState> externalBlocks = java.util.Map.of();
+    private transient boolean externalConfirmed;
+    private transient long externalTick = Long.MIN_VALUE;
+    private transient BlockPos externalOwnerPosition;
+    private transient java.util.UUID externalNonce;
     private transient Direction lastFacing;
     private transient int missingEntityTicks;
     private transient boolean missingEntityLogged;
@@ -88,6 +97,7 @@ final class RadarAssemblyController {
     }
 
     public void onLoad(RadarControllerBlockEntity owner) {
+        ownerEntity = owner;
         entity = null;
         missingEntityTicks = 0;
         missingEntityLogged = false;
@@ -109,11 +119,20 @@ final class RadarAssemblyController {
     public int apertureCount() { return apertureCount; }
     public RadarApertureKind apertureKind() { return apertureKind; }
 
+    public boolean owns(ControlledContraptionEntity candidate, RadarControllerBlockEntity owner) {
+        ownerEntity = owner;
+        return owns(candidate);
+    }
     public boolean owns(ControlledContraptionEntity candidate) {
-        return entityUuid != null && candidate.getUUID().equals(entityUuid);
+        return ownerEntity != null && entityUuid != null && candidate.getUUID().equals(entityUuid)
+                && candidate.getContraption() instanceof RadarPanelContraption
+                && candidate.level() == ownerEntity.getLevel()
+                && candidate.blockPosition().equals(ownerEntity.getBlockPos().above())
+                && RadarSpatial.sameSpace(candidate.level(), ownerEntity.getBlockPos(), candidate.blockPosition());
     }
 
     public void tick(RadarControllerBlockEntity owner, ServerLevel level) {
+        ownerEntity = owner;
         Direction facing = owner.getBlockState().getValue(RadarControllerBlock.FACING);
         if (lastFacing == null) {
             lastFacing = facing;
@@ -168,28 +187,79 @@ final class RadarAssemblyController {
         }
     }
 
+    public boolean canTransfer(RadarControllerBlockEntity owner, ServerLevel level) {
+        ownerEntity = owner;
+        if (!hasActiveAssembly()) return true;
+        var current = resolveEntity(owner, level);
+        return current != null ? restorable(owner, level, (RadarPanelContraption)current.getContraption()) : externalRestored(owner, level);
+    }
+
     /** Normalize before Simulated computes its restoration transform. */
-    public void normalizeForTransfer(RadarControllerBlockEntity owner, ServerLevel level) {
-        if (!hasActiveAssembly()) return;
+    public boolean normalizeForTransfer(RadarControllerBlockEntity owner, ServerLevel level) {
+        ownerEntity = owner;
+        if (!hasActiveAssembly()) return true;
         ControlledContraptionEntity current = resolveEntity(owner, level);
-        if (current != null && owns(current)) {
-            current.setAngle(0);
-            tiltActive = false;
-        }
+        if (current == null) return externalRestored(owner, level);
+        var aperture = (RadarPanelContraption) current.getContraption();
+        if (!restorable(owner, level, aperture)) return false;
+        java.util.Map<BlockPos, net.minecraft.world.level.block.state.BlockState> expected = new java.util.HashMap<>();
+        for (var block : aperture.getBlocks().entrySet()) expected.put(owner.getBlockPos().above().offset(block.getKey()),
+                block.getValue().state());
+        externalCandidate = current; externalBlocks = java.util.Map.copyOf(expected); externalConfirmed = false;
+        externalTick = level.getGameTime(); externalOwnerPosition = owner.getBlockPos().immutable(); externalNonce = java.util.UUID.randomUUID();
+        current.setAngle(0); tiltActive = false;
         owner.getPersistentData().putBoolean("electroradar_resume_assembly", true);
+        return true;
+    }
+
+    public boolean confirmExternalDisassembly(RadarControllerBlockEntity owner, ServerLevel level) {
+        externalConfirmed = externalCandidate != null && !externalCandidate.isAlive()
+                && !externalBlocks.isEmpty() && externalContext(owner, level) && restoredBlocks(level);
+        return externalConfirmed;
+    }
+    public void releaseExternalProof() {
+        externalCandidate = null; externalBlocks = java.util.Map.of(); externalConfirmed = false;
+        externalTick = Long.MIN_VALUE; externalOwnerPosition = null; externalNonce = null;
+    }
+    private boolean restorable(RadarControllerBlockEntity owner, ServerLevel level, RadarPanelContraption aperture) {
+        for (BlockPos local : aperture.getBlocks().keySet()) {
+            BlockPos position = owner.getBlockPos().above().offset(local);
+            if (!level.hasChunkAt(position)) return false;
+            var state = level.getBlockState(position);
+            if (!state.isAir() && !state.canBeReplaced()) return false;
+        }
+        return true;
+    }
+    private static net.minecraft.world.level.block.state.BlockState physicalState(net.minecraft.world.level.block.state.BlockState state) {
+        return state.hasProperty(RadarPanelBlock.PROFILE) ? state.setValue(RadarPanelBlock.PROFILE, RadarPanelBlock.PanelProfile.SURFACE) : state;
+    }
+    private boolean restoredBlocks(ServerLevel level) {
+        return externalBlocks.entrySet().stream().allMatch(e -> level.hasChunkAt(e.getKey())
+                && physicalState(level.getBlockState(e.getKey())).equals(physicalState(e.getValue())));
+    }
+    private boolean externalContext(RadarControllerBlockEntity owner, ServerLevel level) {
+        return externalNonce != null && ownerEntity == owner && externalOwnerPosition != null
+                && externalOwnerPosition.equals(owner.getBlockPos()) && level.getGameTime() == externalTick;
+    }
+    private boolean externalRestored(RadarControllerBlockEntity owner, ServerLevel level) {
+        return externalConfirmed && externalContext(owner, level) && externalCandidate != null && !externalCandidate.isAlive()
+                && entityUuid != null && entityUuid.equals(externalCandidate.getUUID()) && restoredBlocks(level);
     }
 
     /** Returns the restored panel positions; never adopts or disassembles another controller's entity. */
     public java.util.List<BlockPos> detachForTransfer(RadarControllerBlockEntity owner, ServerLevel level) {
         if (!hasActiveAssembly()) return java.util.List.of();
+        if (!canTransfer(owner, level)) throw new IllegalStateException("Radar aperture is not loaded or does not belong to controller " + owner.getBlockPos());
         normalizeForTransfer(owner, level);
         ControlledContraptionEntity current = resolveEntity(owner, level);
         java.util.List<BlockPos> panels = new java.util.ArrayList<>();
+        if (current == null) panels.addAll(externalBlocks.keySet());
         if (current != null && owns(current) && current.getContraption() instanceof RadarPanelContraption aperture) {
             for (BlockPos local : aperture.getBlocks().keySet()) panels.add(owner.getBlockPos().above().offset(local));
             current.setAngle(0);
             current.disassemble();
             aperture.refreshRestoredAperture(level, owner.getBlockPos());
+            if (!confirmExternalDisassembly(owner, level)) throw new IllegalStateException("Radar aperture restoration failed: " + owner.getBlockPos());
         }
         clearRuntime(); owner.runtime().invalidateProfile(); owner.setChanged();
         return java.util.List.copyOf(panels);
@@ -312,11 +382,12 @@ final class RadarAssemblyController {
     }
 
     private ControlledContraptionEntity resolveEntity(RadarControllerBlockEntity owner, ServerLevel level) {
-        if (entity != null && entity.isAlive()) return entity;
+        ownerEntity = owner;
+        if (entity != null && entity.isAlive() && owns(entity)) return entity;
         entity = null;
         if (entityUuid == null) return null;
         Entity found = level.getEntity(entityUuid);
-        if (found instanceof ControlledContraptionEntity controlled && controlled.isAlive()) {
+        if (found instanceof ControlledContraptionEntity controlled && controlled.isAlive() && owns(controlled)) {
             entity = controlled;
             missingEntityTicks = 0;
             missingEntityLogged = false;
@@ -351,6 +422,7 @@ final class RadarAssemblyController {
         entityUuid = null;
         apertureCount = 0;
         entity = null;
+        releaseExternalProof();
         tiltActive = false;
         tiltStart = 0.0F;
         tiltTarget = 0.0F;
@@ -395,10 +467,11 @@ final class RadarAssemblyController {
 
     /** Create вызывает этот метод только после восстановления entity из её сохранённого UUID. */
     public void attach(RadarControllerBlockEntity owner, ControlledContraptionEntity controlled) {
+        ownerEntity = owner;
         if (!(controlled.getContraption() instanceof RadarPanelContraption)) return;
         // Не усыновляем чужую или осиротевшую entity по совпавшему controllerPos. Связь
         // восстанавливается только по UUID, сохранённому вместе с контроллером.
-        if (entityUuid == null || !entityUuid.equals(controlled.getUUID())) return;
+        if (!owns(controlled)) return;
         entityUuid = controlled.getUUID();
         entity = controlled;
         assembled = true;
@@ -408,7 +481,6 @@ final class RadarAssemblyController {
     }
 
     public boolean isAttachedTo(AbstractContraptionEntity controlled) {
-        return controlled instanceof ControlledContraptionEntity entity
-                && entityUuid != null && entityUuid.equals(entity.getUUID());
+        return controlled instanceof ControlledContraptionEntity candidate && owns(candidate);
     }
 }

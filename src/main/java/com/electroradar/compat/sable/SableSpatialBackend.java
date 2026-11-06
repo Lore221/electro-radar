@@ -33,15 +33,20 @@ public final class SableSpatialBackend extends WorldSpatialBackend {
     @Override public void beginPhase(MinecraftServer server) {
         phaseOpen = true;
         phaseFrames.clear(); bodies.clear(); structureReader.beginPhase();
+        java.util.Set<UUID> liveIds = new java.util.HashSet<>();
         for (ServerLevel level : server.getAllLevels()) {
             SubLevelContainer container = SubLevelContainer.getContainer(level);
             if (container == null) continue;
             Map<UUID, SpatialTransform> frames = new HashMap<>();
             for (SubLevel sub : container.getAllSubLevels()) {
-                if (!sub.isRemoved()) frames.put(sub.getUniqueId(), frame(sub, sub.logicalPose()));
+                if (!sub.isRemoved()) {
+                    liveIds.add(sub.getUniqueId());
+                    frames.put(sub.getUniqueId(), frame(sub, sub.logicalPose()));
+                }
             }
             phaseFrames.put(level, frames);
         }
+        retryAfter.keySet().retainAll(liveIds); failed.retainAll(liveIds);
     }
 
     @Override public void completePhase() { phaseOpen = false; }

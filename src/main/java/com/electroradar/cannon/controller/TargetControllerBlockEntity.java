@@ -155,8 +155,7 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         if (!cannon.controllable()) return idle(FireStatus.CANNON_BUSY, cannon.kind());
 
         Optional<AimTarget> entity = trackedTarget(level, target);
-        if (entity.isEmpty()) return idle(target.sourceKind() == TargetRef.SourceKind.ENTITY
-                && target.dimension().equals(level.dimension()) ? FireStatus.TARGET_LOST
+        if (entity.isEmpty()) return idle(target.dimension().equals(level.dimension()) ? FireStatus.TARGET_LOST
                 : FireStatus.TARGET_UNSUPPORTED, cannon.kind());
 
         CannonMunition reading = munition(level, cannon);

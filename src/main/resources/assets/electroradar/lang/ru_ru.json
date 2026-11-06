@@ -126,5 +126,6 @@
   "electroradar.config.server.target_controller.acceleration_rpm_per_second": "Ускорение привода контроллера наведения, об/мин в секунду",
   "electroradar.config.server.target_controller.big_cannon_min_distance": "Минимальная дистанция огня больших пушек, блоки",
   "electroradar.config.server.target_controller.autocannon_min_distance": "Минимальная дистанция огня автопушек, блоки",
-  "electroradar.monitor.silhouette_limited": "Форма слишком сложна для отрисовки; точка выбора остаётся доступна."
+  "electroradar.monitor.silhouette_limited": "Форма слишком сложна для отрисовки; точка выбора остаётся доступна.",
+  "message.electroradar.assembly.transfer_unavailable": "Панели радара ещё загружаются или принадлежат другому контроллеру. Дождитесь загрузки перед переносом структуры."
 }

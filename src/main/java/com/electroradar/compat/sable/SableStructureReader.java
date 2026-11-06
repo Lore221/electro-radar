@@ -88,6 +88,10 @@ final class SableStructureReader {
                 // Nested moving cubes are sampled on the same one-block local XZ grid.
                 for (int z = (int)Math.floor(projected.minZ - plotOrigin.z); z < Math.ceil(projected.maxZ - plotOrigin.z); z++)
                     for (int x = (int)Math.floor(projected.minX - plotOrigin.x); x < Math.ceil(projected.maxX - plotOrigin.x); x++) {
+                        var cell = new com.electroradar.radar.scan.AabbRadarScanArea(new AABB(
+                            x + plotOrigin.x, projected.minY, z + plotOrigin.z,
+                            x + plotOrigin.x + 1, projected.maxY, z + plotOrigin.z + 1));
+                    if (com.electroradar.radar.scan.ConvexRadarIntersection.intersects(cell, child.transform().corners(box)))
                         grid.add(GridSilhouette.key(x, z));
                         if (grid.size() > MAX_BLOCKS) throw new IllegalStateException("Radar silhouette grid budget exceeded");
                     }

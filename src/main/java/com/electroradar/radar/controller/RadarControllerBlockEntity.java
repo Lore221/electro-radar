@@ -80,9 +80,16 @@ public final class RadarControllerBlockEntity extends BlockEntity
         controller.runtime.tick(controller, serverLevel);
     }
 
-    public void normalizeForStructureTransfer() {
-        if (level instanceof ServerLevel serverLevel) assembly.normalizeForTransfer(this, serverLevel);
+    public boolean canTransferStructure() {
+        return level instanceof ServerLevel serverLevel && assembly.canTransfer(this, serverLevel);
     }
+    public boolean normalizeForStructureTransfer() {
+        return level instanceof ServerLevel serverLevel && assembly.normalizeForTransfer(this, serverLevel);
+    }
+    public boolean confirmExternalStructureDisassembly() {
+        return !assembly.hasActiveAssembly() || level instanceof ServerLevel serverLevel && assembly.confirmExternalDisassembly(this, serverLevel);
+    }
+    public void releaseStructureTransferProof() { assembly.releaseExternalProof(); }
     public java.util.List<BlockPos> prepareForStructureTransfer() {
         if (!(level instanceof ServerLevel serverLevel)) return java.util.List.of();
         runtime.unregister("structure_transfer", this);

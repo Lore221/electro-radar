@@ -23,6 +23,10 @@ public final class SableTransferBridge {
                             Iterable<BlockPos> original, Move operation) {
         Set<BlockPos> positions = new LinkedHashSet<>();
         original.forEach(p -> positions.add(p.immutable()));
+        for (BlockPos position : positions) {
+            if (source.getBlockEntity(position) instanceof RadarControllerBlockEntity radar && !radar.canTransferStructure())
+                throw new SableTransferRejected("Radar aperture must finish loading before structure transfer: " + position);
+        }
         Map<Group, List<RadarDisplayBlockEntity>> oldGroups = new HashMap<>();
         // Restore owned apertures before any blocks move, including direct Sable API assembly.
         for (BlockPos position : List.copyOf(positions)) {

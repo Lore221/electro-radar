@@ -126,5 +126,6 @@
   "electroradar.config.server.target_controller.acceleration_rpm_per_second": "Target Controller drive acceleration in RPM per second",
   "electroradar.config.server.target_controller.big_cannon_min_distance": "Minimum firing distance for big cannons in blocks",
   "electroradar.config.server.target_controller.autocannon_min_distance": "Minimum firing distance for autocannons in blocks",
-  "electroradar.monitor.silhouette_limited": "Structure is too detailed to draw; selection point remains available."
+  "electroradar.monitor.silhouette_limited": "Structure is too detailed to draw; selection point remains available.",
+  "message.electroradar.assembly.transfer_unavailable": "Radar aperture is still loading or belongs to another controller. Wait before moving the structure."
 }

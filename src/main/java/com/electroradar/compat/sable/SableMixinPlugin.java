@@ -14,7 +14,7 @@ public final class SableMixinPlugin implements IMixinConfigPlugin {
     @Override public boolean shouldApplyMixin(String target, String mixin) {
         var mods = FMLLoader.getLoadingModList();
         return mods != null && mods.getModFileById("sable") != null
-                && (!mixin.endsWith("SimulatedAssemblyMixin") || mods.getModFileById("simulated") != null);
+                && (!mixin.substring(mixin.lastIndexOf('.') + 1).startsWith("Simulated") || mods.getModFileById("simulated") != null);
     }
     @Override public void acceptTargets(Set<String> mine, Set<String> others) { }
     @Override public List<String> getMixins() { return null; }

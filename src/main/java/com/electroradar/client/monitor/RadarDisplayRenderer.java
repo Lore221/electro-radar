@@ -168,7 +168,7 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
         double squareSide = Math.min(width, height);
         Direction right = RadarDisplayStructureResolver.right(facing);
 
-        double mapDiameter = MonitorMapScale.diameter(snapshot, centerX, centerZ);
+        double mapDiameter = MonitorMapScale.diameter(snapshot, centerX, centerZ, frame.facing());
 
         if (view != null && snapshot != null) {
             MonitorSectorWorldRenderer.draw(display, poseStack, buffers, facing, origin,

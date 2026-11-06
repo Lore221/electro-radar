@@ -345,7 +345,7 @@ public record MonitorSnapshotPayload(
         // Общие инварианты пустых частей и покрытия проверяет Coverage также при создании на сервере.
         return new RadarVisualProfile(dimension, position, centerX, centerY, centerZ,
                 new RadarVisualGeometry.Coverage(outline, separators, sectors), animation, orderVariant,
-                inactiveSectorFadeStyle);
+                inactiveSectorFadeStyle, source);
     }
 
     private static void writePoint(RegistryFriendlyByteBuf buffer, RadarVisualGeometry.Point point) {

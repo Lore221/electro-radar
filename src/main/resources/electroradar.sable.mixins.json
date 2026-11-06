@@ -4,6 +4,17 @@
   "package": "com.electroradar.compat.sable",
   "plugin": "com.electroradar.compat.sable.SableMixinPlugin",
   "compatibilityLevel": "JAVA_21",
-  "mixins": ["SableTransferMixin", "SimulatedAssemblyMixin", "SableShapeMixin"],
-  "injectors": { "defaultRequire": 1 }
+  "mixins": [
+    "SableTransferMixin",
+    "SimulatedAssemblyMixin",
+    "SableShapeMixin",
+    "SableHeatGuardMixin",
+    "SableCommandGuardMixin",
+    "SimulatedPhysicsGuardMixin",
+    "SimulatedSwivelGuardMixin",
+    "SimulatedGlueGuardMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
 }

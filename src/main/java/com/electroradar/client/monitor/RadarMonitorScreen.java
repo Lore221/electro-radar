@@ -230,7 +230,7 @@ public final class RadarMonitorScreen extends Screen {
         MonitorSnapshotData snapshot = view == null ? null : view.snapshot();
         if (!manualViewport) {
             MapCenter center = mapCenter(facing());
-            mapDiameterBlocks = MonitorMapScale.diameter(snapshot, center.x(), center.z());
+            mapDiameterBlocks = MonitorMapScale.diameter(snapshot, center.x(), center.z(), facing());
             maxMapDiameterBlocks = Math.max(MAX_MAP_DIAMETER_BLOCKS, mapDiameterBlocks);
         }
         Optional<MonitorClientState.DisplayTarget> hovered = view == null
