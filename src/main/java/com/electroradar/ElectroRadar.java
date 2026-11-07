@@ -54,6 +54,7 @@ public final class ElectroRadar {
         NeoForge.EVENT_BUS.addListener(RadarNetworkManager::onServerStarting);
         NeoForge.EVENT_BUS.addListener(RadarNetworkManager::onServerTick);
         NeoForge.EVENT_BUS.addListener(RadarNetworkManager::onServerStopped);
+        NeoForge.EVENT_BUS.addListener(com.electroradar.radar.network.InterceptionNetworks::onServerStopped);
         NeoForge.EVENT_BUS.addListener(NetworkOutlineServer::onServerStarting);
         NeoForge.EVENT_BUS.addListener(NetworkOutlineServer::onServerTick);
         NeoForge.EVENT_BUS.addListener(NetworkOutlineServer::onServerStopped);

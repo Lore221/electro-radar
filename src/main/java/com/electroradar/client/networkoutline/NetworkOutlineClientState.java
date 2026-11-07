@@ -17,6 +17,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.phys.AABB;
 
 import com.electroradar.radar.network.NetworkId;
+import com.electroradar.radar.network.NetworkKind;
 import com.electroradar.radar.network.NetworkOutlineBinding;
 import com.electroradar.radar.network.NetworkOutlinePayload;
 
@@ -36,6 +37,7 @@ public final class NetworkOutlineClientState {
     private static ClientLevel currentLevel;
     private static ClientPacketListener currentConnection;
     private static NetworkId activeNetwork;
+    private static NetworkKind activeKind = NetworkKind.RADAR;
     private static ResourceLocation activeDimension;
     /** Sequence живёт дольше привязки предмета, иначе старый ответ мог бы затереть новый. */
     private static long lastAcceptedSequence = -1L;
@@ -66,7 +68,7 @@ public final class NetworkOutlineClientState {
             clearBinding();
             return;
         }
-        adoptBinding(heldNetwork, level.dimension().location());
+        adoptBinding(heldNetwork, level.dimension().location(), NetworkOutlineBinding.activeKind(player));
         refreshOutlines(level, player);
     }
 
@@ -90,10 +92,10 @@ public final class NetworkOutlineClientState {
             return;
         }
         ResourceLocation dimension = level.dimension().location();
-        if (!dimension.equals(payload.dimension()) || !heldNetwork.equals(payload.networkId())) {
+        if (!dimension.equals(payload.dimension()) || (!heldNetwork.equals(payload.networkId()) || payload.kind() != NetworkOutlineBinding.activeKind(player))) {
             return;
         }
-        adoptBinding(heldNetwork, dimension);
+        adoptBinding(heldNetwork, dimension, NetworkOutlineBinding.activeKind(player));
         if (payload.sequence() <= lastAcceptedSequence) {
             return;
         }
@@ -126,13 +128,14 @@ public final class NetworkOutlineClientState {
     }
 
     /** Смена сети/измерения отменяет старые ключи раньше получения нового серверного ответа. */
-    private static void adoptBinding(NetworkId network, ResourceLocation dimension) {
-        if (network.equals(activeNetwork) && dimension.equals(activeDimension)) {
+    private static void adoptBinding(NetworkId network, ResourceLocation dimension, NetworkKind kind) {
+        if (kind == activeKind && network.equals(activeNetwork) && dimension.equals(activeDimension)) {
             return;
         }
         clearAllOutlines();
         MEMBERS.clear();
         activeNetwork = network;
+        activeKind = kind;
         activeDimension = dimension;
     }
 
@@ -221,9 +224,11 @@ public final class NetworkOutlineClientState {
         float amount = phase <= PULSE_PERIOD_TICKS / 2
                 ? phase / (PULSE_PERIOD_TICKS / 2.0F)
                 : (PULSE_PERIOD_TICKS - phase) / (PULSE_PERIOD_TICKS / 2.0F);
-        int red = interpolate((LOW_COLOR >> 16) & 0xff, (HIGH_COLOR >> 16) & 0xff, amount);
-        int green = interpolate((LOW_COLOR >> 8) & 0xff, (HIGH_COLOR >> 8) & 0xff, amount);
-        int blue = interpolate(LOW_COLOR & 0xff, HIGH_COLOR & 0xff, amount);
+        int low = activeKind == NetworkKind.INTERCEPTION ? 0xFF9D22 : LOW_COLOR;
+        int high = activeKind == NetworkKind.INTERCEPTION ? 0xFFD65A : HIGH_COLOR;
+        int red = interpolate((low >> 16) & 0xff, (high >> 16) & 0xff, amount);
+        int green = interpolate((low >> 8) & 0xff, (high >> 8) & 0xff, amount);
+        int blue = interpolate(low & 0xff, high & 0xff, amount);
         return (red << 16) | (green << 8) | blue;
     }
 

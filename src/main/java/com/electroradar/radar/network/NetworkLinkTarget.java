@@ -11,6 +11,8 @@ public interface NetworkLinkTarget {
         return this;
     }
 
+    default NetworkKind networkKindForLinking() { return NetworkKind.RADAR; }
+
     /** Источник создаёт собственную сеть при необходимости; непривязанный потребитель возвращает null. */
     NetworkId networkIdForLinking();
 

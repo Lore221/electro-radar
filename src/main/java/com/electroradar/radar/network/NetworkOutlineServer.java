@@ -124,6 +124,7 @@ public final class NetworkOutlineServer {
             }
 
             NetworkId heldNetwork = NetworkOutlineBinding.activeNetwork(player);
+            NetworkKind heldKind = NetworkOutlineBinding.activeKind(player);
             if (heldNetwork == null) {
                 // Клиент удаляет линии синхронно со сменой руки. Сервер освобождает крупный список,
                 // но оставляет sequence, чтобы следующий ответ в этом же соединении был новее.
@@ -136,6 +137,7 @@ public final class NetworkOutlineServer {
             ServerLevel level = player.serverLevel();
             ResourceLocation dimension = level.dimension().location();
             boolean bindingChanged = playerInstanceChanged
+                    || heldKind != state.kind
                     || !heldNetwork.equals(state.activeNetwork)
                     || !dimension.equals(state.dimension);
             if (!bindingChanged && Math.floorMod(tick + player.getUUID().hashCode(),
@@ -146,8 +148,9 @@ public final class NetworkOutlineServer {
             if (manager == null) {
                 manager = RadarNetworkManager.forServer(server);
             }
-            CandidateSnapshot response = collectCandidates(manager, player, level, heldNetwork);
+            CandidateSnapshot response = collectCandidates(manager, player, level, heldNetwork, heldKind);
             state.activeNetwork = heldNetwork;
+            state.kind = heldKind;
             state.dimension = dimension;
             sendIfChanged(player, state, response);
         }
@@ -155,13 +158,14 @@ public final class NetworkOutlineServer {
 
     /** Собирает только загруженные статические endpoint нужного измерения и сети. */
     private CandidateSnapshot collectCandidates(RadarNetworkManager manager, ServerPlayer player,
-                                                ServerLevel level, NetworkId networkId) {
+                                                ServerLevel level, NetworkId networkId, NetworkKind kind) {
         // Держим только ближайший лимит: даже сеть с большим числом регистраций не создаст
         // временный список размером со всю сеть при каждом плановом обновлении.
         PriorityQueue<Candidate> nearest = new PriorityQueue<>(
                 NetworkOutlinePayload.MAX_ENTRIES, CANDIDATE_ORDER.reversed());
         int candidateCount = 0;
-        for (EndpointKey endpoint : manager.registeredEndpoints(networkId)) {
+        for (EndpointKey endpoint : kind == NetworkKind.INTERCEPTION
+                ? InterceptionNetworks.forServer(server).members(networkId) : manager.registeredEndpoints(networkId)) {
             if (!(endpoint instanceof EndpointKey.Static fixed)
                     || !fixed.dimension().equals(level.dimension())) {
                 // Локальную позицию Moving нельзя трактовать как мировую. Ключ остаётся в индексе,
@@ -200,7 +204,7 @@ public final class NetworkOutlineServer {
         ArrayList<NetworkOutlinePayload.Entry> entries = new ArrayList<>(ordered.size());
         for (Candidate candidate : ordered) entries.add(candidate.entry);
         return new CandidateSnapshot(level.dimension().location(), networkId, entries, truncated,
-                candidateCount);
+                candidateCount, kind);
     }
 
     /** Не отправляет один и тот же полный список повторно на плановом refresh. */
@@ -210,7 +214,7 @@ public final class NetworkOutlineServer {
         }
         long sequence = Math.incrementExact(state.sequence);
         NetworkOutlinePayload payload = new NetworkOutlinePayload(
-                response.dimension, response.networkId, sequence, response.entries, response.truncated);
+                response.dimension, response.networkId, sequence, response.entries, response.truncated, response.kind);
         PacketDistributor.sendToPlayer(player, payload);
         state.sequence = sequence;
         state.lastResponse = response;
@@ -231,14 +235,14 @@ public final class NetworkOutlineServer {
     /** Ровно те поля, от которых зависит payload; не содержит BlockEntity или внутренних регистраций. */
     private record CandidateSnapshot(ResourceLocation dimension, NetworkId networkId,
                                      List<NetworkOutlinePayload.Entry> entries, boolean truncated,
-                                     int candidateCount) {
+                                     int candidateCount, NetworkKind kind) {
         private CandidateSnapshot {
             entries = List.copyOf(entries);
         }
 
         /** Количество кандидатов нужно для диагностики, но не входит в компактный wire-ответ. */
         private boolean samePayload(CandidateSnapshot other) {
-            return dimension.equals(other.dimension) && networkId.equals(other.networkId)
+            return kind == other.kind && dimension.equals(other.dimension) && networkId.equals(other.networkId)
                     && entries.equals(other.entries) && truncated == other.truncated;
         }
     }
@@ -246,6 +250,7 @@ public final class NetworkOutlineServer {
     private static final class PlayerState {
         private ServerPlayer player;
         private NetworkId activeNetwork;
+        private NetworkKind kind;
         private ResourceLocation dimension;
         private CandidateSnapshot lastResponse;
         private long sequence;

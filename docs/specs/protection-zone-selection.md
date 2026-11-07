@@ -4,7 +4,7 @@
 
 Match Create 6.0.10 targeting, outline animation and editing controls, retaining the existing
 Electro-Radar contract: two corners save an absolute dimension-bound zone into the item;
-RMB applies a copy to Shell Alarm. No schematic file naming/export or third confirmation.
+RMB inserts the selector into Shell Alarm (see interception-network.md). No schematic file naming/export or third confirmation.
 Both hands remain supported. The server owns item data and all zone validation.
 
 ## Interaction
@@ -21,7 +21,7 @@ Both hands remain supported. The server owns item data and all zone validation.
   to 100 blocks per action; contraction stops at one block.
 - Face hit testing uses Create's 70-block predicate trace against bounds inflated by 0.45.
   Wheel inside/outside uses the inclusive zone bounds (including single-block zones).
-- Shift+RMB clears item selection; an already applied Alarm zone is unchanged.
+- Shift+RMB clears item selection; the inserted selector must be extracted before editing.
 - Selection and applied outlines preserve their chasing history between ticks and render frames.
   Remove stale visuals on deactivation, dimension, hand, slot and selection changes.
 - Packets carry intent, not target coordinates. The server rejects invalid ranges, missing/wrong

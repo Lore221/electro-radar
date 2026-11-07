@@ -102,7 +102,7 @@ public final class ZoneSelectionItem extends Item {
     private static void apply(Player player, ItemStack stack, ShellAlarmBlockEntity alarm) {
         var selected = zone(stack);
         if (selected.isEmpty()) message(player, "incomplete");
-        else message(player, alarm.applyZone(selected.get()) ? "applied" : "wrong_dimension");
+        else message(player, alarm.insertSelector(stack) ? "applied" : "insert_failed");
     }
 
     private static void select(ItemStack stack, Player player, BlockPos pos) {
