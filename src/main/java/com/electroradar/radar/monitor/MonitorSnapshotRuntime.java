@@ -86,31 +86,32 @@ final class MonitorSnapshotRuntime {
                 || !Objects.equals(owner.networkId(), lastNetworkId)
                 || !Objects.equals(requestedSelection(connection), lastRequestedSelection);
         long now = serverLevel.getGameTime();
-        if (!refreshGate.due(now, urgent)) return;
-        refreshGate.refreshed(now);
-        long contentVersion = connection == null ? -1L : connection.contentVersion();
-        boolean dirty = urgent || contentVersion != lastContentVersion;
-        if (dirty) {
-            rebuild(owner, serverLevel, connection);
-            rebuildRequired = false;
-            lastConnection = connection;
-            lastContentVersion = contentVersion;
-            lastStructureVersion = owner.structureVersion();
-            lastNetworkId = owner.networkId();
-        }
-        if (latestSnapshot != null) {
-            var watchers = RadarSpatial.backend().watchers(serverLevel, owner.getBlockPos());
-            java.util.Set<java.util.UUID> current = new java.util.HashSet<>();
-            for (ServerPlayer watcher : watchers) {
-                current.add(watcher.getUUID());
-                if (!knownWatchers.contains(watcher.getUUID())) {
-                    MonitorPayloads.sendToPlayer(watcher, latestSnapshot.withServerTiming(currentTick(serverLevel)), false);
-                }
+        refreshGate.refreshAndPublish(now, urgent, () -> {
+            long contentVersion = connection == null ? -1L : connection.contentVersion();
+            boolean dirty = urgent || contentVersion != lastContentVersion;
+            if (dirty) {
+                rebuild(owner, serverLevel, connection);
+                rebuildRequired = false;
+                lastConnection = connection;
+                lastContentVersion = contentVersion;
+                lastStructureVersion = owner.structureVersion();
+                lastNetworkId = owner.networkId();
             }
-            knownWatchers.retainAll(current);
-            knownWatchers.addAll(current);
-        }
-        send(owner, serverLevel, openGui, recipient);
+        }, () -> {
+            if (latestSnapshot != null) {
+                var watchers = RadarSpatial.backend().watchers(serverLevel, owner.getBlockPos());
+                java.util.Set<java.util.UUID> current = new java.util.HashSet<>();
+                for (ServerPlayer watcher : watchers) {
+                    current.add(watcher.getUUID());
+                    if (!knownWatchers.contains(watcher.getUUID())) {
+                        MonitorPayloads.sendToPlayer(watcher, latestSnapshot.withServerTiming(currentTick(serverLevel)), false);
+                    }
+                }
+                knownWatchers.retainAll(current);
+                knownWatchers.addAll(current);
+            }
+            send(owner, serverLevel, openGui, recipient);
+        });
     }
 
     private void rebuild(RadarDisplayBlockEntity owner, ServerLevel serverLevel, ConsumerConnection connection) {
