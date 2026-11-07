@@ -10,6 +10,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.ItemContainerContents;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate.StructureBlockInfo;
@@ -27,11 +28,14 @@ import rbasamoyai.createbigcannons.cannons.autocannon.material.AutocannonMateria
 import rbasamoyai.createbigcannons.cannons.big_cannons.BigCannonBlock;
 import rbasamoyai.createbigcannons.cannons.big_cannons.IBigCannonBlockEntity;
 import rbasamoyai.createbigcannons.cannons.big_cannons.breeches.quickfiring_breech.QuickfiringBreechBlockEntity;
+import rbasamoyai.createbigcannons.index.CBCDataComponents;
 import rbasamoyai.createbigcannons.index.CBCEntityTypes;
 import rbasamoyai.createbigcannons.munitions.AbstractCannonProjectile;
 import rbasamoyai.createbigcannons.munitions.autocannon.AbstractAutocannonProjectile;
 import rbasamoyai.createbigcannons.munitions.autocannon.AutocannonAmmoItem;
+import rbasamoyai.createbigcannons.munitions.autocannon.AutocannonCartridgeItem;
 import rbasamoyai.createbigcannons.munitions.autocannon.ammo_container.AutocannonAmmoContainerItem;
+import rbasamoyai.createbigcannons.munitions.autocannon.flak.FlakAutocannonRoundItem;
 import rbasamoyai.createbigcannons.munitions.big_cannon.AbstractBigCannonProjectile;
 import rbasamoyai.createbigcannons.munitions.big_cannon.DropMortarProjectile;
 import rbasamoyai.createbigcannons.munitions.big_cannon.ProjectileBlock;
@@ -335,6 +339,22 @@ public final class MountedCannon {
         AbstractAutocannonProjectile projectile = ammo.getAutocannonProjectile(round, level);
         return projectile == null ? CannonMunition.of(CannonMunition.Status.UNSUPPORTED)
                 : profile(level, projectile, speed, OptionalInt.of(Math.max(1, properties.projectileLifetime())));
+    }
+
+    /**
+     * Взрыватель следующего зенитного патрона автопушки.
+     *
+     * @return пусто, если следующий патрон не зенитный; {@link ItemStack#EMPTY} — зенитный без взрывателя
+     */
+    public Optional<ItemStack> nextFlakFuze() {
+        AbstractAutocannonBreechBlockEntity breech = kind == CannonKind.AUTOCANNON ? autocannonBreech() : null;
+        if (breech == null) return Optional.empty();
+        ItemStack round = nextRound(breech);
+        // В ленте лежат гильзы; снаряд и его взрыватель — внутри.
+        ItemStack projectile = round.getItem() instanceof AutocannonCartridgeItem
+                ? AutocannonCartridgeItem.getProjectileStack(round) : round;
+        if (!(projectile.getItem() instanceof FlakAutocannonRoundItem)) return Optional.empty();
+        return Optional.of(projectile.getOrDefault(CBCDataComponents.FUZE, ItemContainerContents.EMPTY).copyOne());
     }
 
     /** Патрон, который казённик заберёт следующим: входной буфер, затем основная и трассирующая лента. */

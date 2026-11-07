@@ -19,7 +19,7 @@ public final class NetworkOutlineClientEvents {
     /** Обработчик выполняет изменение состояния только после перехода на основной клиентский поток. */
     @SubscribeEvent
     public static void registerPayloads(RegisterPayloadHandlersEvent event) {
-        PayloadRegistrar registrar = event.registrar("1");
+        PayloadRegistrar registrar = event.registrar("2");
         registrar.playToClient(NetworkOutlinePayload.TYPE, NetworkOutlinePayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> NetworkOutlineClientState.accept(payload)));
     }

@@ -18,7 +18,7 @@ import com.electroradar.ElectroRadar;
  * остаются на сервере, а геометрию клиент получает из уже загруженного мира.
  */
 public record NetworkOutlinePayload(ResourceLocation dimension, NetworkId networkId,
-                                    long sequence, List<Entry> entries, boolean truncated)
+                                    long sequence, List<Entry> entries, boolean truncated, NetworkKind kind)
         implements CustomPacketPayload {
     public static final int MAX_ENTRIES = 512;
     public static final Type<NetworkOutlinePayload> TYPE = new Type<>(
@@ -29,6 +29,7 @@ public record NetworkOutlinePayload(ResourceLocation dimension, NetworkId networ
     public NetworkOutlinePayload {
         Objects.requireNonNull(dimension, "dimension");
         Objects.requireNonNull(networkId, "networkId");
+        Objects.requireNonNull(kind, "kind");
         entries = List.copyOf(entries);
         if (sequence < 0 || entries.size() > MAX_ENTRIES) {
             throw new IllegalArgumentException("Invalid network outline payload bounds");
@@ -45,6 +46,7 @@ public record NetworkOutlinePayload(ResourceLocation dimension, NetworkId networ
         buffer.writeUUID(payload.networkId.value());
         buffer.writeVarLong(payload.sequence);
         buffer.writeBoolean(payload.truncated);
+        buffer.writeEnum(payload.kind);
         buffer.writeVarInt(payload.entries.size());
         for (Entry entry : payload.entries) {
             buffer.writeBlockPos(entry.position);
@@ -57,6 +59,7 @@ public record NetworkOutlinePayload(ResourceLocation dimension, NetworkId networ
         NetworkId networkId = new NetworkId(buffer.readUUID());
         long sequence = buffer.readVarLong();
         boolean truncated = buffer.readBoolean();
+        NetworkKind kind = buffer.readEnum(NetworkKind.class);
         int count = buffer.readVarInt();
         if (count < 0 || count > MAX_ENTRIES) {
             throw new IllegalArgumentException("Network outline payload exceeds its entry limit");
@@ -65,7 +68,7 @@ public record NetworkOutlinePayload(ResourceLocation dimension, NetworkId networ
         for (int index = 0; index < count; index++) {
             entries.add(new Entry(buffer.readBlockPos(), buffer.readResourceLocation()));
         }
-        return new NetworkOutlinePayload(dimension, networkId, sequence, entries, truncated);
+        return new NetworkOutlinePayload(dimension, networkId, sequence, entries, truncated, kind);
     }
 
     /** Один endpoint; BlockPos и registry ID проверяются повторно клиентом перед отрисовкой. */

@@ -29,15 +29,30 @@ public final class NetworkItemBinding {
                 : null;
     }
 
+    public static NetworkKind kind(ItemStack stack) {
+        String kind = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).copyTag()
+                .getString("electroradar:network_kind");
+        return "interception".equals(kind) ? NetworkKind.INTERCEPTION : NetworkKind.RADAR;
+    }
+
+    public static void write(ItemStack stack, NetworkId networkId, NetworkKind kind) {
+        CustomData.update(DataComponents.CUSTOM_DATA, stack, data -> {
+            data.putUUID(NETWORK_ID_TAG, networkId.value());
+            data.putString("electroradar:network_kind", kind == NetworkKind.INTERCEPTION ? "interception" : "radar");
+        });
+    }
+
     /** Записывает ID сети, не трогая пользовательские данные других модов. */
     public static void write(ItemStack stack, NetworkId networkId) {
-        CustomData.update(DataComponents.CUSTOM_DATA, stack,
-                customData -> customData.putUUID(NETWORK_ID_TAG, networkId.value()));
+        write(stack, networkId, NetworkKind.RADAR);
     }
 
     /** Очищает только выбор сети; имя, компоненты и чужие поля CUSTOM_DATA сохраняются. */
     public static void clear(ItemStack stack) {
         CustomData.update(DataComponents.CUSTOM_DATA, stack,
-                customData -> customData.remove(NETWORK_ID_TAG));
+                customData -> {
+                    customData.remove(NETWORK_ID_TAG);
+                    customData.remove("electroradar:network_kind");
+                });
     }
 }

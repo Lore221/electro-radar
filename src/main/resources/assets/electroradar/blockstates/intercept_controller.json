@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": {"model": "electroradar:block/intercept_controller/model"},
+    "facing=east": {"model": "electroradar:block/intercept_controller/model", "y": 90},
+    "facing=south": {"model": "electroradar:block/intercept_controller/model", "y": 180},
+    "facing=west": {"model": "electroradar:block/intercept_controller/model", "y": 270}
+  }
+}

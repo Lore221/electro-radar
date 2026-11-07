@@ -21,6 +21,11 @@ public final class NetworkOutlineBinding {
         return mainHand != null ? mainHand : readSupported(player.getOffhandItem());
     }
 
+    public static NetworkKind activeKind(Player player) {
+        return readSupported(player.getMainHandItem()) != null
+                ? NetworkItemBinding.kind(player.getMainHandItem()) : NetworkItemBinding.kind(player.getOffhandItem());
+    }
+
     /** Проверяет контракт типа до чтения скопированной привязки предмета. */
     private static NetworkId readSupported(ItemStack stack) {
         if (stack.isEmpty() || !(stack.getItem() instanceof NetworkOutlineActivatingItem)) {

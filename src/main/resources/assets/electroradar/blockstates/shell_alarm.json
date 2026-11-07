@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "electroradar:block/shell_alarm" },
+    "facing=south": { "model": "electroradar:block/shell_alarm", "y": 180 },
+    "facing=east": { "model": "electroradar:block/shell_alarm", "y": 90 },
+    "facing=west": { "model": "electroradar:block/shell_alarm", "y": 270 }
+  }
+}

@@ -3,5 +3,5 @@
   "minVersion": "0.8",
   "package": "com.electroradar.mixin",
   "compatibilityLevel": "JAVA_21",
-  "mixins": ["AutocannonDirectControlMixin"]
+  "mixins": ["AutocannonDirectControlMixin", "CannonProjectileAccess", "FlakProjectileAccess"]
 }

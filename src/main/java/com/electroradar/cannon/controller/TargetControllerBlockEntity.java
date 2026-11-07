@@ -37,10 +37,7 @@ import com.electroradar.cannon.mount.CannonKind;
 import com.electroradar.cannon.mount.CannonMunition;
 import com.electroradar.cannon.mount.MountedCannon;
 import com.electroradar.config.RadarServerConfig;
-import com.electroradar.radar.RadarDiagnostics;
-import com.electroradar.radar.network.ConsumerConnection;
-import com.electroradar.radar.network.EndpointKey;
-import com.electroradar.radar.network.EndpointRole;
+import com.electroradar.radar.network.ConsumerConnectionLifecycle;
 import com.electroradar.radar.network.LiveResult;
 import com.electroradar.radar.network.NetworkId;
 import com.electroradar.radar.network.NetworkLinkTarget;
@@ -80,8 +77,8 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
     private ScrollOptionBehaviour<TrajectoryMode> trajectoryMode;
     private CannonKind connectedKind;
     private NetworkId networkId;
-    private ConsumerConnection connection;
-    private boolean registrationFailureLogged;
+    private final ConsumerConnectionLifecycle connection =
+            new ConsumerConnectionLifecycle("target_controller_registration_failed");
 
     private final CannonMunitionCache munitionCache = new CannonMunitionCache();
     private final StatusSync statusSync = new StatusSync();
@@ -144,10 +141,10 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
 
     private Outcome evaluate(ServerLevel level, MountedCannon cannon) {
         diagnosticPlan = null;
-        ensureConnection(level);
-        Optional<TargetRef> selected = connection == null ? Optional.empty() : connection.selectedTarget();
+        connection.ensure(level, worldPosition, networkId);
+        Optional<TargetRef> selected = connection.current() == null ? Optional.empty() : connection.current().selectedTarget();
         diagnostics.selection(level, worldPosition, selected.orElse(null));
-        if (connection == null) return idle(FireStatus.NO_NETWORK, null);
+        if (connection.current() == null) return idle(FireStatus.NO_NETWORK, null);
         if (selected.isEmpty()) return idle(FireStatus.NO_TARGET, null);
         TargetRef target = selected.get();
 
@@ -257,7 +254,7 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
 
     private Optional<AimTarget> trackedTarget(ServerLevel level, TargetRef target) {
         if (!target.dimension().equals(level.dimension())) return Optional.empty();
-        TargetSources sources = connection.sourcesForTarget(target);
+        TargetSources sources = connection.current().sourcesForTarget(target);
         boolean permitted = sources.confirmed() && sources.liveResult()
                 .map(LiveResult::availability).filter(TargetAvailability.AVAILABLE::equals).isPresent();
         if (!permitted) return Optional.empty();
@@ -330,7 +327,7 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
     @Override
     public boolean reconfigureNetwork(NetworkId replacement) {
         if (Objects.equals(networkId, replacement)) return true;
-        closeConnection();
+        connection.close();
         networkId = replacement;
         track.reset();
         hintTarget = null;
@@ -339,38 +336,10 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         return true;
     }
 
-    private void ensureConnection(ServerLevel level) {
-        if (networkId == null) {
-            closeConnection();
-            return;
-        }
-        if (connection != null && connection.isOpen()) return;
-        closeConnection();
-        EndpointKey endpoint = new EndpointKey.Static(level.dimension(), worldPosition);
-        try {
-            connection = new ConsumerConnection(level.getServer(), endpoint, networkId, EndpointRole.CONSUMER);
-            registrationFailureLogged = false;
-        } catch (RuntimeException exception) {
-            connection = null;
-            // Следующий тик повторит регистрацию; одинаковый отказ записывается один раз.
-            if (!registrationFailureLogged) {
-                registrationFailureLogged = true;
-                RadarDiagnostics.logException("target_controller_registration_failed", networkId, endpoint,
-                        null, level.getGameTime(), null, exception);
-            }
-        }
-    }
-
-    private void closeConnection() {
-        ConsumerConnection previous = connection;
-        connection = null;
-        if (previous != null) previous.close();
-    }
-
     /** Create вызывает и при разрушении блока, и при выгрузке чанка; связь закрывается идемпотентно. */
     @Override
     public void invalidate() {
-        closeConnection();
+        connection.close();
         super.invalidate();
     }
 
@@ -391,7 +360,7 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         super.read(tag, registries, clientPacket);
         NetworkId saved = tag.hasUUID(NETWORK_ID_TAG) ? new NetworkId(tag.getUUID(NETWORK_ID_TAG)) : null;
         if (!Objects.equals(saved, networkId)) {
-            closeConnection();
+            connection.close();
             networkId = saved;
         }
         if (clientPacket) {

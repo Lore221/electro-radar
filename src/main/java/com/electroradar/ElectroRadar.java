@@ -5,7 +5,11 @@ import net.neoforged.fml.ModContainer;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.common.NeoForge;
 
+import com.electroradar.cannon.controller.InterceptControllerContent;
 import com.electroradar.cannon.controller.TargetControllerContent;
+import com.electroradar.radar.alarm.ShellAlarmContent;
+import com.electroradar.radar.alarm.ZoneResizePayload;
+import com.electroradar.radar.alarm.ZoneSelectPayload;
 import com.electroradar.cannon.diagnostics.CannonDiagnostics;
 import com.electroradar.config.RadarClientConfig;
 import com.electroradar.config.RadarServerConfig;
@@ -31,6 +35,8 @@ public final class ElectroRadar {
         RadarDisplayContent.register(modEventBus);
         LinkerContent.register(modEventBus);
         TargetControllerContent.register(modEventBus);
+        InterceptControllerContent.register(modEventBus);
+        ShellAlarmContent.register(modEventBus);
         modContainer.registerConfig(net.neoforged.fml.config.ModConfig.Type.CLIENT, RadarClientConfig.SPEC,
                 "electroradar-client.toml");
         modContainer.registerConfig(net.neoforged.fml.config.ModConfig.Type.SERVER, RadarServerConfig.SPEC,
@@ -40,12 +46,15 @@ public final class ElectroRadar {
         modEventBus.addListener(MonitorPayloads::register);
         modEventBus.addListener(NetworkOutlinePayloads::register);
         modEventBus.addListener(RadarPanelTiltPayloads::register);
+        modEventBus.addListener(ZoneResizePayload::register);
+        modEventBus.addListener(ZoneSelectPayload::register);
         NeoForge.EVENT_BUS.addListener(CannonDiagnostics::onJoin);
         NeoForge.EVENT_BUS.addListener(CannonDiagnostics::onLeave);
         NeoForge.EVENT_BUS.addListener(CannonDiagnostics::onServerStopped);
         NeoForge.EVENT_BUS.addListener(RadarNetworkManager::onServerStarting);
         NeoForge.EVENT_BUS.addListener(RadarNetworkManager::onServerTick);
         NeoForge.EVENT_BUS.addListener(RadarNetworkManager::onServerStopped);
+        NeoForge.EVENT_BUS.addListener(com.electroradar.radar.network.InterceptionNetworks::onServerStopped);
         NeoForge.EVENT_BUS.addListener(NetworkOutlineServer::onServerStarting);
         NeoForge.EVENT_BUS.addListener(NetworkOutlineServer::onServerTick);
         NeoForge.EVENT_BUS.addListener(NetworkOutlineServer::onServerStopped);
