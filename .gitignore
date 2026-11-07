@@ -2,7 +2,6 @@
 .gradle/
 build/
 bin/
-docs/
 !gradle/wrapper/gradle-wrapper.jar
 
 ### IDEs ###
