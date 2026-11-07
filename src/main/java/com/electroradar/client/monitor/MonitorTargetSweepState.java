@@ -69,9 +69,22 @@ final class MonitorTargetSweepState {
         List<MonitorClientState.DisplayTarget> result = new ArrayList<>(markers.size());
         for (MonitorTargetData raw : snapshot.targets()) {
             if (!raw.hasPosition()) continue;
+            if (raw.registeredStructure()) {
+                // Принадлежность сети даёт непрерывное наблюдение без радара и его лучей.
+                markers.remove(raw.target());
+                result.add(new MonitorClientState.DisplayTarget(raw.target(), true, true,
+                        raw.x(), raw.y(), raw.z(), raw.entityTypeId(), false, -1, 0, -1, -1, raw.silhouette()));
+                continue;
+            }
             double activeUntil = -1, fadeTicks = 0;
             for (var frame : frames) {
-                int index = RadarVisualGeometry.sectorIndex(frame.profile(), raw.x(), raw.z());
+                // Центр силуэта может быть вне обзора: подсектор определяется по реально
+                // обнаруженной части физической формы, только у подтвердившего её радара.
+                var anchor = raw.scanAnchor();
+                if (anchor.isPresent() && !anchor.get().radar().equals(frame.profile().source())) continue;
+                int index = anchor.isPresent()
+                        ? RadarVisualGeometry.sectorIndex(frame.profile(), anchor.get().point().x(), anchor.get().point().z())
+                        : RadarVisualGeometry.sectorIndex(frame.profile(), raw.x(), raw.z());
                 boolean active = index >= 0 && (frame.activeSectorIndices().contains(index)
                         || frame.profile().animation() == RadarVisualAnimation.FULL_FLASH && frame.flashStrength() > 0);
                 if (active && frame.windowEndClientTick() > activeUntil) {

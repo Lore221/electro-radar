@@ -68,7 +68,7 @@ final class RadarNetworkQueries {
             LiveResult result = live.orElseGet(() -> LiveResult.unavailable(0L, -1L, 0L));
             boolean observing = result.observing();
             TargetView view = new TargetView(ref, observing, result,
-                    () -> entry == null ? List.of() : accessibleSources(entry, accessible));
+                    () -> entry == null ? List.of() : accessibleSources(entry, accessible), own != null);
             try {
                 results.add(Objects.requireNonNull(projection.project(view),
                         "TargetProjection must not return null"));

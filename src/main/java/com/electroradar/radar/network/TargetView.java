@@ -18,6 +18,7 @@ public final class TargetView {
     private final TargetRef target;
     private final boolean observingNow;
     private final LiveResult liveResult;
+    private final boolean registeredStructure;
     private Supplier<List<RadarSource>> sourcesFactory;
     private List<RadarSource> sources;
     private boolean active = true;
@@ -26,11 +27,13 @@ public final class TargetView {
             TargetRef target,
             boolean observingNow,
             LiveResult liveResult,
-            Supplier<List<RadarSource>> sourcesFactory
+            Supplier<List<RadarSource>> sourcesFactory,
+            boolean registeredStructure
     ) {
         this.target = Objects.requireNonNull(target, "target");
         this.observingNow = observingNow;
         this.liveResult = Objects.requireNonNull(liveResult, "liveResult");
+        this.registeredStructure = registeredStructure;
         this.sourcesFactory = Objects.requireNonNull(sourcesFactory, "sourcesFactory");
     }
 
@@ -38,6 +41,12 @@ public final class TargetView {
     public TargetRef target() {
         ensureActive();
         return target;
+    }
+
+    /** Собственная структура сети доступна без радарного наблюдения. */
+    public boolean registeredStructure() {
+        ensureActive();
+        return registeredStructure;
     }
 
     /** Совместимое имя для текущего, уже опубликованного результата проверки доступных радаров. */

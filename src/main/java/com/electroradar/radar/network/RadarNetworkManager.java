@@ -697,10 +697,14 @@ public final class RadarNetworkManager {
                     ServerLevel level = server.getLevel(target.dimension());
                     var body = level == null ? Optional.<StructureBody>empty()
                             : RadarSpatial.backend().structure(level, target.id());
-                    if (body.isEmpty() || !body.get().intersects(sector.area())) {
+                    var scanPoint = body.flatMap(value -> value.scanPoint(sector.area()));
+                    if (scanPoint.isEmpty()) {
                         freezeConfirmation(confirmation, zone.window.fadeDurationTicks(), changed, network.id);
                     } else {
-                        LiveResult next = LiveResult.observedStructure(serverTick, body.get());
+                        var point = scanPoint.get();
+                        var anchor = new com.electroradar.radar.spatial.ScanAnchor(endpoint,
+                                new com.electroradar.radar.visual.RadarVisualGeometry.Point(point.x, point.z));
+                        LiveResult next = LiveResult.observedStructure(serverTick, body.orElseThrow(), anchor);
                         if (!next.sameVisibleState(confirmation.measurement)) changed.add(network.id);
                         confirmation.measurement = next;
                         confirmation.lastSuccessfulVisitTick = serverTick;

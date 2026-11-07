@@ -176,7 +176,8 @@ final class MonitorSnapshotRuntime {
         if (live.structure().isPresent() && live.position().isPresent()) {
             Vec3 point = live.position().get();
             return new MonitorTargetData(target, live.observing(), true, point.x, point.y, point.z, "",
-                    live.freezeTick(), live.fadeDurationTicks(), live.structure().get().silhouette());
+                    live.freezeTick(), live.fadeDurationTicks(), live.structure().get().silhouette(),
+                    view.registeredStructure(), live.structure().get().scanAnchor());
         }
         if (live.position().isEmpty() || live.entityType().isEmpty()) {
             return new MonitorTargetData(target, false, false, 0, 0, 0, "",

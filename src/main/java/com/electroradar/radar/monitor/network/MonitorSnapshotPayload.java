@@ -3,10 +3,12 @@ package com.electroradar.radar.monitor.network;
 import com.electroradar.radar.network.EndpointKey;
 import com.electroradar.radar.network.EndpointKeyCodec;
 import com.electroradar.radar.spatial.Silhouette;
+import com.electroradar.radar.spatial.ScanAnchor;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 import net.minecraft.core.BlockPos;
@@ -225,6 +227,12 @@ public record MonitorSnapshotPayload(
         writeTargetRef(buffer, target.target());
         buffer.writeBoolean(target.observing());
         buffer.writeBoolean(target.hasPosition());
+        buffer.writeBoolean(target.registeredStructure());
+        buffer.writeBoolean(target.scanAnchor().isPresent());
+        target.scanAnchor().ifPresent(anchor -> {
+            EndpointKeyCodec.write(buffer, anchor.radar());
+            writePoint(buffer, anchor.point());
+        });
         if (target.hasPosition()) {
             buffer.writeDouble(target.x());
             buffer.writeDouble(target.y());
@@ -241,6 +249,9 @@ public record MonitorSnapshotPayload(
         if (ref == null) throw new IllegalArgumentException("Monitor target record cannot be null");
         boolean observing = buffer.readBoolean();
         boolean hasPosition = buffer.readBoolean();
+        boolean registeredStructure = buffer.readBoolean();
+        Optional<ScanAnchor> scanAnchor = buffer.readBoolean()
+                ? Optional.of(new ScanAnchor(EndpointKeyCodec.read(buffer), readPoint(buffer))) : Optional.empty();
         double x = 0;
         double y = 0;
         double z = 0;
@@ -255,7 +266,8 @@ public record MonitorSnapshotPayload(
                 : Silhouette.EMPTY;
         long freezeTick = buffer.readVarLong() - 1L;
         long fadeTicks = buffer.readVarLong();
-        return new MonitorTargetData(ref, observing, hasPosition, x, y, z, typeId, freezeTick, fadeTicks, silhouette);
+        return new MonitorTargetData(ref, observing, hasPosition, x, y, z, typeId, freezeTick, fadeTicks, silhouette,
+                registeredStructure, scanAnchor);
     }
 
     private static void writeSilhouette(RegistryFriendlyByteBuf b, Silhouette shape) {

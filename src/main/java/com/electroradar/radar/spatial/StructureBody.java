@@ -1,6 +1,7 @@
 package com.electroradar.radar.spatial;
 
 import java.util.List;
+import java.util.Optional;
 import com.electroradar.radar.network.TargetRef;
 import com.electroradar.radar.scan.RadarScanArea;
 import com.electroradar.radar.scan.ConvexRadarIntersection;
@@ -19,5 +20,16 @@ public record StructureBody(TargetRef target, List<Part> parts, Vec3 marker, Str
                     && ConvexRadarIntersection.intersects(area, part.transform().corners(box))) return true;
         }
         return false;
+    }
+
+    public Optional<Vec3> scanPoint(RadarScanArea area) {
+        for (Part part : parts) for (AABB box : part.boxes()) {
+            if (!area.queryBounds().inflate(1.0E-7D).intersects(part.transform().bounds(box))) continue;
+            List<Vec3> corners = part.transform().corners(box);
+            if (!ConvexRadarIntersection.intersects(area, corners)) continue;
+            Optional<Vec3> point = ConvexRadarIntersection.intersectionPoint(area, corners);
+            if (point.isPresent()) return point;
+        }
+        return Optional.empty();
     }
 }

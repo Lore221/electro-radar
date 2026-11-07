@@ -2,6 +2,7 @@ package com.electroradar.radar.network;
 
 import com.electroradar.radar.spatial.StructureBody;
 import com.electroradar.radar.spatial.StructureMeasurement;
+import com.electroradar.radar.spatial.ScanAnchor;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -42,6 +43,11 @@ public record LiveResult(long sampledTick, TargetAvailability availability,
     public static LiveResult observedStructure(long tick, StructureBody body) {
         return new LiveResult(tick, TargetAvailability.AVAILABLE, Optional.of(body.marker()), Optional.empty(),
                 true, -1, 0, Optional.of(body.measurement()));
+    }
+
+    public static LiveResult observedStructure(long tick, StructureBody body, ScanAnchor anchor) {
+        return new LiveResult(tick, TargetAvailability.AVAILABLE, Optional.of(body.marker()), Optional.empty(),
+                true, -1, 0, Optional.of(body.measurement().withScanAnchor(anchor)));
     }
 
     /** Создаёт успешное измерение текущего тика; только его подтверждающий радар имеет право обновить sample. */

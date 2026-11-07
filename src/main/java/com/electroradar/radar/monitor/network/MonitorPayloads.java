@@ -27,7 +27,7 @@ import com.electroradar.radar.monitor.RadarMonitorDiagnostics;
  * в момент передачи ему чанка, поэтому восстановление по запросу клиента не нужно.</p>
  */
 public final class MonitorPayloads {
-    public static final String PROTOCOL_VERSION = "8";
+    public static final String PROTOCOL_VERSION = "9";
 
     private MonitorPayloads() {
     }
