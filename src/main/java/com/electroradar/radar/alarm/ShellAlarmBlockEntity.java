@@ -24,6 +24,8 @@ import com.electroradar.radar.network.InterceptionNetworks;
 import com.electroradar.radar.network.EndpointKey;
 import com.electroradar.radar.network.TargetSources;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 import rbasamoyai.createbigcannons.munitions.big_cannon.AbstractBigCannonProjectile;
 
 import com.electroradar.cannon.mount.BigCannonShell;
@@ -107,6 +109,19 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
     /** Те же снаряды с тиками до входа в зону; по ним контроллер перехвата выбирает самую срочную цель. */
     public Map<UUID, Integer> threats() { return tracker.ticksToDanger(); }
 
+    /** Мировая зона сравнивается с хитбоксом точно; повёрнутая — по центру, расширенному на половину размера. */
+    private static boolean inside(ZoneVolume volume, AbstractBigCannonProjectile projectile) {
+        AABB box = projectile.getBoundingBox();
+        if (volume.frame().identity()) {
+            ProtectionBox local = volume.local().inflate(1.0E-9D);
+            return local.min().x() <= box.maxX && local.max().x() >= box.minX && local.min().y() <= box.maxY
+                    && local.max().y() >= box.minY && local.min().z() <= box.maxZ && local.max().z() >= box.minZ;
+        }
+        Vec3 center = box.getCenter();
+        return volume.inflate(Math.max(box.getXsize(), box.getYsize()) / 2.0D)
+                .contains(new com.electroradar.cannon.ballistics.Vector3(center.x, center.y, center.z));
+    }
+
     static boolean validZone(ServerLevel level, ProtectionZone zone) {
         return zone != null && zone.dimension().equals(level.dimension().location())
                 && zone.min().getY() >= level.getMinBuildHeight() && zone.max().getY() < level.getMaxBuildHeight();
@@ -135,6 +150,8 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
         } else {
             List<ShellThreatTracker.Observation> observations = new ArrayList<>();
             Set<UUID> currentThreats = new HashSet<>();
+            // Зона, выбранная на структуре, повёрнута её позой и движется вместе с ней.
+            ZoneVolume volume = ProtectionZoneSpace.volume(world, zone);
             // Тот же контракт разрешённого чтения, что у Target Controller: только доступные
             // сети обнаружения с AVAILABLE sample, включая её обычную память.
             var targets = connection.current().queryTargets(view -> new Candidate(view.target(), view.liveResult()));
@@ -167,7 +184,7 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
                 }
                 // Уже внутри зоны — известная опасность даже без поддержки физики или
                 // свободного бюджета на будущую траекторию.
-                if (zone.bounds().inflate(1.0E-9D).intersects(projectile.getBoundingBox())) currentThreats.add(ref.id());
+                if (inside(volume, projectile)) currentThreats.add(ref.id());
                 var inspection = BigCannonShell.inspect(world, projectile);
                 diagnostics.target(ref, candidate.sample(), projectile, inspection.reason());
                 var observation = inspection.observation();
@@ -181,7 +198,7 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
             // Пограничные/изменяющие движение цели не должны постоянно занимать бюджет первыми.
             if (!observations.isEmpty()) Collections.rotate(observations, -(int) (world.getGameTime() % observations.size()));
             current = currentThreats.size();
-            tracker.refresh(observations, zone.geometry(), currentThreats,
+            tracker.refresh(observations, volume, currentThreats,
                     ShellAlarmDiagnostics.ENABLED ? diagnostics::prediction : null);
             status = !dangerousProjectiles().isEmpty() ? Status.DANGER
                     : tracker.incompleteCount() > 0 || unsupportedCount > 0 ? Status.INCOMPLETE : Status.CLEAR;

@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.function.Predicate;
 
 import com.electroradar.cannon.ballistics.AimConstraints;
 import com.electroradar.cannon.ballistics.FireSolution;
@@ -50,17 +51,26 @@ public final class EngagementPlanner {
      * @param launchDelay тики от решения до первого отрезка (1 при прямом fireShot)
      * @param fireInterval тики между выстрелами (темп 15 автопушки CBC — 4)
      * @param kill модель поражения снаряда
+     * @param aimable доступно ли установке мировое направление ствола: у установки на повёрнутой
+     *                структуре пределы угла места заданы в её осях, а не в мировых
      */
     public record Interceptor(FlightCoefficients flight, AimConstraints constraints, Vector3 pivot, double clearance,
-                              int launchDelay, int fireInterval, FragmentKillModel kill) {
+                              int launchDelay, int fireInterval, FragmentKillModel kill, Predicate<Vector3> aimable) {
         public Interceptor {
             Objects.requireNonNull(flight, "flight");
             Objects.requireNonNull(constraints, "constraints");
             Objects.requireNonNull(pivot, "pivot");
             Objects.requireNonNull(kill, "kill");
+            Objects.requireNonNull(aimable, "aimable");
             if (!(clearance >= 0.0D) || launchDelay < 0 || fireInterval < 1) {
                 throw new IllegalArgumentException("Invalid interceptor");
             }
+        }
+
+        /** Установка в мире: пределы {@code constraints} уже мировые. */
+        public Interceptor(FlightCoefficients flight, AimConstraints constraints, Vector3 pivot, double clearance,
+                           int launchDelay, int fireInterval, FragmentKillModel kill) {
+            this(flight, constraints, pivot, clearance, launchDelay, fireInterval, kill, direction -> true);
         }
     }
 
@@ -171,7 +181,7 @@ public final class EngagementPlanner {
                     target.shell().asTarget(interceptor.pivot(), shift), interceptor.constraints(),
                     base.until(deadline), hint);
             InterceptResult result = InterceptSearch.search(request, 0, Integer.MAX_VALUE,
-                    solution -> acceptable(solution, target.shell(), interceptor.pivot(), shift, policy));
+                    solution -> acceptable(solution, target.shell(), interceptor, shift, policy));
             if (result.solution().isEmpty()) {
                 if (open >= 0) break;
                 hint = OptionalInt.empty();
@@ -221,7 +231,7 @@ public final class EngagementPlanner {
                 target.shell().asTarget(interceptor.pivot(), delay), interceptor.constraints(),
                 baseHorizon(interceptor).until(deadline), hint);
         return InterceptSearch.search(request, 0, Integer.MAX_VALUE,
-                        solution -> acceptable(solution, target.shell(), interceptor.pivot(), delay, policy))
+                        solution -> acceptable(solution, target.shell(), interceptor, delay, policy))
                 .solution().map(solution -> shot(interceptor, policy, target, 0, solution));
     }
 
@@ -231,7 +241,10 @@ public final class EngagementPlanner {
     }
 
     /** Встреча не раньше взведения и не ближе безопасной дальности. */
-    private static boolean acceptable(FireSolution solution, HostileShell shell, Vector3 pivot, int shift, Policy policy) {
+    private static boolean acceptable(FireSolution solution, HostileShell shell, Interceptor interceptor, int shift,
+                                      Policy policy) {
+        if (!interceptor.aimable().test(solution.direction())) return false;
+        Vector3 pivot = interceptor.pivot();
         if (solution.tick() < policy.minInterceptTick()) return false;
         return shell.positionAfter(shift + solution.tick()).subtract(pivot).length() >= policy.minInterceptRange();
     }

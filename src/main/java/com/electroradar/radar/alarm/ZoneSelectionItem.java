@@ -92,7 +92,8 @@ public final class ZoneSelectionItem extends Item {
             return;
         }
         if (zone(stack).isPresent()) { message(player, "ready"); return; }
-        BlockPos target = air ? ZoneSelectionTargeting.target(player, hand, true, range)
+        BlockPos target = air ? ZoneSelectionTargeting.target(player, hand, true, range,
+                        firstCorner(stack, level.dimension().location()))
                 : hit == null ? null : ZoneSelectionTargeting.block(player, hand, hit);
         if (target == null) { message(player, "no_target"); return; }
         if (!level.mayInteract(player, target)) return;
@@ -108,10 +109,17 @@ public final class ZoneSelectionItem extends Item {
     private static void select(ItemStack stack, Player player, BlockPos pos) {
         if (!(player.level() instanceof ServerLevel level)) return;
         if (zone(stack).isPresent()) { message(player, "ready"); return; }
+        // Граница мира относится к мировым координатам, а не к собственным координатам структуры.
+        boolean onStructure = ProtectionZoneSpace.structureOf(level, pos).isPresent();
         if (pos.getY() < level.getMinBuildHeight() || pos.getY() >= level.getMaxBuildHeight()
-                || !level.getWorldBorder().isWithinBounds(pos)) { message(player, "invalid"); return; }
+                || !onStructure && !level.getWorldBorder().isWithinBounds(pos)) { message(player, "invalid"); return; }
         var dimension = level.dimension().location();
         Optional<BlockPos> first = firstCorner(stack, dimension);
+        if (first.isPresent() && !ProtectionZoneSpace.structureOf(level, first.get())
+                .equals(ProtectionZoneSpace.structureOf(level, pos))) {
+            message(player, "other_space");
+            return;
+        }
         if (first.isEmpty()) {
             CompoundTag tag = new CompoundTag();
             tag.putString("Dimension", dimension.toString());
@@ -136,9 +144,10 @@ public final class ZoneSelectionItem extends Item {
             if (!old.dimension().equals(level.dimension().location())) { message(player, "wrong_dimension"); return; }
             try {
                 ProtectionZone next = old.resize(face, step);
+                boolean onStructure = ProtectionZoneSpace.structureOf(level, ProtectionZoneSpace.center(old)).isPresent();
                 if (!ShellAlarmBlockEntity.validZone(level, next)
-                        || !level.getWorldBorder().isWithinBounds(next.min())
-                        || !level.getWorldBorder().isWithinBounds(next.max())) { message(player, "invalid"); return; }
+                        || !onStructure && (!level.getWorldBorder().isWithinBounds(next.min())
+                        || !level.getWorldBorder().isWithinBounds(next.max()))) { message(player, "invalid"); return; }
                 store(stack, next);
                 player.displayClientMessage(Component.translatable("message.electroradar.zone.size",
                         next.width(), next.height(), next.depth()), true);
