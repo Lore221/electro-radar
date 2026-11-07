@@ -1,5 +1,9 @@
 package com.electroradar.radar.visual;
 
+import com.electroradar.radar.network.EndpointKey;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceKey;
+
 import java.util.Objects;
 
 import net.minecraft.core.BlockPos;
@@ -20,13 +24,15 @@ public record RadarVisualProfile(ResourceLocation dimension, BlockPos radarPosit
                                  double centerX, double centerY, double centerZ,
                                  RadarVisualGeometry.Coverage coverage,
                                  RadarVisualAnimation animation, int sectorOrderVariant,
-                                 RadarVisualFadeStyle inactiveSectorFadeStyle) {
+                                 RadarVisualFadeStyle inactiveSectorFadeStyle, EndpointKey source) {
     public static final int DEFAULT_SECTOR_COUNT = 7;
     public static final int MIN_SECTOR_COUNT = 1;
     public static final int MAX_SECTOR_COUNT = 64;
     public static final double FULL_TURN = Math.PI * 2.0D;
 
     public RadarVisualProfile {
+        Objects.requireNonNull(source, "source");
+        if (!source.dimension().location().equals(dimension)) throw new IllegalArgumentException("Profile dimension mismatch");
         Objects.requireNonNull(dimension, "dimension");
         radarPosition = Objects.requireNonNull(radarPosition, "radarPosition").immutable();
         Objects.requireNonNull(coverage, "coverage");
@@ -38,6 +44,18 @@ public record RadarVisualProfile(ResourceLocation dimension, BlockPos radarPosit
                 || !RadarSectorOrder.validVariant(sectorOrderVariant)) {
             throw new IllegalArgumentException("Invalid radar visual profile");
         }
+    }
+
+    public RadarVisualProfile(ResourceLocation dimension, BlockPos radarPosition, double centerX, double centerY,
+            double centerZ, RadarVisualGeometry.Coverage coverage, RadarVisualAnimation animation,
+            int sectorOrderVariant, RadarVisualFadeStyle inactiveSectorFadeStyle) {
+        this(dimension, radarPosition, centerX, centerY, centerZ, coverage, animation, sectorOrderVariant,
+                inactiveSectorFadeStyle, new EndpointKey.Static(
+                    ResourceKey.create(Registries.DIMENSION, dimension), radarPosition));
+    }
+    public RadarVisualProfile withSource(EndpointKey endpoint) {
+        return new RadarVisualProfile(dimension, radarPosition, centerX, centerY, centerZ, coverage,
+                animation, sectorOrderVariant, inactiveSectorFadeStyle, endpoint);
     }
 
     /** Профили без собственного варианта используют первый порядок и выключенный след. */
@@ -107,14 +125,8 @@ public record RadarVisualProfile(ResourceLocation dimension, BlockPos radarPosit
     }
 
     /** Стабильный ключ установленного источника, независимый от изменений его области. */
-    public Key key() {
-        return new Key(dimension, radarPosition);
-    }
-
-    public record Key(ResourceLocation dimension, BlockPos radarPosition) {
-        public Key {
-            Objects.requireNonNull(dimension, "dimension");
-            radarPosition = Objects.requireNonNull(radarPosition, "radarPosition").immutable();
-        }
+    public Key key() { return new Key(source); }
+    public record Key(EndpointKey source) {
+        public Key { Objects.requireNonNull(source, "source"); }
     }
 }

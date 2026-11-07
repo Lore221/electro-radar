@@ -40,7 +40,8 @@ final class MonitorSectorAnimationState {
             // Общий FULL_FLASH сохраняет серверный момент вспышки. Стационарные
             // радары используют независимый клиентский sweep.
             for (MonitorVisualPhase phase : snapshot.visualPhases()) {
-                if (phase.radarPosition().equals(source.radarPosition()) && !phase.equals(cycle.flashPhase)) {
+                // Источник сравнивается по endpoint: у радара на структуре позиция хранения не мировая.
+                if (phase.radarEndpoint().equals(source.source()) && !phase.equals(cycle.flashPhase)) {
                     cycle.flashPhase = phase;
                     cycle.flashStart = now + phase.windowStartTick() - snapshot.observedServerTick();
                 }

@@ -1,5 +1,8 @@
 package com.electroradar.radar.monitor.network;
 
+import com.electroradar.radar.network.EndpointKey;
+import com.electroradar.radar.network.EndpointKeyCodec;
+
 import java.util.UUID;
 
 import net.minecraft.core.BlockPos;
@@ -12,7 +15,7 @@ import com.electroradar.ElectroRadar;
 
 /** Отдельная серверная команда открыть GUI; поздние payload обновления не открывают экран повторно. */
 public record MonitorOpenPayload(UUID displayId, BlockPos rootPosition, ResourceLocation dimension,
-                                 UUID loadId) implements CustomPacketPayload {
+                                 UUID loadId, EndpointKey rootEndpoint) implements CustomPacketPayload {
     public static final Type<MonitorOpenPayload> TYPE = new Type<>(
             ResourceLocation.fromNamespaceAndPath(ElectroRadar.MOD_ID, "monitor_open"));
     public static final StreamCodec<RegistryFriendlyByteBuf, MonitorOpenPayload> STREAM_CODEC =
@@ -29,13 +32,16 @@ public record MonitorOpenPayload(UUID displayId, BlockPos rootPosition, Resource
 
     private static void write(RegistryFriendlyByteBuf buffer, MonitorOpenPayload payload) {
         buffer.writeUUID(payload.displayId);
+        EndpointKeyCodec.write(buffer, payload.rootEndpoint);
         buffer.writeBlockPos(payload.rootPosition);
         buffer.writeResourceLocation(payload.dimension);
         buffer.writeUUID(payload.loadId);
     }
 
     private static MonitorOpenPayload read(RegistryFriendlyByteBuf buffer) {
-        return new MonitorOpenPayload(buffer.readUUID(), buffer.readBlockPos(),
-                buffer.readResourceLocation(), buffer.readUUID());
+        UUID display = buffer.readUUID();
+        var endpoint = EndpointKeyCodec.read(buffer);
+        return new MonitorOpenPayload(display, buffer.readBlockPos(),
+                buffer.readResourceLocation(), buffer.readUUID(), endpoint);
     }
 }

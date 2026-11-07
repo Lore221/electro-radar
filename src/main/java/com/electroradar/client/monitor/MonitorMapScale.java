@@ -22,7 +22,13 @@ final class MonitorMapScale {
      * Для горизонтальных FACING поворот осей не меняет нужный размер квадратной карты.
      */
     static double diameter(MonitorSnapshotData snapshot, double centerX, double centerZ) {
+        return diameter(snapshot, centerX, centerZ, com.electroradar.radar.monitor.MapFacing.of(net.minecraft.core.Direction.NORTH));
+    }
+    static double diameter(MonitorSnapshotData snapshot, double centerX, double centerZ,
+            com.electroradar.radar.monitor.MapFacing facing) {
         if (snapshot == null) return FALLBACK_DIAMETER_BLOCKS;
+        // World-square radius is conservative at every continuous map angle.
+        double angleMargin = Math.abs(facing.getStepX()) + Math.abs(facing.getStepZ());
         double radius = 0.0D;
         for (RadarVisualProfile profile : snapshot.visualProfiles()) {
             RadarVisualGeometry.Coverage coverage = profile.coverage();
@@ -37,6 +43,13 @@ final class MonitorMapScale {
                 }
             }
         }
+        for (var target : snapshot.targets()) {
+            if (!target.hasPosition() || target.target().sourceKind() != com.electroradar.radar.network.TargetRef.SourceKind.MOVING_STRUCTURE) continue;
+            for (var quad : target.silhouette().fills()) for (var point : List.of(quad.a(), quad.b(), quad.c(), quad.d()))
+                radius = Math.max(radius, extent(point, centerX, centerZ));
+            radius = Math.max(radius, Math.max(Math.abs(target.x() - centerX), Math.abs(target.z() - centerZ)));
+        }
+        radius *= angleMargin;
         if (radius == 0.0D) return FALLBACK_DIAMETER_BLOCKS;
         double diameter = radius * 2.0D * FIT_MARGIN;
         return Math.max(MIN_DIAMETER_BLOCKS,

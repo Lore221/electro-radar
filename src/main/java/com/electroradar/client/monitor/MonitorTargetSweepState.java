@@ -102,7 +102,8 @@ final class MonitorTargetSweepState {
             MonitorTargetData shown = marker.shown;
             result.add(new MonitorClientState.DisplayTarget(raw.target(), raw.observing(), true,
                     shown.x(), shown.y(), shown.z(), shown.entityTypeId(), marker.frozenAt >= 0,
-                    marker.frozenAt, marker.fadeTicks, marker.serverFrozenAt, marker.serverFadeTicks));
+                    marker.frozenAt, marker.fadeTicks, marker.serverFrozenAt, marker.serverFadeTicks,
+                    shown.silhouette()));
         }
         evaluatedSnapshot = snapshot;
         evaluatedFrames = frames;

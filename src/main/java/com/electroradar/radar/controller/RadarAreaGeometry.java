@@ -1,5 +1,7 @@
 package com.electroradar.radar.controller;
 
+import net.minecraft.world.phys.Vec3;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -47,11 +49,20 @@ final class RadarAreaGeometry {
             RadarServerConfig.Snapshot parameters,
             int sectorOrderVariant
     ) {
+        return create(dimension, controllerPos, Vec3.atCenterOf(controllerPos),
+                new Vec3(facing.getStepX(), 0, facing.getStepZ()),
+                mode, apertureKind, apertureCount, parameters, sectorOrderVariant);
+    }
+
+    public static GeometrySnapshot create(ResourceLocation dimension, BlockPos sourcePosition,
+            Vec3 center, Vec3 forward,
+            RadarMode mode, RadarApertureKind apertureKind, int apertureCount,
+            RadarServerConfig.Snapshot parameters, int sectorOrderVariant) {
         RadarServerConfig.RangeParameters rangeParameters = parameters.range();
         RadarServerConfig.ModeParameters modeParameters = mode.parameters(parameters);
-        double centerX = controllerPos.getX() + 0.5D;
-        double centerY = controllerPos.getY() + 0.5D;
-        double centerZ = controllerPos.getZ() + 0.5D;
+        double centerX = center.x;
+        double centerY = center.y;
+        double centerZ = center.z;
         int sectorCount;
         double unbounded;
         if (apertureKind == RadarApertureKind.OVERVIEW) {
@@ -81,11 +92,11 @@ final class RadarAreaGeometry {
             // Модель не имеет FACING; первая группа [-60°, 60°] направлена на север.
             startAngle = -Math.PI / 3.0D;
         } else {
-            double forwardAngle = Math.atan2(facing.getStepX(), -facing.getStepZ());
+            double forwardAngle = Math.atan2(forward.x, -forward.z);
             startAngle = forwardAngle - sweep / 2.0D;
         }
         RadarVisualProfile outlineProfile = RadarVisualProfile.triangularFan(
-                dimension, controllerPos, centerX, centerY, centerZ,
+                dimension, sourcePosition, centerX, centerY, centerZ,
                 range, startAngle, sweep, sectorCount, sectorOrderVariant,
                 apertureKind == RadarApertureKind.OVERVIEW ? RadarVisualFadeStyle.OVERVIEW : RadarVisualFadeStyle.SECTOR);
         // Число опорных треугольников сохраняет прежнюю внешнюю ломаную (7/18).
@@ -95,7 +106,7 @@ final class RadarAreaGeometry {
         RadarVisualGeometry.Coverage coverage = new RadarVisualGeometry.Coverage(
                 outlineProfile.coverage().outline(), List.of(),
                 List.of(new RadarVisualGeometry.Sector(0, triangles, outlineProfile.coverage().outline())));
-        RadarVisualProfile profile = new RadarVisualProfile(dimension, controllerPos, centerX, centerY, centerZ,
+        RadarVisualProfile profile = new RadarVisualProfile(dimension, sourcePosition, centerX, centerY, centerZ,
                 coverage, outlineProfile.animation(), sectorOrderVariant, outlineProfile.inactiveSectorFadeStyle());
         RadarServerConfig.VerticalRange vertical = modeParameters.verticalRange();
         double worldMinY = centerY + vertical.minY();

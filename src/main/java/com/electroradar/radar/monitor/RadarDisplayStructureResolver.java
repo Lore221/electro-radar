@@ -21,6 +21,8 @@ public final class RadarDisplayStructureResolver {
         };
     }
 
+    public static MapFacing right(MapFacing facing) { return facing.right(); }
+
     /** Возвращает блок по локальным координатам экрана: U — вправо, V — вверх. */
     public static BlockPos at(BlockPos origin, Direction facing, int u, int v) {
         return origin.relative(right(facing), u).above(v);

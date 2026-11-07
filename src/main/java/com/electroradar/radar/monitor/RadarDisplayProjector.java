@@ -32,11 +32,19 @@ public final class RadarDisplayProjector {
                                    double centerX, double centerZ, Direction mapUp,
                                    double x, double z, double centerOffsetX, double centerOffsetZ,
                                    double mapDiameter) {
+        return project(targetDimension, mapDimension, centerX, centerZ, MapFacing.of(mapUp),
+                x, z, centerOffsetX, centerOffsetZ, mapDiameter);
+    }
+
+    /** Непрерывный верх карты: монитор на движущейся структуре поворачивается вместе с ней. */
+    public static MapPoint project(ResourceLocation targetDimension, ResourceLocation mapDimension,
+            double centerX, double centerZ, MapFacing mapUp, double x, double z,
+            double centerOffsetX, double centerOffsetZ, double mapDiameter) {
         if (!targetDimension.equals(mapDimension)) return null;
         double safeDiameter = Math.max(1.0D, mapDiameter);
         double dx = x - (centerX + centerOffsetX);
         double dz = z - (centerZ + centerOffsetZ);
-        Direction right = mapUp.getClockWise();
+        MapFacing right = mapUp.right();
         double horizontal = dx * right.getStepX() + dz * right.getStepZ();
         double forward = dx * mapUp.getStepX() + dz * mapUp.getStepZ();
         return new MapPoint(horizontal / (safeDiameter * 0.5D),

@@ -48,6 +48,7 @@ final class RadarNetworkState {
         final NetworkId id;
         final Map<EndpointKey, RadarState> radars = new TreeMap<>(ENDPOINT_ORDER);
         final Map<TargetRef, TargetEntry> targets = new HashMap<>();
+        final Map<TargetRef, LiveResult> ownStructures = new HashMap<>();
         NetworkPolicy policy;
         TargetRef selectedTarget;
         /**

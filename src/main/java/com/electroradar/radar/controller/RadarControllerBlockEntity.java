@@ -71,11 +71,33 @@ public final class RadarControllerBlockEntity extends BlockEntity
     public static void serverTick(Level level, BlockPos pos, BlockState state,
                                   RadarControllerBlockEntity controller) {
         if (!(level instanceof ServerLevel serverLevel) || controller.isRemoved()) return;
+        if (controller.getPersistentData().getBoolean("electroradar_resume_assembly")
+                && !controller.assembly.hasActiveAssembly() && serverLevel.getGameTime() % 20 == 0) {
+            controller.assembly.toggleAssembly(controller, serverLevel, null);
+            if (controller.assembly.hasActiveAssembly()) controller.getPersistentData().remove("electroradar_resume_assembly");
+        }
         controller.assembly.tick(controller, serverLevel);
         controller.runtime.tick(controller, serverLevel);
     }
 
+    public boolean canTransferStructure() {
+        return level instanceof ServerLevel serverLevel && assembly.canTransfer(this, serverLevel);
+    }
+    public boolean normalizeForStructureTransfer() {
+        return level instanceof ServerLevel serverLevel && assembly.normalizeForTransfer(this, serverLevel);
+    }
+    public boolean confirmExternalStructureDisassembly() {
+        return !assembly.hasActiveAssembly() || level instanceof ServerLevel serverLevel && assembly.confirmExternalDisassembly(this, serverLevel);
+    }
+    public void releaseStructureTransferProof() { assembly.releaseExternalProof(); }
+    public java.util.List<BlockPos> prepareForStructureTransfer() {
+        if (!(level instanceof ServerLevel serverLevel)) return java.util.List.of();
+        runtime.unregister("structure_transfer", this);
+        return assembly.detachForTransfer(this, serverLevel);
+    }
+
     public void toggleAssembly(net.minecraft.world.entity.player.Player player) {
+        getPersistentData().remove("electroradar_resume_assembly");
         if (level instanceof ServerLevel serverLevel) assembly.toggleAssembly(this, serverLevel, player);
     }
 
@@ -113,7 +135,7 @@ public final class RadarControllerBlockEntity extends BlockEntity
         return runtime.networkId();
     }
 
-    public EndpointKey.Static endpoint() {
+    public EndpointKey endpoint() {
         return runtime.endpoint();
     }
 

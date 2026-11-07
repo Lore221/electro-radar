@@ -1,5 +1,9 @@
 package com.electroradar.radar.monitor.network;
 
+import com.electroradar.radar.network.EndpointKey;
+import com.electroradar.radar.network.EndpointKeyCodec;
+import com.electroradar.radar.spatial.Silhouette;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -47,7 +51,8 @@ public record MonitorSnapshotPayload(
         int partCount,
         List<MonitorTargetData> targets,
         List<RadarVisualProfile> visualProfiles,
-        List<MonitorVisualPhase> visualPhases
+        List<MonitorVisualPhase> visualPhases,
+        EndpointKey rootEndpoint
 ) implements CustomPacketPayload {
     public static final int TARGETS_PER_PART = 192;
     public static final int PROFILES_PER_PART = 8;
@@ -59,6 +64,8 @@ public record MonitorSnapshotPayload(
             StreamCodec.of(MonitorSnapshotPayload::write, MonitorSnapshotPayload::read);
 
     public MonitorSnapshotPayload {
+        Objects.requireNonNull(rootEndpoint, "rootEndpoint");
+        if (!rootEndpoint.dimension().location().equals(dimension)) throw new IllegalArgumentException("Root dimension mismatch");
         Objects.requireNonNull(displayId, "displayId");
         rootPosition = Objects.requireNonNull(rootPosition, "rootPosition").immutable();
         Objects.requireNonNull(dimension, "dimension");
@@ -78,7 +85,18 @@ public record MonitorSnapshotPayload(
     /** Разбивает снимок на части; профили включаются, только если {@code includeGeometry}. */
     public static List<MonitorSnapshotPayload> split(MonitorSnapshotData snapshot, boolean includeGeometry) {
         List<RadarVisualProfile> profiles = includeGeometry ? snapshot.visualProfiles() : List.of();
-        int count = Math.max(1, Math.max(parts(snapshot.targets().size(), TARGETS_PER_PART),
+        List<List<MonitorTargetData>> targetParts = new ArrayList<>();
+        List<MonitorTargetData> batch = new ArrayList<>();
+        int bytes = 0;
+        for (MonitorTargetData target : snapshot.targets()) {
+            int weight = 256 + target.silhouette().fills().size() * 64 + target.silhouette().outline().size() * 32;
+            if (!batch.isEmpty() && (bytes + weight > 300_000 || batch.size() >= TARGETS_PER_PART)) {
+                targetParts.add(List.copyOf(batch)); batch.clear(); bytes = 0;
+            }
+            batch.add(target); bytes += weight;
+        }
+        if (!batch.isEmpty()) targetParts.add(List.copyOf(batch));
+        int count = Math.max(1, Math.max(targetParts.size(),
                 Math.max(parts(profiles.size(), PROFILES_PER_PART),
                         parts(snapshot.visualPhases().size(), PHASES_PER_PART))));
         if (count > MAX_PARTS) throw new IllegalArgumentException("Monitor snapshot exceeds multipart limit");
@@ -88,9 +106,9 @@ public record MonitorSnapshotPayload(
                     snapshot.dimension(), snapshot.loadId(), snapshot.sequence(), snapshot.geometryVersion(),
                     snapshot.observedServerTick(), snapshot.linked(), snapshot.selectedTargetUnavailable(),
                     snapshot.selectedTarget(), includeGeometry, index, count,
-                    slice(snapshot.targets(), index, TARGETS_PER_PART),
+                    index < targetParts.size() ? targetParts.get(index) : List.of(),
                     slice(profiles, index, PROFILES_PER_PART),
-                    slice(snapshot.visualPhases(), index, PHASES_PER_PART)));
+                    slice(snapshot.visualPhases(), index, PHASES_PER_PART), snapshot.rootEndpoint()));
         }
         return List.copyOf(parts);
     }
@@ -106,7 +124,8 @@ public record MonitorSnapshotPayload(
 
     /** Заголовок серии одинаков во всех её частях; по нему клиент отбрасывает чужие части. */
     public boolean sameSeries(MonitorSnapshotPayload other) {
-        return sequence == other.sequence && partCount == other.partCount
+        return rootEndpoint.equals(other.rootEndpoint) && displayId.equals(other.displayId)
+                && loadId.equals(other.loadId) && sequence == other.sequence && partCount == other.partCount
                 && geometryVersion == other.geometryVersion && includesGeometry == other.includesGeometry
                 && observedServerTick == other.observedServerTick && linked == other.linked
                 && selectedTargetUnavailable == other.selectedTargetUnavailable
@@ -119,6 +138,7 @@ public record MonitorSnapshotPayload(
     }
 
     private static void write(RegistryFriendlyByteBuf buffer, MonitorSnapshotPayload payload) {
+        EndpointKeyCodec.write(buffer, payload.rootEndpoint);
         buffer.writeUUID(payload.displayId);
         buffer.writeBlockPos(payload.rootPosition);
         buffer.writeResourceLocation(payload.dimension);
@@ -141,6 +161,7 @@ public record MonitorSnapshotPayload(
     }
 
     private static MonitorSnapshotPayload read(RegistryFriendlyByteBuf buffer) {
+        var endpoint = EndpointKeyCodec.read(buffer);
         UUID displayId = buffer.readUUID();
         BlockPos root = buffer.readBlockPos();
         ResourceLocation dimension = buffer.readResourceLocation();
@@ -165,11 +186,12 @@ public record MonitorSnapshotPayload(
         for (int i = 0; i < targetCount; i++) targets.add(readTargetData(buffer));
         return new MonitorSnapshotPayload(displayId, root, dimension, loadId, sequence, geometryVersion,
                 observedServerTick, linked, selectionUnavailable, selected, includesGeometry, index, count,
-                targets, profiles, phases);
+                targets, profiles, phases, endpoint);
     }
 
     private static void writePhase(RegistryFriendlyByteBuf buffer, MonitorVisualPhase phase) {
         buffer.writeBlockPos(phase.radarPosition());
+        EndpointKeyCodec.write(buffer, phase.radarEndpoint());
         buffer.writeVarInt(phase.activeSectorIndices().size());
         for (int sectorIndex : phase.activeSectorIndices()) buffer.writeVarInt(sectorIndex);
         buffer.writeVarLong(phase.windowStartTick());
@@ -178,6 +200,7 @@ public record MonitorSnapshotPayload(
 
     private static MonitorVisualPhase readPhase(RegistryFriendlyByteBuf buffer) {
         BlockPos radarPosition = buffer.readBlockPos();
+        var endpoint = EndpointKeyCodec.read(buffer);
         int count = readCount(buffer, RadarVisualProfile.MAX_SECTOR_COUNT);
         if (count == 0) throw new IllegalArgumentException("Monitor phase has no active sectors");
         int[] indices = new int[count];
@@ -195,7 +218,7 @@ public record MonitorSnapshotPayload(
         ArrayList<Integer> active = new ArrayList<>(count);
         for (int index : indices) active.add(index);
         return new MonitorVisualPhase(radarPosition, active,
-                buffer.readVarLong(), buffer.readVarLong());
+                buffer.readVarLong(), buffer.readVarLong(), endpoint);
     }
 
     private static void writeTargetData(RegistryFriendlyByteBuf buffer, MonitorTargetData target) {
@@ -208,6 +231,7 @@ public record MonitorSnapshotPayload(
             buffer.writeDouble(target.z());
             buffer.writeUtf(target.entityTypeId(), 256);
         }
+        if (target.target().sourceKind() == TargetRef.SourceKind.MOVING_STRUCTURE) writeSilhouette(buffer, target.silhouette());
         buffer.writeVarLong(target.freezeTick() + 1L);
         buffer.writeVarLong(target.fadeDurationTicks());
     }
@@ -227,15 +251,37 @@ public record MonitorSnapshotPayload(
             z = buffer.readDouble();
             typeId = buffer.readUtf(256);
         }
+        var silhouette = ref.sourceKind() == TargetRef.SourceKind.MOVING_STRUCTURE ? readSilhouette(buffer)
+                : Silhouette.EMPTY;
         long freezeTick = buffer.readVarLong() - 1L;
         long fadeTicks = buffer.readVarLong();
-        return new MonitorTargetData(ref, observing, hasPosition, x, y, z, typeId, freezeTick, fadeTicks);
+        return new MonitorTargetData(ref, observing, hasPosition, x, y, z, typeId, freezeTick, fadeTicks, silhouette);
+    }
+
+    private static void writeSilhouette(RegistryFriendlyByteBuf b, Silhouette shape) {
+        b.writeBoolean(shape.detailLimited());
+        b.writeVarInt(shape.fills().size());
+        for (var q : shape.fills()) { writePoint(b, q.a()); writePoint(b, q.b()); writePoint(b, q.c()); writePoint(b, q.d()); }
+        b.writeVarInt(shape.outline().size());
+        for (var line : shape.outline()) { writePoint(b, line.start()); writePoint(b, line.end()); }
+    }
+    private static Silhouette readSilhouette(RegistryFriendlyByteBuf b) {
+        boolean limited = b.readBoolean();
+        int count = readCount(b, Silhouette.MAX_PRIMITIVES);
+        var fills = new ArrayList<Silhouette.Quad>(count);
+        for (int i = 0; i < count; i++) fills.add(new Silhouette.Quad(
+                readPoint(b), readPoint(b), readPoint(b), readPoint(b)));
+        int lines = readCount(b, Silhouette.MAX_PRIMITIVES - count);
+        var outline = new ArrayList<RadarVisualGeometry.Segment>(lines);
+        for (int i = 0; i < lines; i++) outline.add(new RadarVisualGeometry.Segment(readPoint(b), readPoint(b)));
+        return new Silhouette(fills, outline, limited);
     }
 
     /** Универсальный формат примитивов; номер порядка одинаков для всех наблюдателей. */
     private static void writeProfile(RegistryFriendlyByteBuf buffer, RadarVisualProfile profile) {
         buffer.writeResourceLocation(profile.dimension());
         buffer.writeBlockPos(profile.radarPosition());
+        EndpointKeyCodec.write(buffer, profile.source());
         // Явный ограниченный ID сохраняет wire-контракт независимым от enum.ordinal().
         buffer.writeVarInt(profile.animation().wireId());
         buffer.writeVarInt(profile.sectorOrderVariant());
@@ -262,6 +308,7 @@ public record MonitorSnapshotPayload(
     private static RadarVisualProfile readProfile(RegistryFriendlyByteBuf buffer) {
         ResourceLocation dimension = buffer.readResourceLocation();
         BlockPos position = buffer.readBlockPos();
+        var source = EndpointKeyCodec.read(buffer);
         RadarVisualAnimation animation = RadarVisualAnimation.fromWireId(buffer.readVarInt());
         int orderVariant = buffer.readVarInt();
         RadarVisualFadeStyle inactiveSectorFadeStyle = RadarVisualFadeStyle.fromWireId(buffer.readVarInt());
@@ -298,7 +345,7 @@ public record MonitorSnapshotPayload(
         // Общие инварианты пустых частей и покрытия проверяет Coverage также при создании на сервере.
         return new RadarVisualProfile(dimension, position, centerX, centerY, centerZ,
                 new RadarVisualGeometry.Coverage(outline, separators, sectors), animation, orderVariant,
-                inactiveSectorFadeStyle);
+                inactiveSectorFadeStyle, source);
     }
 
     private static void writePoint(RegistryFriendlyByteBuf buffer, RadarVisualGeometry.Point point) {
