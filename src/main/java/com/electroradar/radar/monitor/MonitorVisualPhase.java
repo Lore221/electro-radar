@@ -1,5 +1,7 @@
 package com.electroradar.radar.monitor;
 
+import com.electroradar.radar.network.EndpointKey;
+
 import java.util.Objects;
 import java.util.HashSet;
 import java.util.List;
@@ -13,8 +15,9 @@ import com.electroradar.radar.visual.RadarVisualProfile;
  * Начало окна однозначно отличает одно посещение от следующего, отдельный номер слота не нужен.
  */
 public record MonitorVisualPhase(BlockPos radarPosition, List<Integer> activeSectorIndices,
-                                 long windowStartTick, long windowEndTick) {
+                                 long windowStartTick, long windowEndTick, EndpointKey radarEndpoint) {
     public MonitorVisualPhase {
+        Objects.requireNonNull(radarEndpoint, "radarEndpoint");
         radarPosition = Objects.requireNonNull(radarPosition, "radarPosition").immutable();
         activeSectorIndices = List.copyOf(activeSectorIndices);
         if (activeSectorIndices.isEmpty() || activeSectorIndices.size() > RadarVisualProfile.MAX_SECTOR_COUNT

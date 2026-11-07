@@ -1,5 +1,7 @@
 package com.electroradar.cannon.controller;
 
+import com.electroradar.radar.network.TargetRef;
+
 import java.util.Objects;
 import java.util.function.Supplier;
 import com.electroradar.cannon.ballistics.ProjectileProfile;
@@ -26,7 +28,7 @@ final class TrajectoryCheckCache {
     /** Тот же ствол и боеприпас: результат держится, пока ствол следует за целью. */
     Cached advisory(Key next, long now, Supplier<TrajectoryTrace.Result> checker) {
         if (fresh(now, ADVISORY_TICKS) && key.level() == next.level() && key.cannon() == next.cannon()
-                && Objects.equals(key.profile(), next.profile())) {
+                && Objects.equals(key.profile(), next.profile()) && Objects.equals(key.target(), next.target())) {
             return new Cached(result, true);
         }
         return recheck(next, now, checker);
@@ -44,6 +46,10 @@ final class TrajectoryCheckCache {
     }
 
     record Key(Object level, Object cannon, ProjectileProfile profile, Vector3 pivot,
-               Vector3 direction, int tick, double fraction) {}
+               Vector3 direction, int tick, double fraction, TargetRef target) {
+        Key(Object level, Object cannon, ProjectileProfile profile, Vector3 pivot, Vector3 direction, int tick, double fraction) {
+            this(level, cannon, profile, pivot, direction, tick, fraction, null);
+        }
+    }
     record Cached(TrajectoryTrace.Result result, boolean reused) {}
 }

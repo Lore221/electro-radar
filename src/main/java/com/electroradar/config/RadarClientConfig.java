@@ -1,6 +1,8 @@
 package com.electroradar.config;
 
 import net.minecraft.core.Direction;
+
+import com.electroradar.radar.monitor.MapFacing;
 import net.neoforged.neoforge.common.ModConfigSpec;
 import net.neoforged.fml.event.config.ModConfigEvent;
 
@@ -113,6 +115,12 @@ public final class RadarClientConfig {
     public static Direction monitorMapUp(Direction screenFacing) {
         return snapshot.monitorOrientation() == MonitorOrientation.NORTH_UP
                 ? Direction.NORTH : screenFacing.getOpposite();
+    }
+
+    /** Непрерывный вариант для монитора на движущейся структуре: его лицевая сторона поворачивается с ней. */
+    public static MapFacing monitorMapUp(MapFacing screenFacing) {
+        return snapshot.monitorOrientation() == MonitorOrientation.NORTH_UP
+                ? MapFacing.of(Direction.NORTH) : screenFacing.opposite();
     }
 
     public enum MonitorOrientation { NORTH_UP, VIEWER_UP }

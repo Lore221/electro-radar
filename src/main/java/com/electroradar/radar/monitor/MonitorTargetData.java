@@ -1,5 +1,7 @@
 package com.electroradar.radar.monitor;
 
+import com.electroradar.radar.spatial.Silhouette;
+
 import java.util.Objects;
 
 import com.electroradar.radar.network.TargetRef;
@@ -12,8 +14,9 @@ import com.electroradar.radar.network.TargetRef;
  */
 public record MonitorTargetData(TargetRef target, boolean observing, boolean hasPosition,
                                 double x, double y, double z, String entityTypeId,
-                                long freezeTick, long fadeDurationTicks) {
+                                long freezeTick, long fadeDurationTicks, Silhouette silhouette) {
     public MonitorTargetData {
+        Objects.requireNonNull(silhouette, "silhouette");
         Objects.requireNonNull(target, "target");
         Objects.requireNonNull(entityTypeId, "entityTypeId");
         if (freezeTick < -1 || fadeDurationTicks < 0
@@ -23,6 +26,12 @@ public record MonitorTargetData(TargetRef target, boolean observing, boolean has
                 || !hasPosition && !entityTypeId.isEmpty()) {
             throw new IllegalArgumentException("Invalid monitor target state");
         }
+    }
+
+    public MonitorTargetData(TargetRef target, boolean observing, boolean hasPosition,
+            double x, double y, double z, String entityTypeId, long freezeTick, long fadeDurationTicks) {
+        this(target, observing, hasPosition, x, y, z, entityTypeId, freezeTick, fadeDurationTicks,
+                Silhouette.EMPTY);
     }
 
     /** Старое имя для экранных компонентов. */

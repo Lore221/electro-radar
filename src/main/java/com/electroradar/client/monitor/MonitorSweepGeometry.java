@@ -66,7 +66,7 @@ final class MonitorSweepGeometry {
         return new RadarVisualProfile(source.dimension(), source.radarPosition(), source.centerX(),
                 source.centerY(), source.centerZ(), new RadarVisualGeometry.Coverage(
                         source.coverage().outline(), separators, sectors), source.animation(),
-                source.sectorOrderVariant(), source.inactiveSectorFadeStyle());
+                source.sectorOrderVariant(), source.inactiveSectorFadeStyle(), source.source());
     }
 
     /** Пересечение луча с хордой; интерполяция по окружности изменила бы область радара. */

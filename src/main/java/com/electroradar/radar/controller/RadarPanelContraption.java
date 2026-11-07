@@ -161,10 +161,12 @@ public final class RadarPanelContraption extends BearingContraption {
         if (!(event.getEntity() instanceof ControlledContraptionEntity entity)
                 || !(entity.level() instanceof ServerLevel level) || !entity.isAlive()
                 || !(entity.getContraption() instanceof RadarPanelContraption panels)) return;
-        BlockPos controllerPos = panels.anchor.below();
+        // The saved plot may have been relocated; the live entity anchor follows that relocation.
+        BlockPos controllerPos = entity.blockPosition().below();
+        panels.anchor = controllerPos.above();
         if (!level.hasChunkAt(controllerPos)) return;
         if (level.getBlockEntity(controllerPos) instanceof RadarControllerBlockEntity controller
-                && controller.assembly().owns(entity)) return;
+                && controller.assembly().owns(entity, controller)) return;
 
         // Даже при отказе разборки Create не должен продолжить тик и безвозвратно удалить entity.
         event.setCanceled(true);

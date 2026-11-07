@@ -1,5 +1,8 @@
 package com.electroradar.radar.monitor.network;
 
+import com.electroradar.radar.network.EndpointKey;
+import com.electroradar.radar.network.EndpointKeyCodec;
+
 import java.util.Objects;
 import java.util.UUID;
 
@@ -19,7 +22,7 @@ import com.electroradar.ElectroRadar;
  * отвечает обычным адресным снимком, который всегда несёт геометрию.</p>
  */
 public record MonitorGeometryRequestPayload(BlockPos rootPosition, ResourceLocation dimension,
-                                            UUID displayId, UUID loadId, long geometryVersion)
+                                            UUID displayId, UUID loadId, long geometryVersion, EndpointKey rootEndpoint)
         implements CustomPacketPayload {
     public static final Type<MonitorGeometryRequestPayload> TYPE = new Type<>(
             ResourceLocation.fromNamespaceAndPath(ElectroRadar.MOD_ID, "monitor_geometry_request"));
@@ -40,6 +43,7 @@ public record MonitorGeometryRequestPayload(BlockPos rootPosition, ResourceLocat
     }
 
     private static void write(RegistryFriendlyByteBuf buffer, MonitorGeometryRequestPayload payload) {
+        EndpointKeyCodec.write(buffer, payload.rootEndpoint);
         buffer.writeBlockPos(payload.rootPosition);
         buffer.writeResourceLocation(payload.dimension);
         buffer.writeUUID(payload.displayId);
@@ -48,7 +52,8 @@ public record MonitorGeometryRequestPayload(BlockPos rootPosition, ResourceLocat
     }
 
     private static MonitorGeometryRequestPayload read(RegistryFriendlyByteBuf buffer) {
+        var endpoint = EndpointKeyCodec.read(buffer);
         return new MonitorGeometryRequestPayload(buffer.readBlockPos(), buffer.readResourceLocation(),
-                buffer.readUUID(), buffer.readUUID(), buffer.readVarLong());
+                buffer.readUUID(), buffer.readUUID(), buffer.readVarLong(), endpoint);
     }
 }

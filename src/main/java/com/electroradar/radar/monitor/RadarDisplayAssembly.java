@@ -1,5 +1,7 @@
 package com.electroradar.radar.monitor;
 
+import com.electroradar.radar.spatial.RadarSpatial;
+
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -195,7 +197,7 @@ final class RadarDisplayAssembly {
         for (int u = -4; u <= 4; u++) {
             for (int v = -4; v <= 4; v++) {
                 BlockPos position = RadarDisplayStructureResolver.at(anchor, facing, u, v);
-                if (!level.hasChunkAt(position)) continue;
+                if (!level.hasChunkAt(position) || !RadarSpatial.sameSpace(level, anchor, position)) continue;
                 if (level.getBlockEntity(position) instanceof RadarDisplayBlockEntity panel
                         && displayId.equals(panel.displayId())
                         && panel.getBlockState().getValue(RadarDisplayBlock.FACING) == facing) {

@@ -7,7 +7,7 @@ import org.joml.Matrix4f;
 
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.RenderType;
-import net.minecraft.core.Direction;
+import com.electroradar.radar.monitor.MapFacing;
 import net.minecraft.resources.ResourceLocation;
 
 import com.electroradar.radar.monitor.MonitorSnapshotData;
@@ -24,7 +24,7 @@ final class MonitorSectorGuiRenderer {
      */
     static void draw(GuiGraphics graphics, MonitorClientState.View view,
                      ResourceLocation mapDimension, double mapCenterX, double mapCenterZ,
-                     Direction mapUp, double offsetX, double offsetZ, double mapDiameter,
+                     MapFacing mapUp, double offsetX, double offsetZ, double mapDiameter,
                      int contentX, int contentY, int contentSize) {
         if (view == null) return;
         MonitorSnapshotData snapshot = view.snapshot();
@@ -70,7 +70,7 @@ final class MonitorSectorGuiRenderer {
     }
 
     /** GUI-тип использует QUADS и culling; повтор вершины задаёт один треугольник. */
-    private static void drawTriangle(VertexConsumer vertices, Matrix4f pose,
+    static void drawTriangle(VertexConsumer vertices, Matrix4f pose,
                                      MonitorSectorProjection.MapPoint first,
                                      MonitorSectorProjection.MapPoint second,
                                      MonitorSectorProjection.MapPoint third,
@@ -96,7 +96,7 @@ final class MonitorSectorGuiRenderer {
     }
 
     /** Один квад на отрезок; толщина и квадратные концы заданы в GUI-пикселях. */
-    private static void drawLine(VertexConsumer vertices, Matrix4f pose,
+    static void drawLine(VertexConsumer vertices, Matrix4f pose,
                                  MonitorSectorProjection.ProjectedSegment line,
                                  double centerX, double centerY, double radius,
                                  int argb, int thickness) {

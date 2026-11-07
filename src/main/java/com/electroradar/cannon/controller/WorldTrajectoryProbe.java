@@ -1,5 +1,9 @@
 package com.electroradar.cannon.controller;
 
+import com.electroradar.radar.network.EndpointKey;
+import com.electroradar.radar.network.TargetRef;
+import com.electroradar.radar.spatial.RadarSpatial;
+
 import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ClipContext;
@@ -20,9 +24,15 @@ import com.electroradar.cannon.ballistics.Vector3;
 final class WorldTrajectoryProbe implements TrajectoryTrace.Probe {
     private final ServerLevel level;
 
-    WorldTrajectoryProbe(ServerLevel level) { this.level = level; }
+    private final TargetRef intendedTarget;
+    private boolean reachedTarget;
+    WorldTrajectoryProbe(ServerLevel level) { this(level, null); }
+    WorldTrajectoryProbe(ServerLevel level, TargetRef target) {
+        this.level = level; this.intendedTarget = target;
+    }
 
     @Override public TrajectoryTrace.Obstacle inspect(Vector3 start, Vector3 end) {
+        if (reachedTarget) return null;
         int minX = SectionPos.posToSectionCoord(Math.min(start.x(), end.x()));
         int maxX = SectionPos.posToSectionCoord(Math.max(start.x(), end.x()));
         int minZ = SectionPos.posToSectionCoord(Math.min(start.z(), end.z()));
@@ -36,7 +46,17 @@ final class WorldTrajectoryProbe implements TrajectoryTrace.Probe {
         var hit = level.clip(new ClipContext(vec(start), vec(end), ClipContext.Block.COLLIDER,
                 ClipContext.Fluid.NONE, CollisionContext.empty()));
         if (hit.getType() == HitResult.Type.MISS) return null;
-        Vec3 point = hit.getLocation();
+        if (intendedTarget != null && intendedTarget.sourceKind() == TargetRef.SourceKind.MOVING_STRUCTURE) {
+            var placement = RadarSpatial.placement(level, hit.getBlockPos());
+            if (placement.isPresent() && placement.get().endpoint() instanceof EndpointKey.Moving moving
+                    && moving.structureId().equals(intendedTarget.id()) && moving.dimension().equals(intendedTarget.dimension())) {
+                // The first solid hit is the intended structure, not an obstruction behind it.
+                reachedTarget = true;
+                return null;
+            }
+        }
+        Vec3 point = RadarSpatial.placement(level, hit.getBlockPos())
+                .map(placement -> placement.transform().toWorld(hit.getLocation())).orElse(hit.getLocation());
         return new TrajectoryTrace.Obstacle(TrajectoryTrace.Status.BLOCKED, new Vector3(point.x, point.y, point.z));
     }
 

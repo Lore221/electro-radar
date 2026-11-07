@@ -1,5 +1,7 @@
 package com.electroradar.radar.scan;
 
+import com.electroradar.radar.spatial.RadarSpatial;
+
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -82,15 +84,23 @@ public final class EntityRadarScanner {
 
         // Каждый элемент выборки — фрагмент hitbox: обычная сущность, родитель составной сущности
         // или одна из его частей. Фильтр смотрит на цель, которую фрагмент представляет.
-        List<Entity> candidates = level.getEntities((Entity) null, area.queryBounds(), hitbox -> {
+        List<Entity> candidates = new java.util.ArrayList<>(level.getEntities((Entity) null, area.queryBounds(), hitbox -> {
             Entity target = rootTarget(hitbox);
             return target != null && target.isAlive() && eligibility.test(target);
-        });
+        }));
+        // NeoForge adds multipart hitboxes outside Sable's inclusive entity getter.
+        for (Entity part : level.getPartEntities()) {
+            Entity root = rootTarget(part);
+            if (root != null && root.isAlive() && eligibility.test(root)
+                    && !candidates.contains(part) && RadarSpatial.hitboxInside(area, part)) {
+                candidates.add(part);
+            }
+        }
         Map<TargetRef, Entity> found = new LinkedHashMap<>();
         int acceptedHitboxes = 0;
         for (Entity hitbox : candidates) {
             // Точная форма проверяется по собственному box фрагмента: именно он пересёкся с грубым AABB.
-            if (!area.contains(hitbox)) {
+            if (!RadarSpatial.hitboxInside(area, hitbox)) {
                 continue;
             }
             Entity target = rootTarget(hitbox);
@@ -110,11 +120,11 @@ public final class EntityRadarScanner {
     /** Проверяет уже разрешённую цель по текущим box родителя и актуальных частей. */
     public static boolean anyHitboxInside(Entity root, RadarScanArea area) {
         if (root == null || area == null || !root.isAlive()) return false;
-        if (area.contains(root)) return true;
+        if (RadarSpatial.hitboxInside(area, root)) return true;
         Entity[] parts = root.getParts();
         if (parts == null) return false;
         for (Entity part : parts) {
-            if (part != null && rootTarget(part) == root && area.contains(part)) return true;
+            if (part != null && rootTarget(part) == root && RadarSpatial.hitboxInside(area, part)) return true;
         }
         return false;
     }
