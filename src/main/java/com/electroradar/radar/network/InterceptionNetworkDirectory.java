@@ -10,9 +10,13 @@ public final class InterceptionNetworkDirectory {
     private final Map<NetworkId, EndpointKey.Static> owners = new HashMap<>();
     private final Map<EndpointKey.Static, NetworkId> controllers = new HashMap<>();
 
-    public void registerOwner(NetworkId network, EndpointKey.Static owner) {
+    /**
+     * @return false, если сетью уже владеет другой прибор: тогда владелец не меняется. Копия
+     *         прибора с тем же ID (pick-block с NBT, вставка схемы) должна завести себе новую сеть.
+     */
+    public boolean registerOwner(NetworkId network, EndpointKey.Static owner) {
         EndpointKey.Static previous = owners.putIfAbsent(network, owner);
-        if (previous != null && !previous.equals(owner)) throw new IllegalStateException("Interception network already owned");
+        return previous == null || previous.equals(owner);
     }
 
     public EndpointKey.Static owner(NetworkId network) { return owners.get(network); }
