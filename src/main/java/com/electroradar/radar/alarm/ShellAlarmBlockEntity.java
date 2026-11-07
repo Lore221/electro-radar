@@ -23,10 +23,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import rbasamoyai.createbigcannons.munitions.big_cannon.AbstractBigCannonProjectile;
 
 import com.electroradar.cannon.mount.BigCannonShell;
-import com.electroradar.radar.RadarDiagnostics;
-import com.electroradar.radar.network.ConsumerConnection;
-import com.electroradar.radar.network.EndpointKey;
-import com.electroradar.radar.network.EndpointRole;
+import com.electroradar.radar.network.ConsumerConnectionLifecycle;
 import com.electroradar.radar.network.LiveResult;
 import com.electroradar.radar.network.NetworkId;
 import com.electroradar.radar.network.NetworkLinkTarget;
@@ -39,9 +36,9 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
     private final ShellThreatTracker tracker = new ShellThreatTracker();
     private final ShellAlarmDiagnostics diagnostics = new ShellAlarmDiagnostics();
     private NetworkId networkId;
-    private ConsumerConnection connection;
+    private final ConsumerConnectionLifecycle connection =
+            new ConsumerConnectionLifecycle("shell_alarm_registration_failed");
     private ProtectionZone zone;
-    private boolean registrationFailureLogged;
     private Status status = Status.NO_NETWORK;
     private int dangerousCount;
     private int unsupportedCount;
@@ -80,7 +77,7 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
     void serverTick() {
         tick();
         if (!(level instanceof ServerLevel world)) return;
-        ensureConnection(world);
+        connection.ensure(world, worldPosition, networkId);
         diagnostics.begin(world, worldPosition, networkId, zone);
         boolean wasDangerous = dangerousCount > 0;
         Status oldStatus = status;
@@ -90,7 +87,7 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
         int oldPredictions = tracker.predictionCount();
         networkTargetCount = bigShellCount = supportedShellCount = 0;
         unsupportedCount = 0;
-        if (connection == null) {
+        if (connection.current() == null) {
             tracker.clear();
             status = Status.NO_NETWORK;
         } else if (!validZone(world, zone)) {
@@ -101,7 +98,7 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
             Set<UUID> currentThreats = new HashSet<>();
             // Тот же контракт разрешённого чтения, что у Target Controller: только доступные
             // сети обнаружения с AVAILABLE sample, включая её обычную память.
-            var targets = connection.queryTargets(view -> new Candidate(view.target(), view.liveResult()));
+            var targets = connection.current().queryTargets(view -> new Candidate(view.target(), view.liveResult()));
             networkTargetCount = ShellAlarmDiagnostics.ENABLED ? targets.targets().size() : 0;
             for (Candidate candidate : targets.targets()) {
                 TargetRef ref = candidate.target();
@@ -161,27 +158,12 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
     @Override public NetworkId networkIdForLinking() { return networkId; }
     @Override public boolean reconfigureNetwork(NetworkId next) {
         if (Objects.equals(networkId, next)) return true;
-        closeConnection();
+        connection.close();
         networkId = next;
         clearThreats();
         setChanged();
         sendData();
         return true;
-    }
-
-    private void ensureConnection(ServerLevel world) {
-        if (networkId == null) { closeConnection(); return; }
-        if (connection != null && connection.isOpen()) return;
-        closeConnection();
-        EndpointKey endpoint = new EndpointKey.Static(world.dimension(), worldPosition);
-        try {
-            connection = new ConsumerConnection(world.getServer(), endpoint, networkId, EndpointRole.CONSUMER);
-            registrationFailureLogged = false;
-        } catch (RuntimeException failure) {
-            if (!registrationFailureLogged) RadarDiagnostics.logException("shell_alarm_registration_failed", networkId,
-                    endpoint, null, world.getGameTime(), null, failure);
-            registrationFailureLogged = true;
-        }
     }
 
     private void clearThreats() {
@@ -200,15 +182,9 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
         return active;
     }
 
-    private void closeConnection() {
-        ConsumerConnection previous = connection;
-        connection = null;
-        if (previous != null) previous.close();
-    }
-
     /** Create вызывает и при выгрузке чанка: оповещать соседей здесь нельзя, это может подгрузить чанк. */
     @Override public void invalidate() {
-        closeConnection();
+        connection.close();
         resetThreats();
         super.invalidate();
     }
@@ -235,7 +211,7 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
         NetworkId saved = tag.hasUUID(NETWORK) ? new NetworkId(tag.getUUID(NETWORK)) : null;
         ProtectionZone savedZone = ProtectionZone.load(tag.getCompound(ZONE)).orElse(null);
         if (!Objects.equals(saved, networkId) || !Objects.equals(savedZone, zone)) {
-            closeConnection();
+            connection.close();
             tracker.clear();
             networkId = saved;
             zone = savedZone;
