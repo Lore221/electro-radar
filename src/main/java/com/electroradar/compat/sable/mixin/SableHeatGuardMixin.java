@@ -1,4 +1,6 @@
-package com.electroradar.compat.sable;
+package com.electroradar.compat.sable.mixin;
+
+import com.electroradar.compat.sable.SableTransferGuard;
 
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import org.spongepowered.asm.mixin.*;

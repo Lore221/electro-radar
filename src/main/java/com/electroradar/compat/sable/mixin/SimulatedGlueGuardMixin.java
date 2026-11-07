@@ -1,4 +1,6 @@
-package com.electroradar.compat.sable;
+package com.electroradar.compat.sable.mixin;
+
+import com.electroradar.compat.sable.SableTransferGuard;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.entity.BlockEntity;

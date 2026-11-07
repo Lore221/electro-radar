@@ -1,4 +1,4 @@
-package com.electroradar.compat.sable;
+package com.electroradar.compat.sable.mixin;
 
 import com.electroradar.radar.spatial.RadarSpatial;
 import dev.ryanhcode.sable.sublevel.plot.ServerLevelPlot;

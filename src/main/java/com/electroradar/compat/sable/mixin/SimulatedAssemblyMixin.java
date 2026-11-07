@@ -1,4 +1,7 @@
-package com.electroradar.compat.sable;
+package com.electroradar.compat.sable.mixin;
+
+import com.electroradar.compat.sable.SableTransferGuard;
+import com.electroradar.compat.sable.SableTransferRejected;
 
 import java.util.Collection;
 import java.util.List;

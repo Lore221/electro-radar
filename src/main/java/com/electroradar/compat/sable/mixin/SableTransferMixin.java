@@ -1,4 +1,8 @@
-package com.electroradar.compat.sable;
+package com.electroradar.compat.sable.mixin;
+
+import com.electroradar.compat.sable.SableTransferGuard;
+import com.electroradar.compat.sable.SableTransferRejected;
+import com.electroradar.compat.sable.SableTransferBridge;
 
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
