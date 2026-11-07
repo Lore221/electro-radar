@@ -23,9 +23,8 @@ public final class ShellThreatTracker {
     public static final int PREDICTIONS_PER_TICK = 8;
     private static final double POSITION_EPSILON = 1.0E-4D;
     private static final double VELOCITY_EPSILON = 1.0E-5D;
-    /** Допуск позы зоны относительно экстраполяции прогноза: четверть блока, около 0,8° и 0,02 блока/тик. */
+    /** Допуск движения любой вершины расширенной зоны относительно экстраполяции: четверть блока. */
     private static final double ZONE_DISTANCE_EPSILON = 0.25D;
-    private static final double ZONE_AXIS_COSINE = 1.0D - 1.0E-4D;
     private static final double ZONE_SPEED_EPSILON = 0.02D;
 
     private final Map<UUID, Entry> entries = new HashMap<>();
@@ -149,7 +148,7 @@ public final class ShellThreatTracker {
             int elapsed = sample.age() - initial.age();
             try {
                 return elapsed >= 0
-                        && current.continues(zone, elapsed, ZONE_DISTANCE_EPSILON, ZONE_AXIS_COSINE, ZONE_SPEED_EPSILON)
+                        && current.continues(zone, elapsed, sample.reach(), ZONE_DISTANCE_EPSILON, ZONE_SPEED_EPSILON)
                         && (prediction.complete() || elapsed < PREDICTION_LIMIT / 2)
                         && initial.reach() == sample.reach()
                         && initial.shell().motion().drag() == sample.shell().motion().drag()

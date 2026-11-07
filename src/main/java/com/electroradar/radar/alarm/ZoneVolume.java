@@ -66,14 +66,13 @@ public record ZoneVolume(ProtectionBox local, ZoneFrame frame, Vector3 velocity)
      * Можно ли считать эту зону продолжением {@code earlier}, наблюдённой {@code elapsed} тиков
      * назад: тот же прямоугольник, поза совпадает с равномерно сдвинутой прежней, скорость та же.
      */
-    boolean continues(ZoneVolume earlier, double elapsed, double distance, double axisCosine, double speed) {
+    boolean continues(ZoneVolume earlier, double elapsed, double reach, double distance, double speed) {
         if (!local.equals(earlier.local)) return false;
         if (frame.equals(earlier.frame) && velocity.equals(earlier.velocity) && velocity.equals(Vector3.ZERO)) return true;
         ZoneFrame expected = new ZoneFrame(earlier.frame.localOrigin(),
                 earlier.frame.worldOrigin().add(earlier.velocity.scale(elapsed)),
                 earlier.frame.x(), earlier.frame.y(), earlier.frame.z());
-        Vector3 center = local.min().add(local.max()).scale(0.5D);
-        return frame.close(expected, center, distance, axisCosine)
+        return frame.close(expected, local.inflate(reach), distance)
                 && velocity.subtract(earlier.velocity).length() <= speed;
     }
 }
