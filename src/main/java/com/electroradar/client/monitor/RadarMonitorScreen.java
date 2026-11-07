@@ -277,6 +277,7 @@ public final class RadarMonitorScreen extends Screen {
     private void drawTargets(VertexConsumer vertices, Matrix4f pose, MonitorClientState.View view,
                              MonitorSnapshotData snapshot, float partialTick) {
         MapFacing mapUp = mapUp();
+        MapCenter frameCenter = mapCenter();
         int centerX = contentX + contentSize / 2;
         int centerY = contentY + contentSize / 2;
         double radius = contentSize / 2.0D;
@@ -285,7 +286,7 @@ public final class RadarMonitorScreen extends Screen {
 
         for (MonitorClientState.DisplayTarget target : view.targets()) {
             if (!target.hasPosition()) continue;
-            RadarDisplayProjector.MapPoint point = project(snapshot, target, mapUp);
+            RadarDisplayProjector.MapPoint point = project(snapshot, target, mapUp, frameCenter);
             if (point == null || !point.insideSquare()) continue;
             int x = (int) Math.round(centerX + point.x() * radius);
             int y = (int) Math.round(centerY - point.y() * radius);
@@ -303,6 +304,7 @@ public final class RadarMonitorScreen extends Screen {
                                   Optional<MonitorClientState.DisplayTarget> hovered,
                                   float partialTick) {
         MapFacing mapUp = mapUp();
+        MapCenter frameCenter = mapCenter();
         int centerX = contentX + contentSize / 2;
         int centerY = contentY + contentSize / 2;
         double radius = contentSize / 2.0D;
@@ -315,7 +317,7 @@ public final class RadarMonitorScreen extends Screen {
             boolean isHovered = hovered.isPresent() && hovered.get().target().equals(target.target());
             if (!selected && !isHovered) continue;
             if (!target.hasPosition()) continue;
-            RadarDisplayProjector.MapPoint point = project(snapshot, target, mapUp);
+            RadarDisplayProjector.MapPoint point = project(snapshot, target, mapUp, frameCenter);
             if (point == null || !point.insideSquare()) continue;
             int x = (int) Math.round(centerX + point.x() * radius);
             int y = (int) Math.round(centerY - point.y() * radius);
@@ -412,6 +414,7 @@ public final class RadarMonitorScreen extends Screen {
         MonitorSnapshotData snapshot = view.snapshot();
         if (snapshot == null) return Optional.empty();
         MapFacing mapUp = mapUp();
+        MapCenter frameCenter = mapCenter();
         double centerX = contentX + contentSize / 2.0D;
         double centerY = contentY + contentSize / 2.0D;
         double radius = contentSize / 2.0D;
@@ -420,7 +423,7 @@ public final class RadarMonitorScreen extends Screen {
         return view.targets().stream()
                 .filter(MonitorClientState.DisplayTarget::hasPosition)
                 .filter(target -> view.targetOpacity(target, renderTime) > 0.0F)
-                .map(target -> new Hit(target, project(snapshot, target, mapUp), centerX, centerY, radius))
+                .map(target -> new Hit(target, project(snapshot, target, mapUp, frameCenter), centerX, centerY, radius))
                 .filter(hit -> hit.point() != null && hit.point().insideSquare()
                         && hit.distance(mouseX, mouseY) <= hitRadius)
                 .min((first, second) -> Double.compare(
@@ -431,8 +434,7 @@ public final class RadarMonitorScreen extends Screen {
     /** Проецирует цель от центра прямоугольной сборки; перетаскивание остаётся локальным GUI-сдвигом. */
     private RadarDisplayProjector.MapPoint project(MonitorSnapshotData snapshot,
                                                     MonitorClientState.DisplayTarget target,
-                                                    MapFacing mapUp) {
-        MapCenter center = mapCenter();
+                                                    MapFacing mapUp, MapCenter center) {
         return RadarDisplayProjector.project(target.target().dimension().location(), snapshot.dimension(),
                 center.x(), center.z(), mapUp, target.x(), target.z(), centerOffsetX, centerOffsetZ,
                 mapDiameterBlocks);
