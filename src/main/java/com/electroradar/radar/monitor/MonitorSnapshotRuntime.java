@@ -28,9 +28,9 @@ import com.electroradar.radar.network.TargetView;
  * <p><b>Когда пересобирать.</b> Корень тикает каждый тик, но сеть перечитывает только если
  * изменилась версия сети ({@link ConsumerConnection#contentVersion()}), сама связь, NetworkId
  * или сборка экрана, либо снимок явно сброшен. Версия сети растёт при любом видимом
- * изменении, в том числе при каждом шаге движущейся цели, поэтому перечитывание из-за неё
- * идёт не чаще {@link MonitorRefreshGate}; смена связи, сети, сборки, выбора цели и открытие
- * GUI применяются сразу.</p>
+ * изменении. Обычная пересборка следует общей четырёхтиковой фазе измерений сети через
+ * {@link MonitorRefreshGate}; смена связи, сети, сборки, выбора цели и открытие GUI
+ * применяются сразу.</p>
  *
  * <p><b>Что отправлять.</b> Всегда полный снимок целей и фаз. Профили радаров тяжёлые, поэтому
  * рассылка включает их только при смене {@code geometryVersion} или после сброса. Адресная
@@ -85,8 +85,8 @@ final class MonitorSnapshotRuntime {
                 || owner.structureVersion() != lastStructureVersion
                 || !Objects.equals(owner.networkId(), lastNetworkId)
                 || !Objects.equals(requestedSelection(connection), lastRequestedSelection);
-        long now = serverLevel.getGameTime();
-        refreshGate.refreshAndPublish(now, urgent, () -> {
+        long now = currentTick(serverLevel);
+        refreshGate.refreshAndPublish(now, urgent, owner.networkId(), () -> {
             long contentVersion = connection == null ? -1L : connection.contentVersion();
             boolean dirty = urgent || contentVersion != lastContentVersion;
             if (dirty) {
