@@ -20,6 +20,9 @@ public interface ObservationWindowSchedule {
     /** Число базовых окон в группе; длительность сети меняется только на границе всей группы. */
     default int networkWindowMultiple() { return 1; }
 
+    /** Минимальный интервал учёта промахов; 0 сохраняет учёт каждого успешного поиска. */
+    default long confirmationMissIntervalTicks(ObservationWindow window) { return 0L; }
+
     /** Объединяет соседние окна сети, сохраняя общие границы и порядок шагов источника. */
     static ObservationWindowSchedule everyNetworkWindows(int windows, ObservationWindowSchedule schedule) {
         Objects.requireNonNull(schedule, "schedule");
@@ -31,6 +34,11 @@ public interface ObservationWindowSchedule {
         return new ObservationWindowSchedule() {
             @Override
             public int networkWindowMultiple() { return multiple; }
+
+            @Override
+            public long confirmationMissIntervalTicks(ObservationWindow window) {
+                return schedule.confirmationMissIntervalTicks(window);
+            }
 
             @Override
             public Optional<ObservationWindow> windowAt(long serverTick, NetworkWindow window) {

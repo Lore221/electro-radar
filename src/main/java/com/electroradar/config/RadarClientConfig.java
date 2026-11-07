@@ -1,14 +1,18 @@
 package com.electroradar.config;
 
+import net.minecraft.core.Direction;
+
+import com.electroradar.radar.monitor.MapFacing;
 import net.neoforged.neoforge.common.ModConfigSpec;
 import net.neoforged.fml.event.config.ModConfigEvent;
 
 import com.electroradar.radar.visual.RadarVisualFadeStyle;
 
-/** Клиентская палитра и длительность визуального следа; серверное наблюдение от них не зависит. */
+/** Локальная ориентация карты и прежняя клиентская схема; палитра изображения принадлежит серверу. */
 public final class RadarClientConfig {
     public static final ModConfigSpec SPEC;
     private static final int MAX_FADE_TICKS = 1_200;
+    private static final ModConfigSpec.EnumValue<MonitorOrientation> MONITOR_ORIENTATION;
 
     private static final ModConfigSpec.ConfigValue<String> PLAYER;
     private static final ModConfigSpec.ConfigValue<String> HOSTILE;
@@ -35,7 +39,12 @@ public final class RadarClientConfig {
 
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
-        builder.comment("Monitor target marker colors in RGB format.").push("targets");
+        builder.comment("Local map orientation, shared by the monitor GUI and its in-world screen.").push("monitor");
+        MONITOR_ORIENTATION = builder.comment("NORTH_UP: north at the top. VIEWER_UP: top points opposite the monitor's front face; does not follow the camera.")
+                .translation("electroradar.config.client.monitor.orientation")
+                .defineEnum("orientation", MonitorOrientation.NORTH_UP);
+        builder.pop();
+        builder.comment("Legacy settings. Monitor appearance is now configured in electroradar-server.toml: monitor_palette and monitor_sweep.").push("targets");
         PLAYER = rgb(builder, "targets.player", "player", "#0000FF");
         HOSTILE = rgb(builder, "targets.hostile", "hostile", "#FF0000");
         PASSIVE = rgb(builder, "targets.passive", "passive", "#55FF55");
@@ -61,10 +70,10 @@ public final class RadarClientConfig {
         WORLD_ACTIVE_EDGE = argb(builder, "sector.world_active_edge", "world_active_edge", "#D0D8FFE8");
         WORLD_FLASH_FILL = argb(builder, "sector.world_flash_fill", "world_flash_fill", "#34D8FFE8");
         WORLD_FLASH_EDGE = argb(builder, "sector.world_flash_edge", "world_flash_edge", "#A0D8FFE8");
-        SECTOR_FADE_TICKS = builder.comment("Inactive sector afterglow duration in client ticks; 0 disables it.")
+        SECTOR_FADE_TICKS = builder.comment("Legacy: use server monitor_sweep.panel.sector_fade_ticks.")
                 .translation("electroradar.config.client.sector.fade_ticks")
                 .defineInRange("fade_ticks", RadarVisualFadeStyle.SECTOR.defaultTicks(), 0, MAX_FADE_TICKS);
-        OVERVIEW_FADE_TICKS = builder.comment("Inactive overview zone afterglow duration in client ticks; 0 disables it.")
+        OVERVIEW_FADE_TICKS = builder.comment("Legacy: use server monitor_sweep.overview.sector_fade_ticks.")
                 .translation("electroradar.config.client.sector.overview_fade_ticks")
                 .defineInRange("overview_fade_ticks", RadarVisualFadeStyle.OVERVIEW.defaultTicks(), 0, MAX_FADE_TICKS);
         builder.pop();
@@ -99,10 +108,25 @@ public final class RadarClientConfig {
 
     /** Строки парсятся только при загрузке/перезагрузке; кадры получают готовый immutable record. */
     public static Palette palette() {
-        return snapshot.palette();
+        return MonitorPaletteConfig.palette();
     }
 
-    /** Новое затухание закрепляет текущий срок; уже начатые следы сохраняют свои таймеры. */
+    /** Направление верха карты независимо от физической плоскости экрана. */
+    public static Direction monitorMapUp(Direction screenFacing) {
+        return snapshot.monitorOrientation() == MonitorOrientation.NORTH_UP
+                ? Direction.NORTH : screenFacing.getOpposite();
+    }
+
+    /** Непрерывный вариант для монитора на движущейся структуре: его лицевая сторона поворачивается с ней. */
+    public static MapFacing monitorMapUp(MapFacing screenFacing) {
+        return snapshot.monitorOrientation() == MonitorOrientation.NORTH_UP
+                ? MapFacing.of(Direction.NORTH) : screenFacing.opposite();
+    }
+
+    public enum MonitorOrientation { NORTH_UP, VIEWER_UP }
+
+    /** Прежние клиентские значения; новые мониторы используют MonitorSweepConfig сервера. */
+    @Deprecated
     public static SectorFadeTimes sectorFadeTimes() {
         return snapshot.sectorFadeTimes();
     }
@@ -117,7 +141,8 @@ public final class RadarClientConfig {
                 read(WORLD_FLASH_FILL), read(WORLD_FLASH_EDGE));
         Palette palette = new Palette(targets, screen, new SectorColors(gui, world));
         SectorFadeTimes fadeTimes = new SectorFadeTimes(readTicks(SECTOR_FADE_TICKS), readTicks(OVERVIEW_FADE_TICKS));
-        snapshot = new Snapshot(palette, fadeTimes);
+        MonitorOrientation orientation = SPEC.isLoaded() ? MONITOR_ORIENTATION.get() : MONITOR_ORIENTATION.getDefault();
+        snapshot = new Snapshot(palette, fadeTimes, orientation);
     }
 
     private static int readTicks(ModConfigSpec.IntValue value) {
@@ -164,5 +189,5 @@ public final class RadarClientConfig {
         }
     }
 
-    private record Snapshot(Palette palette, SectorFadeTimes sectorFadeTimes) { }
+    private record Snapshot(Palette palette, SectorFadeTimes sectorFadeTimes, MonitorOrientation monitorOrientation) { }
 }

@@ -179,14 +179,14 @@ public final class RadarMonitorScreen extends Screen {
         double worldUnitsPerPixel = mapDiameterBlocks / (double) Math.max(1, contentSize);
         double deltaX = mouseX - lastDragX;
         double deltaY = mouseY - lastDragY;
-        MapFacing facing = facing();
-        MapFacing right = RadarDisplayStructureResolver.right(facing);
+        MapFacing mapUp = mapUp();
+        MapFacing right = mapUp.right();
         // При движении мыши метки и сетка должны следовать за курсором, поэтому центр карты
         // сдвигается в противоположную горизонтальную и соответствующую вертикальную сторону.
         centerOffsetX += -deltaX * worldUnitsPerPixel * right.getStepX()
-                + deltaY * worldUnitsPerPixel * facing.getStepX();
+                + deltaY * worldUnitsPerPixel * mapUp.getStepX();
         centerOffsetZ += -deltaX * worldUnitsPerPixel * right.getStepZ()
-                + deltaY * worldUnitsPerPixel * facing.getStepZ();
+                + deltaY * worldUnitsPerPixel * mapUp.getStepZ();
         lastDragX = mouseX;
         lastDragY = mouseY;
     }
@@ -229,20 +229,20 @@ public final class RadarMonitorScreen extends Screen {
         MonitorClientState.View view = MonitorClientState.get(key, partialTick);
         MonitorSnapshotData snapshot = view == null ? null : view.snapshot();
         if (!manualViewport) {
-            MapCenter center = mapCenter(facing());
-            mapDiameterBlocks = MonitorMapScale.diameter(snapshot, center.x(), center.z(), facing());
+            MapCenter center = mapCenter();
+            mapDiameterBlocks = MonitorMapScale.diameter(snapshot, center.x(), center.z(), mapUp());
             maxMapDiameterBlocks = Math.max(MAX_MAP_DIAMETER_BLOCKS, mapDiameterBlocks);
         }
         Optional<MonitorClientState.DisplayTarget> hovered = view == null
                 ? Optional.empty() : findTargetAt(view, mouseX, mouseY);
         graphics.enableScissor(contentX, contentY, contentX + contentSize, contentY + contentSize);
         if (view != null && snapshot != null) {
-            MapFacing facing = facing();
-            MapCenter center = mapCenter(facing);
+            MapFacing mapUp = mapUp();
+            MapCenter center = mapCenter();
             MonitorSectorGuiRenderer.draw(graphics, view, snapshot.dimension(),
-                    center.x(), center.z(), facing, centerOffsetX, centerOffsetZ,
+                    center.x(), center.z(), mapUp, centerOffsetX, centerOffsetZ,
                     mapDiameterBlocks, contentX, contentY, contentSize);
-            MonitorSilhouetteRenderer.gui(graphics, view, center.x(), center.z(), facing,
+            MonitorSilhouetteRenderer.gui(graphics, view, center.x(), center.z(), mapUp,
                     centerOffsetX, centerOffsetZ, mapDiameterBlocks, contentX, contentY, contentSize, partialTick);
             drawTargetLayer(graphics, view, snapshot, hovered, partialTick);
         }
@@ -276,7 +276,7 @@ public final class RadarMonitorScreen extends Screen {
     /** Выводит только те цели, для которых клиентский снимок содержит безопасную позицию. */
     private void drawTargets(VertexConsumer vertices, Matrix4f pose, MonitorClientState.View view,
                              MonitorSnapshotData snapshot, float partialTick) {
-        MapFacing facing = facing();
+        MapFacing mapUp = mapUp();
         int centerX = contentX + contentSize / 2;
         int centerY = contentY + contentSize / 2;
         double radius = contentSize / 2.0D;
@@ -285,7 +285,7 @@ public final class RadarMonitorScreen extends Screen {
 
         for (MonitorClientState.DisplayTarget target : view.targets()) {
             if (!target.hasPosition()) continue;
-            RadarDisplayProjector.MapPoint point = project(snapshot, target, facing);
+            RadarDisplayProjector.MapPoint point = project(snapshot, target, mapUp);
             if (point == null || !point.insideSquare()) continue;
             int x = (int) Math.round(centerX + point.x() * radius);
             int y = (int) Math.round(centerY - point.y() * radius);
@@ -302,7 +302,7 @@ public final class RadarMonitorScreen extends Screen {
                                   MonitorSnapshotData snapshot,
                                   Optional<MonitorClientState.DisplayTarget> hovered,
                                   float partialTick) {
-        MapFacing facing = facing();
+        MapFacing mapUp = mapUp();
         int centerX = contentX + contentSize / 2;
         int centerY = contentY + contentSize / 2;
         double radius = contentSize / 2.0D;
@@ -315,7 +315,7 @@ public final class RadarMonitorScreen extends Screen {
             boolean isHovered = hovered.isPresent() && hovered.get().target().equals(target.target());
             if (!selected && !isHovered) continue;
             if (!target.hasPosition()) continue;
-            RadarDisplayProjector.MapPoint point = project(snapshot, target, facing);
+            RadarDisplayProjector.MapPoint point = project(snapshot, target, mapUp);
             if (point == null || !point.insideSquare()) continue;
             int x = (int) Math.round(centerX + point.x() * radius);
             int y = (int) Math.round(centerY - point.y() * radius);
@@ -335,7 +335,7 @@ public final class RadarMonitorScreen extends Screen {
 
     /** Рисует мировые линии на масштабе карты и дополнительно страхует их scissor-отсечением. */
     private void drawGrid(GuiGraphics graphics) {
-        MapCenter center = mapCenter(facing());
+        MapCenter center = mapCenter();
         int color = RadarClientConfig.palette().screen().guiGrid();
         if ((color >>> 24) == 0) return;
         graphics.flush();
@@ -343,7 +343,7 @@ public final class RadarMonitorScreen extends Screen {
         Matrix4f pose = graphics.pose().last().pose();
         try {
             for (var line : MonitorGridGeometry.project(
-                    center.x(), center.z(), centerOffsetX, centerOffsetZ, facing(), mapDiameterBlocks)) {
+                    center.x(), center.z(), centerOffsetX, centerOffsetZ, mapUp(), mapDiameterBlocks)) {
                 MonitorSectorGuiRenderer.drawLine(vertices, pose, line, contentX + contentSize * 0.5D,
                         contentY + contentSize * 0.5D, contentSize * 0.5D, color, 1);
             }
@@ -411,7 +411,7 @@ public final class RadarMonitorScreen extends Screen {
                                                                     double mouseX, double mouseY) {
         MonitorSnapshotData snapshot = view.snapshot();
         if (snapshot == null) return Optional.empty();
-        MapFacing facing = facing();
+        MapFacing mapUp = mapUp();
         double centerX = contentX + contentSize / 2.0D;
         double centerY = contentY + contentSize / 2.0D;
         double radius = contentSize / 2.0D;
@@ -420,7 +420,7 @@ public final class RadarMonitorScreen extends Screen {
         return view.targets().stream()
                 .filter(MonitorClientState.DisplayTarget::hasPosition)
                 .filter(target -> view.targetOpacity(target, renderTime) > 0.0F)
-                .map(target -> new Hit(target, project(snapshot, target, facing), centerX, centerY, radius))
+                .map(target -> new Hit(target, project(snapshot, target, mapUp), centerX, centerY, radius))
                 .filter(hit -> hit.point() != null && hit.point().insideSquare()
                         && hit.distance(mouseX, mouseY) <= hitRadius)
                 .min((first, second) -> Double.compare(
@@ -431,10 +431,10 @@ public final class RadarMonitorScreen extends Screen {
     /** Проецирует цель от центра прямоугольной сборки; перетаскивание остаётся локальным GUI-сдвигом. */
     private RadarDisplayProjector.MapPoint project(MonitorSnapshotData snapshot,
                                                     MonitorClientState.DisplayTarget target,
-                                                    MapFacing facing) {
-        MapCenter center = mapCenter(facing);
+                                                    MapFacing mapUp) {
+        MapCenter center = mapCenter();
         return RadarDisplayProjector.project(target.target().dimension().location(), snapshot.dimension(),
-                center.x(), center.z(), facing, target.x(), target.z(), centerOffsetX, centerOffsetZ,
+                center.x(), center.z(), mapUp, target.x(), target.z(), centerOffsetX, centerOffsetZ,
                 mapDiameterBlocks);
     }
 
@@ -442,7 +442,7 @@ public final class RadarMonitorScreen extends Screen {
      * Возвращает центр всей загруженной сборки в мировых X/Z; при отсутствии геометрии
      * использует позицию корня. Чётная ширина даёт корректный центр между блоками.
      */
-    private MapCenter mapCenter(MapFacing ignored) {
+    private MapCenter mapCenter() {
         Minecraft minecraft = Minecraft.getInstance();
         BlockPos position = minecraft.level == null ? null : key.storagePosition(minecraft.level);
         if (position != null && minecraft.level.getBlockEntity(position) instanceof RadarDisplayBlockEntity root) {
@@ -462,7 +462,12 @@ public final class RadarMonitorScreen extends Screen {
         return Math.max(1, (int) Math.round(scaledPixels));
     }
 
-    private MapFacing facing() {
+    private MapFacing mapUp() {
+        return RadarClientConfig.monitorMapUp(screenFacing());
+    }
+
+    /** Лицевая сторона монитора в мире; на движущейся структуре поворачивается вместе с ней. */
+    private MapFacing screenFacing() {
         Minecraft minecraft = Minecraft.getInstance();
         BlockPos position = minecraft.level == null ? null : key.storagePosition(minecraft.level);
         if (position != null && minecraft.level.getBlockEntity(position) instanceof RadarDisplayBlockEntity root) {

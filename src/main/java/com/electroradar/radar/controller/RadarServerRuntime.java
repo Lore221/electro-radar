@@ -30,7 +30,7 @@ import com.electroradar.radar.visual.RadarVisualProfile;
 final class RadarServerRuntime implements RadarObservationSource {
     private static final String NETWORK_ID_TAG = "NetworkId";
     private static final String SECTOR_ORDER_TAG = "SectorOrderVariant";
-    /** Память забывает подтверждение после трёх посещений именно его геометрического сектора. */
+    /** Три промаха с прежним интервалом подтверждения 70/120 тиков при D=10. */
     private static final NetworkPolicy POLICY = new NetworkPolicy(3L);
 
     private NetworkId networkId;
@@ -181,9 +181,21 @@ final class RadarServerRuntime implements RadarObservationSource {
         } else {
             List<RadarObservationPlan.Sector> sectors = geometry.sectors().stream()
                     .map(sector -> new RadarObservationPlan.Sector(sector.index(), sector.area())).toList();
-            ObservationWindowSchedule schedule = kind == RadarApertureKind.OVERVIEW
-                    ? OverviewRadarSchedule.create(sectorOrderVariant)
-                    : ObservationWindowSchedule.sectorCycle(geometry.profile().sectorCount(), sectorOrderVariant);
+            // Каждое базовое окно ищет всю область. Срок серверной памяти сохраняет
+            // прежние значения 70/120 при D=10 и не зависит от анимации монитора.
+            long memoryWindows = kind == RadarApertureKind.OVERVIEW ? 12L : 7L;
+            ObservationWindowSchedule schedule = new ObservationWindowSchedule() {
+                @Override
+                public Optional<ObservationWindow> windowAt(long tick, NetworkWindow window) {
+                    return Optional.of(new ObservationWindow(List.of(0), window.startTick(), window.endTick(),
+                            Math.multiplyExact(window.durationTicks(), memoryWindows)));
+                }
+
+                @Override
+                public long confirmationMissIntervalTicks(ObservationWindow window) {
+                    return window.fadeDurationTicks();
+                }
+            };
             plan = new RadarObservationPlan(level.dimension().location(), geometry.profile(), sectors,
                     sectorOrderVariant, geometryRevision, parameters.revision(),
                     RadarTargetFilter.ELIGIBLE, schedule);

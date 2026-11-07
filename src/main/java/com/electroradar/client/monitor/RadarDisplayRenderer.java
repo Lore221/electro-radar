@@ -167,15 +167,16 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
         double centerZ = frame.centerZ();
         double squareSide = Math.min(width, height);
         Direction right = RadarDisplayStructureResolver.right(facing);
+        MapFacing mapUp = RadarClientConfig.monitorMapUp(frame.facing());
 
-        double mapDiameter = MonitorMapScale.diameter(snapshot, centerX, centerZ, frame.facing());
+        double mapDiameter = MonitorMapScale.diameter(snapshot, centerX, centerZ, mapUp);
 
         if (view != null && snapshot != null) {
             MonitorSectorWorldRenderer.draw(display, poseStack, buffers, facing, origin,
                     view, snapshot, centerX, centerZ, mapDiameter, centerU, centerV,
-                    contentLeft, contentBottom, contentSide, mapRadius, packedOverlay, frame.facing());
+                    contentLeft, contentBottom, contentSide, mapRadius, packedOverlay, mapUp);
             MonitorSilhouetteRenderer.world(display, poseStack, buffers, facing, origin, view, centerX, centerZ,
-                    frame.facing(), mapDiameter, centerU, centerV, contentLeft, contentBottom,
+                    mapUp, mapDiameter, centerU, centerV, contentLeft, contentBottom,
                     contentSide, mapRadius, packedOverlay, partialTick);
             drawTargetIcons(display, poseStack, buffers, facing, origin, view, snapshot,
                     centerX, centerZ, centerU, centerV, contentLeft, contentBottom, contentSide,
@@ -187,7 +188,7 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
 
         // Линии не притворяются секторами или CEE: это только масштабная мировая координатная сетка.
         drawGrid(display, poseStack, buffers, facing, origin, centerX, centerZ,
-                centerU, centerV, contentLeft, contentBottom, contentSide, mapRadius, mapDiameter, packedOverlay, frame.facing());
+                centerU, centerV, contentLeft, contentBottom, contentSide, mapRadius, mapDiameter, packedOverlay, mapUp);
     }
 
     /** Первый проход меток: атласный знак с размером ячейки, зависящим от масштаба карты. */
@@ -204,7 +205,8 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
         for (MonitorClientState.DisplayTarget target : view.targets()) {
             if (!target.hasPosition()) continue;
             var point = RadarDisplayProjector.project(target.target().dimension().location(), snapshot.dimension(),
-                    centerX, centerZ, display.mapFrame(partialTick).facing(), target.x(), target.z(), 0.0D, 0.0D, mapDiameter);
+                    centerX, centerZ, RadarClientConfig.monitorMapUp(display.mapFrame(partialTick).facing()),
+                    target.x(), target.z(), 0.0D, 0.0D, mapDiameter);
             if (point == null || !intersectsMap(point.x(), point.y(), markerHalf, mapRadius)) continue;
 
             double x = centerU + point.x() * mapRadius;
@@ -239,7 +241,8 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
         for (MonitorClientState.DisplayTarget target : view.targets()) {
             if (!target.hasPosition() || !snapshot.selectedTarget().equals(target.target())) continue;
             var point = RadarDisplayProjector.project(target.target().dimension().location(), snapshot.dimension(),
-                    centerX, centerZ, display.mapFrame(partialTick).facing(), target.x(), target.z(), 0.0D, 0.0D, mapDiameter);
+                    centerX, centerZ, RadarClientConfig.monitorMapUp(display.mapFrame(partialTick).facing()),
+                    target.x(), target.z(), 0.0D, 0.0D, mapDiameter);
             if (point == null || !intersectsMap(point.x(), point.y(), frameHalf, mapRadius)) continue;
 
             double x = centerU + point.x() * mapRadius;

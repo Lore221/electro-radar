@@ -63,6 +63,8 @@ tasks.named('test', Test).configure {
 
 neoForge {
     version = project.neo_version
+    // Exercise Catnip outlines against real Minecraft geometry in regression tests.
+    addModdingDependenciesTo sourceSets.test
 
     runs {
         client {

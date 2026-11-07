@@ -7,13 +7,11 @@ import java.util.List;
 
 import net.minecraft.core.Direction;
 
-import com.electroradar.radar.monitor.RadarDisplayStructureResolver;
-
 /**
  * Общая геометрия мировой сетки монитора для GUI и экранной поверхности блока.
  *
  * <p>Сетка привязана к кратным значениям мировых X/Z, а не к пикселям окна. Поэтому при
- * перемещении карты линии проходят под теми же метками, а при смене направления панели
+ * перемещении карты линии проходят под теми же метками, а при смене ориентации карты
  * поворачиваются на четверть оборота вместе с проекцией. Нормированная координата линии
  * измеряется от центра: для вертикали положительное значение направлено вправо, для
  * горизонтали — вниз по экрану.</p>
@@ -47,11 +45,11 @@ final class MonitorGridGeometry {
      * Смещение центра — клиентское состояние перетаскиваемого GUI; world-renderer передаёт нули.
      */
     static List<MonitorSectorProjection.ProjectedSegment> project(double centerX, double centerZ,
-            double offsetX, double offsetZ, MapFacing facing, double diameter) {
+            double offsetX, double offsetZ, MapFacing mapUp, double diameter) {
         double radius = Math.max(0.5D, diameter * 0.5D);
         double reach = radius * Math.sqrt(2.0D);
         double step = stepBlocks(diameter);
-        var right = facing.right();
+        var right = mapUp.right();
         double cx = centerX + offsetX, cz = centerZ + offsetZ;
         ArrayList<MonitorSectorProjection.ProjectedSegment> result = new ArrayList<>();
         for (int axis = 0; axis < 2; axis++) {
@@ -65,9 +63,9 @@ final class MonitorGridGeometry {
                 double bx = axis == 0 ? value - cx : reach;
                 double bz = axis == 0 ? reach : value - cz;
                 var a = new MonitorSectorProjection.MapPoint((ax * right.getStepX() + az * right.getStepZ()) / radius,
-                        (ax * facing.getStepX() + az * facing.getStepZ()) / radius);
+                        (ax * mapUp.getStepX() + az * mapUp.getStepZ()) / radius);
                 var b = new MonitorSectorProjection.MapPoint((bx * right.getStepX() + bz * right.getStepZ()) / radius,
-                        (bx * facing.getStepX() + bz * facing.getStepZ()) / radius);
+                        (bx * mapUp.getStepX() + bz * mapUp.getStepZ()) / radius);
                 MonitorSectorProjection.clipSegment(a, b).ifPresent(result::add);
             }
         }

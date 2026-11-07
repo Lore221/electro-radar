@@ -82,8 +82,8 @@ public final class RadarServerConfig {
                 .defineInRange("range_per_module", DEFAULT.overview().rangePerModule(), 0, 1_024);
         builder.pop();
 
-        builder.comment("Base network window duration: panel visits use one window, overview visits use two.").push("scanning");
-        SECTOR_TICKS = builder.comment("Ticks per base window; changes wait for the next common visit boundary.")
+        builder.comment("Full-area entity search interval for panel and overview radars.").push("scanning");
+        SECTOR_TICKS = builder.comment("Deprecated: full-area searches run every 10 ticks. Known UUIDs are checked each tick; client animation is independent.")
                 .translation("electroradar.config.server.scanning.sector_ticks")
                 .defineInRange("sector_ticks", DEFAULT.sectorTicks(), 1, 200);
         builder.pop();
@@ -105,10 +105,12 @@ public final class RadarServerConfig {
         builder.pop();
 
         builder.comment("Deprecated settings retained for existing configurations.").push("visual");
-        VISUAL_PARTS = builder.comment("Deprecated and ignored: current radars always use seven sectors.")
+        VISUAL_PARTS = builder.comment("Deprecated and ignored: use monitor_sweep.panel/overview.subsectors for client rendering.")
                 .translation("electroradar.config.server.visual.parts")
                 .defineInRange("parts", 7, 1, 64);
         builder.pop();
+        MonitorSweepConfig.define(builder);
+        MonitorPaletteConfig.define(builder);
         SPEC = builder.build();
     }
 
@@ -122,6 +124,11 @@ public final class RadarServerConfig {
      * записью публикуется новый набор. Сканирующий поток никогда не читает ConfigValue по одному.
      */
     public static void onConfigChanged(ModConfigEvent event) {
+        if (event.getConfig().getSpec() == SPEC && event instanceof ModConfigEvent.Unloading) {
+            MonitorSweepConfig.reset();
+            MonitorPaletteConfig.refresh(false);
+            return;
+        }
         if (!(event instanceof ModConfigEvent.Loading || event instanceof ModConfigEvent.Reloading)
                 || event.getConfig().getSpec() != SPEC) {
             return;
@@ -131,6 +138,8 @@ public final class RadarServerConfig {
             long revision = publishedSnapshot.revision() + 1L;
             next = readSnapshot(revision);
             publishedSnapshot = next;
+            MonitorSweepConfig.refresh();
+            MonitorPaletteConfig.refresh(true);
         }
         RadarDiagnostics.log("server_config_changed", null, null, null, null,
                 "configRevision=" + next.revision() + " apply=next_scan_window");
@@ -150,12 +159,13 @@ public final class RadarServerConfig {
         int legacyParts = VISUAL_PARTS.get();
         if (legacyParts != 7) {
             RadarDiagnostics.log("config_legacy_visual_parts_ignored", null, null, null, null,
-                    "configRevision=" + revision + " configured=" + legacyParts + " used=7");
+                    "configRevision=" + revision + " configured=" + legacyParts
+                            + " observationAreas=1 clientParts=monitor_sweep");
         }
         return new Snapshot(revision, MAX_PANELS.get(), range,
                 GROUND.read(DEFAULT.ground(), "ground", revision),
                 AIR.read(DEFAULT.air(), "air", revision),
-                SURFACE.read(DEFAULT.surface(), "surface", revision), SECTOR_TICKS.get(),
+                SURFACE.read(DEFAULT.surface(), "surface", revision), DEFAULT.sectorTicks(),
                 new OverviewParameters(MAX_OVERVIEW_MODULES.get(), OVERVIEW_RANGE_PER_MODULE.get()),
                 new TargetControllerParameters(TARGET_CONTROLLER_DRIVE_RPM.get(), TARGET_CONTROLLER_ACCELERATION.get(),
                         BIG_CANNON_MIN_DISTANCE.get(), AUTOCANNON_MIN_DISTANCE.get()));

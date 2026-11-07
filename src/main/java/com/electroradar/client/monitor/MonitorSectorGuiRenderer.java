@@ -24,7 +24,7 @@ final class MonitorSectorGuiRenderer {
      */
     static void draw(GuiGraphics graphics, MonitorClientState.View view,
                      ResourceLocation mapDimension, double mapCenterX, double mapCenterZ,
-                     MapFacing facing, double offsetX, double offsetZ, double mapDiameter,
+                     MapFacing mapUp, double offsetX, double offsetZ, double mapDiameter,
                      int contentX, int contentY, int contentSize) {
         if (view == null) return;
         MonitorSnapshotData snapshot = view.snapshot();
@@ -55,11 +55,13 @@ final class MonitorSectorGuiRenderer {
             }
         };
         try {
-            for (RadarVisualProfile profile : snapshot.visualProfiles()) {
+            for (RadarVisualProfile source : snapshot.visualProfiles()) {
+                var frame = frameByProfile.get(source.key());
+                RadarVisualProfile profile = frame == null ? source : frame.profile();
                 MonitorSectorProjection.ProjectedCoverage coverage = MonitorSectorProjection.project(
-                        profile, mapDimension, mapCenterX, mapCenterZ, facing,
+                        profile, mapDimension, mapCenterX, mapCenterZ, mapUp,
                         offsetX, offsetZ, mapDiameter);
-                MonitorSectorMesh.emit(coverage, profile.animation(), frameByProfile.get(profile.key()), colors, sink);
+                MonitorSectorMesh.emit(coverage, profile.animation(), frame, colors, sink);
             }
         } finally {
             // Отсечение остаётся включённым вызывающим экраном до завершения этого пакета.

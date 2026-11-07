@@ -169,6 +169,8 @@ final class RadarNetworkState {
 
     static final class SectorConfirmation {
         int missedVisits;
+        /** Частота поиска может быть выше прежней частоты учёта промахов памяти. */
+        long nextMissTick;
         Optional<ObservationClassification> classification = Optional.empty();
         LiveResult measurement;
         long lastSuccessfulVisitTick = -1;

@@ -95,10 +95,19 @@ final class RadarAreaGeometry {
             double forwardAngle = Math.atan2(forward.x, -forward.z);
             startAngle = forwardAngle - sweep / 2.0D;
         }
-        RadarVisualProfile profile = RadarVisualProfile.triangularFan(
+        RadarVisualProfile outlineProfile = RadarVisualProfile.triangularFan(
                 dimension, sourcePosition, centerX, centerY, centerZ,
                 range, startAngle, sweep, sectorCount, sectorOrderVariant,
                 apertureKind == RadarApertureKind.OVERVIEW ? RadarVisualFadeStyle.OVERVIEW : RadarVisualFadeStyle.SECTOR);
+        // Число опорных треугольников сохраняет прежнюю внешнюю ломаную (7/18).
+        // Наблюдаемая область одна: разбиение для анимации выполняет только клиент.
+        List<RadarVisualGeometry.Triangle> triangles = outlineProfile.coverage().sectors().stream()
+                .flatMap(sector -> sector.triangles().stream()).toList();
+        RadarVisualGeometry.Coverage coverage = new RadarVisualGeometry.Coverage(
+                outlineProfile.coverage().outline(), List.of(),
+                List.of(new RadarVisualGeometry.Sector(0, triangles, outlineProfile.coverage().outline())));
+        RadarVisualProfile profile = new RadarVisualProfile(dimension, sourcePosition, centerX, centerY, centerZ,
+                coverage, outlineProfile.animation(), sectorOrderVariant, outlineProfile.inactiveSectorFadeStyle());
         RadarServerConfig.VerticalRange vertical = modeParameters.verticalRange();
         double worldMinY = centerY + vertical.minY();
         double worldMaxY = centerY + vertical.maxY();
