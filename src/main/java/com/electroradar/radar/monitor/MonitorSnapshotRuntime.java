@@ -103,6 +103,9 @@ final class MonitorSnapshotRuntime {
     }
 
     private void rebuild(RadarDisplayBlockEntity owner, ServerLevel serverLevel, ConsumerConnection connection) {
+        // Без размещения (структура удаляется в этом тике) снимок не строится, прежний остаётся.
+        var placement = RadarSpatial.placement(serverLevel, owner.getBlockPos());
+        if (placement.isEmpty()) return;
         TargetSnapshot<MonitorTargetData> targets = connection == null
                 ? TargetSnapshot.empty() : connection.queryTargets(MonitorSnapshotRuntime::projectTarget);
         VisualWindow visual = connection == null ? VisualWindow.EMPTY
@@ -115,7 +118,7 @@ final class MonitorSnapshotRuntime {
                 serverLevel.dimension().location(), owner.loadId(), snapshotSequence + 1, candidateGeometry,
                 currentTick(serverLevel), owner.networkId() != null, selection.unavailable(), selection.target(),
                 targets.targets(), visual.profiles(), visual.phases(),
-                RadarSpatial.placement(serverLevel, owner.getBlockPos()).orElseThrow().endpoint());
+                placement.get().endpoint());
         if (candidate.sameContent(latestSnapshot)) return;
         if (geometryChanged) {
             geometryVersion = candidateGeometry;

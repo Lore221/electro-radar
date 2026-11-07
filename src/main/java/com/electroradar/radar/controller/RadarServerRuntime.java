@@ -155,6 +155,8 @@ final class RadarServerRuntime implements RadarObservationSource {
         RadarApertureKind kind = controller.assembly().apertureKind();
         int apertureCount = controller.assembly().apertureCount();
         if (kind == RadarApertureKind.OVERVIEW && apertureCount <= 0) return Optional.empty();
+        // Структура может исчезнуть в этом тике: без размещения план не строится.
+        if (RadarSpatial.placement(level, controller.getBlockPos()).isEmpty()) return Optional.empty();
         RadarAreaGeometry.GeometrySnapshot geometry = geometry(
                 controller, level, mode, kind, apertureCount, parameters);
         int activeLimit = kind == RadarApertureKind.OVERVIEW

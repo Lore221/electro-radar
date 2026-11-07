@@ -155,10 +155,12 @@ public final class RadarDisplayRenderer implements BlockEntityRenderer<RadarDisp
                                       double mapRadius, int packedOverlay, float partialTick) {
         Minecraft minecraft = Minecraft.getInstance();
         MonitorClientState.View view = null;
-        if (minecraft.level != null) {
+        // Структура может исчезнуть в этом кадре: без размещения карта просто не рисуется.
+        var rootPlacement = minecraft.level == null ? java.util.Optional.<com.electroradar.radar.spatial.Placement>empty()
+                : RadarSpatial.placement(minecraft.level, display.rootPosition());
+        if (rootPlacement.isPresent()) {
             MonitorDisplayKey key = new MonitorDisplayKey(minecraft.level.dimension().location(),
-                    display.rootPosition(), display.displayId(), display.loadId(),
-                    RadarSpatial.placement(minecraft.level, display.rootPosition()).orElseThrow().endpoint());
+                    display.rootPosition(), display.displayId(), display.loadId(), rootPlacement.get().endpoint());
             view = MonitorClientState.get(key, partialTick);
         }
         MonitorSnapshotData snapshot = view == null ? null : view.snapshot();

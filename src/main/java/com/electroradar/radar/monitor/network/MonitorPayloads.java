@@ -97,7 +97,7 @@ public final class MonitorPayloads {
         var position = RadarSpatial.resolve(level, payload.rootEndpoint());
         if (position.isEmpty()) return;
         if (level.getBlockEntity(position.get()) instanceof RadarDisplayBlockEntity root
-                && root.loadId().equals(payload.loadId())) {
+                && payload.loadId().equals(root.loadId())) {
             root.handleSelection(player, payload.displayId(), payload.target());
         }
     }
