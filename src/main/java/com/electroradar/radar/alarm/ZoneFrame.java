@@ -40,16 +40,17 @@ public record ZoneFrame(Vector3 localOrigin, Vector3 worldOrigin, Vector3 x, Vec
     }
 
     /**
-     * Совпадает ли поза с {@code other} в пределах допуска: смещение одной и той же локальной
-     * точки и отклонение осей.
+     * Проверяет максимальное смещение объёма при переходе к {@code other}. Максимум расстояния
+     * между двумя аффинно преобразованными точками прямоугольника достигается в одной из вершин.
      */
-    boolean close(ZoneFrame other, Vector3 probe, double distance, double axisCosine) {
-        return toWorld(probe).subtract(other.toWorld(probe)).length() <= distance
-                && cosine(x, other.x) >= axisCosine && cosine(y, other.y) >= axisCosine
-                && cosine(z, other.z) >= axisCosine;
-    }
-
-    private static double cosine(Vector3 a, Vector3 b) {
-        return a.dot(b) / Math.sqrt(a.dot(a) * b.dot(b));
+    boolean close(ZoneFrame other, ProtectionBox volume, double distance) {
+        for (int corner = 0; corner < 8; corner++) {
+            Vector3 point = new Vector3(
+                    (corner & 1) == 0 ? volume.min().x() : volume.max().x(),
+                    (corner & 2) == 0 ? volume.min().y() : volume.max().y(),
+                    (corner & 4) == 0 ? volume.min().z() : volume.max().z());
+            if (toWorld(point).subtract(other.toWorld(point)).length() > distance) return false;
+        }
+        return true;
     }
 }
