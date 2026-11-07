@@ -97,6 +97,10 @@ public final class ZoneSelectionClientEvents {
         Minecraft mc = Minecraft.getInstance();
         InteractionHand hand = activeHand();
         if (mc.player == null || mc.level == null || mc.screen != null || hand == null) return;
+        // Предмет основной руки важнее Выделителя во второй, как в vanilla: иначе с ним в левой руке
+        // нельзя поставить блок. Вторая рука получит своё событие, если основная ничего не сделает.
+        if (hand == InteractionHand.OFF_HAND && event.getHand() == InteractionHand.MAIN_HAND
+                && !mc.player.getMainHandItem().isEmpty()) return;
         INPUT.use(event, hand, selectedHand -> PacketDistributor.sendToServer(new ZoneSelectPayload(selectedHand,
                 ZoneSelectionItem.selectionId(mc.player.getItemInHand(selectedHand)),
                 AllKeys.ACTIVATE_TOOL.isPressed(), range, mc.player.isShiftKeyDown())));
