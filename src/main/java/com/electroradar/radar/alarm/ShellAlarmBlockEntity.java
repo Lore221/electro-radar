@@ -50,8 +50,16 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
 
     public NetworkId getOrCreateInterceptionNetwork() {
         if (interceptionNetwork == null) { interceptionNetwork = NetworkId.create(); setChanged(); }
-        if (level instanceof ServerLevel world) InterceptionNetworks.forServer(world.getServer())
-                .registerOwner(interceptionNetwork, new EndpointKey.Static(world.dimension(), worldPosition));
+        if (level instanceof ServerLevel world) {
+            var directory = InterceptionNetworks.forServer(world.getServer());
+            var self = new EndpointKey.Static(world.dimension(), worldPosition);
+            // Сетью уже владеет другой Alarm: этот блок — копия с тем же NBT, ему нужна своя сеть.
+            if (!directory.registerOwner(interceptionNetwork, self)) {
+                interceptionNetwork = NetworkId.create();
+                directory.registerOwner(interceptionNetwork, self);
+                setChanged();
+            }
+        }
         return interceptionNetwork;
     }
 

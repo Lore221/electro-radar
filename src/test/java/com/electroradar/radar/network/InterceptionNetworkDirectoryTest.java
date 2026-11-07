@@ -24,6 +24,13 @@ class InterceptionNetworkDirectoryTest {
         directory.connect(endpoint(3), b);
         assertFalse(directory.members(a).contains(endpoint(3)));
     }
+    @Test void secondOwnerOfTheSameNetworkIsRefusedWithoutReplacingTheFirst() {
+        var directory = new InterceptionNetworkDirectory(); var network = NetworkId.create();
+        assertTrue(directory.registerOwner(network, endpoint(1)));
+        assertTrue(directory.registerOwner(network, endpoint(1)));
+        assertFalse(directory.registerOwner(network, endpoint(2)));
+        assertEquals(endpoint(1), directory.owner(network));
+    }
     @Test void unloadingOwnerRevokesMembershipAndCannotRemoveAnotherOwner() {
         var directory = new InterceptionNetworkDirectory(); var network = NetworkId.create();
         assertFalse(directory.connect(endpoint(2), network));
