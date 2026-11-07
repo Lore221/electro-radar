@@ -28,7 +28,9 @@ import com.electroradar.radar.network.TargetView;
  * <p><b>Когда пересобирать.</b> Корень тикает каждый тик, но сеть перечитывает только если
  * изменилась версия сети ({@link ConsumerConnection#contentVersion()}), сама связь, NetworkId
  * или сборка экрана, либо снимок явно сброшен. Версия сети растёт при любом видимом
- * изменении, поэтому в тихой сети тик корня стоит одного сравнения чисел.</p>
+ * изменении, в том числе при каждом шаге движущейся цели, поэтому перечитывание из-за неё
+ * идёт не чаще {@link MonitorRefreshGate}; смена связи, сети, сборки, выбора цели и открытие
+ * GUI применяются сразу.</p>
  *
  * <p><b>Что отправлять.</b> Всегда полный снимок целей и фаз. Профили радаров тяжёлые, поэтому
  * рассылка включает их только при смене {@code geometryVersion} или после сброса. Адресная
@@ -48,6 +50,9 @@ final class MonitorSnapshotRuntime {
     private boolean broadcastRequired = true;
 
     private final java.util.Set<java.util.UUID> knownWatchers = new java.util.HashSet<>();
+    private final MonitorRefreshGate refreshGate = new MonitorRefreshGate();
+    /** Запрошенный выбор сети при последней сборке: его смена видна сразу, без ожидания шага. */
+    private TargetRef lastRequestedSelection;
     private boolean rebuildRequired = true;
     private ConsumerConnection lastConnection;
     private long lastContentVersion = Long.MIN_VALUE;
@@ -56,6 +61,7 @@ final class MonitorSnapshotRuntime {
 
     void resetForLoad() {
         knownWatchers.clear();
+        refreshGate.reset();
         latestSnapshot = null;
         snapshotSequence = 0L;
         geometryVersion = 0L;
@@ -74,32 +80,38 @@ final class MonitorSnapshotRuntime {
 
     void refreshAndBroadcast(RadarDisplayBlockEntity owner, ServerLevel serverLevel,
                              ConsumerConnection connection, boolean openGui, ServerPlayer recipient) {
-        long contentVersion = connection == null ? -1L : connection.contentVersion();
-        boolean dirty = rebuildRequired || latestSnapshot == null
-                || connection != lastConnection || contentVersion != lastContentVersion
+        boolean urgent = rebuildRequired || latestSnapshot == null || recipient != null
+                || connection != lastConnection
                 || owner.structureVersion() != lastStructureVersion
-                || !Objects.equals(owner.networkId(), lastNetworkId);
-        if (dirty) {
-            rebuild(owner, serverLevel, connection);
-            rebuildRequired = false;
-            lastConnection = connection;
-            lastContentVersion = contentVersion;
-            lastStructureVersion = owner.structureVersion();
-            lastNetworkId = owner.networkId();
-        }
-        if (latestSnapshot != null) {
-            var watchers = RadarSpatial.backend().watchers(serverLevel, owner.getBlockPos());
-            java.util.Set<java.util.UUID> current = new java.util.HashSet<>();
-            for (ServerPlayer watcher : watchers) {
-                current.add(watcher.getUUID());
-                if (!knownWatchers.contains(watcher.getUUID())) {
-                    MonitorPayloads.sendToPlayer(watcher, latestSnapshot.withServerTiming(currentTick(serverLevel)), false);
-                }
+                || !Objects.equals(owner.networkId(), lastNetworkId)
+                || !Objects.equals(requestedSelection(connection), lastRequestedSelection);
+        long now = serverLevel.getGameTime();
+        refreshGate.refreshAndPublish(now, urgent, () -> {
+            long contentVersion = connection == null ? -1L : connection.contentVersion();
+            boolean dirty = urgent || contentVersion != lastContentVersion;
+            if (dirty) {
+                rebuild(owner, serverLevel, connection);
+                rebuildRequired = false;
+                lastConnection = connection;
+                lastContentVersion = contentVersion;
+                lastStructureVersion = owner.structureVersion();
+                lastNetworkId = owner.networkId();
             }
-            knownWatchers.retainAll(current);
-            knownWatchers.addAll(current);
-        }
-        send(owner, serverLevel, openGui, recipient);
+        }, () -> {
+            if (latestSnapshot != null) {
+                var watchers = RadarSpatial.backend().watchers(serverLevel, owner.getBlockPos());
+                java.util.Set<java.util.UUID> current = new java.util.HashSet<>();
+                for (ServerPlayer watcher : watchers) {
+                    current.add(watcher.getUUID());
+                    if (!knownWatchers.contains(watcher.getUUID())) {
+                        MonitorPayloads.sendToPlayer(watcher, latestSnapshot.withServerTiming(currentTick(serverLevel)), false);
+                    }
+                }
+                knownWatchers.retainAll(current);
+                knownWatchers.addAll(current);
+            }
+            send(owner, serverLevel, openGui, recipient);
+        });
     }
 
     private void rebuild(RadarDisplayBlockEntity owner, ServerLevel serverLevel, ConsumerConnection connection) {
@@ -111,6 +123,7 @@ final class MonitorSnapshotRuntime {
         VisualWindow visual = connection == null ? VisualWindow.EMPTY
                 : visualProfiles.collect(serverLevel, owner.networkId(), owner.getBlockPos());
         Selection selection = selection(connection, targets.targets());
+        lastRequestedSelection = requestedSelection(connection);
         boolean geometryChanged = latestSnapshot == null
                 || !latestSnapshot.visualProfiles().equals(visual.profiles());
         long candidateGeometry = geometryChanged ? geometryVersion + 1 : geometryVersion;
@@ -150,6 +163,7 @@ final class MonitorSnapshotRuntime {
 
     private void forgetSources() {
         rebuildRequired = true;
+        lastRequestedSelection = null;
         lastConnection = null;
         lastContentVersion = Long.MIN_VALUE;
         lastStructureVersion = Long.MIN_VALUE;
@@ -158,6 +172,10 @@ final class MonitorSnapshotRuntime {
 
     private static long currentTick(ServerLevel serverLevel) {
         return RadarNetworkManager.forServer(serverLevel.getServer()).currentServerTick();
+    }
+
+    private static TargetRef requestedSelection(ConsumerConnection connection) {
+        return connection == null || !connection.isOpen() ? null : connection.selectedTarget().orElse(null);
     }
 
     /** Не раскрывает выбранную цель, если текущая регистрация уже не может прочитать её. */
