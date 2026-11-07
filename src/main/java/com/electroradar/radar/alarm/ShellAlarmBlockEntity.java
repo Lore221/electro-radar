@@ -19,6 +19,10 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.item.ItemStack;
+import com.electroradar.radar.network.InterceptionNetworks;
+import com.electroradar.radar.network.EndpointKey;
+import com.electroradar.radar.network.TargetSources;
 import net.minecraft.world.level.block.state.BlockState;
 import rbasamoyai.createbigcannons.munitions.big_cannon.AbstractBigCannonProjectile;
 
@@ -39,6 +43,42 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
     private final ConsumerConnectionLifecycle connection =
             new ConsumerConnectionLifecycle("shell_alarm_registration_failed");
     private ProtectionZone zone;
+    private NetworkId interceptionNetwork;
+    private final ProtectionZoneSlot selector = new ProtectionZoneSlot();
+
+    public NetworkId interceptionNetworkId() { return interceptionNetwork; }
+
+    public NetworkId getOrCreateInterceptionNetwork() {
+        if (interceptionNetwork == null) { interceptionNetwork = NetworkId.create(); setChanged(); }
+        if (level instanceof ServerLevel world) InterceptionNetworks.forServer(world.getServer())
+                .registerOwner(interceptionNetwork, new EndpointKey.Static(world.dimension(), worldPosition));
+        return interceptionNetwork;
+    }
+
+    public boolean insertSelector(ItemStack stack) {
+        if (!(level instanceof ServerLevel world) || !(stack.getItem() instanceof ZoneSelectionItem)) return false;
+        ProtectionZone selected = ZoneSelectionItem.zone(stack).orElse(null);
+        if (!validZone(world, selected) || !selector.insert(stack, selected)) return false;
+        zone = selector.zone();
+        clearThreats(); setChanged(); sendData();
+        return true;
+    }
+
+    public ItemStack extractSelector() {
+        ItemStack result = selector.extract();
+        zone = null;
+        clearThreats(); setChanged(); sendData();
+        return result;
+    }
+
+    /** Проверка прав выполняется сейчас, даже если Alarm ещё не тикал в этом серверном тике. */
+    public boolean permits(TargetRef target) {
+        if (!(level instanceof ServerLevel world) || !validZone(world, zone)
+                || connection.current() == null || !connection.current().isOpen()) return false;
+        TargetSources sources = connection.current().sourcesForTarget(target);
+        return sources.confirmed() && sources.liveResult()
+                .map(LiveResult::availability).filter(TargetAvailability.AVAILABLE::equals).isPresent();
+    }
     private Status status = Status.NO_NETWORK;
     private int dangerousCount;
     private int unsupportedCount;
@@ -59,16 +99,6 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
     /** Те же снаряды с тиками до входа в зону; по ним контроллер перехвата выбирает самую срочную цель. */
     public Map<UUID, Integer> threats() { return tracker.ticksToDanger(); }
 
-    public boolean applyZone(ProtectionZone next) {
-        if (!(level instanceof ServerLevel world) || !validZone(world, next)) return false;
-        if (Objects.equals(zone, next)) return true;
-        zone = next;
-        clearThreats();
-        setChanged();
-        sendData();
-        return true;
-    }
-
     static boolean validZone(ServerLevel level, ProtectionZone zone) {
         return zone != null && zone.dimension().equals(level.dimension().location())
                 && zone.min().getY() >= level.getMinBuildHeight() && zone.max().getY() < level.getMaxBuildHeight();
@@ -77,6 +107,7 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
     void serverTick() {
         tick();
         if (!(level instanceof ServerLevel world)) return;
+        getOrCreateInterceptionNetwork();
         connection.ensure(world, worldPosition, networkId);
         diagnostics.begin(world, worldPosition, networkId, zone);
         boolean wasDangerous = dangerousCount > 0;
@@ -184,6 +215,9 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
 
     /** Create вызывает и при выгрузке чанка: оповещать соседей здесь нельзя, это может подгрузить чанк. */
     @Override public void invalidate() {
+        if (level instanceof ServerLevel world && interceptionNetwork != null)
+            InterceptionNetworks.forServer(world.getServer()).removeOwner(interceptionNetwork,
+                    new EndpointKey.Static(world.dimension(), worldPosition));
         connection.close();
         resetThreats();
         super.invalidate();
@@ -192,7 +226,9 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
     @Override protected void write(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
         super.write(tag, registries, clientPacket);
         if (networkId != null) tag.putUUID(NETWORK, networkId.value());
-        if (zone != null) tag.put(ZONE, zone.save());
+        if (interceptionNetwork != null) tag.putUUID("InterceptionNetwork", interceptionNetwork.value());
+        selector.write(tag, registries);
+        if (clientPacket && zone != null) tag.put(ZONE, zone.save());
         if (clientPacket) {
             tag.putString("AlarmStatus", status.name());
             tag.putInt("DangerousCount", dangerousCount);
@@ -209,7 +245,12 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
     @Override protected void read(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
         super.read(tag, registries, clientPacket);
         NetworkId saved = tag.hasUUID(NETWORK) ? new NetworkId(tag.getUUID(NETWORK)) : null;
-        ProtectionZone savedZone = ProtectionZone.load(tag.getCompound(ZONE)).orElse(null);
+        if (!clientPacket) {
+            selector.read(tag, registries);
+            interceptionNetwork = tag.hasUUID("InterceptionNetwork")
+                    ? new NetworkId(tag.getUUID("InterceptionNetwork")) : null;
+        }
+        ProtectionZone savedZone = clientPacket ? ProtectionZone.load(tag.getCompound(ZONE)).orElse(null) : selector.zone();
         if (!Objects.equals(saved, networkId) || !Objects.equals(savedZone, zone)) {
             connection.close();
             tracker.clear();

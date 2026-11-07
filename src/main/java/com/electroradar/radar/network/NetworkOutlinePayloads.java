@@ -17,7 +17,7 @@ public final class NetworkOutlinePayloads {
      */
     public static void register(RegisterPayloadHandlersEvent event) {
         if (FMLEnvironment.dist == Dist.DEDICATED_SERVER) {
-            PayloadRegistrar registrar = event.registrar("1");
+            PayloadRegistrar registrar = event.registrar("2");
             registrar.playToClient(NetworkOutlinePayload.TYPE, NetworkOutlinePayload.STREAM_CODEC,
                     (payload, context) -> { });
         }

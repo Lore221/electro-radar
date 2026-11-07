@@ -22,7 +22,6 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
-import rbasamoyai.createbigcannons.munitions.big_cannon.AbstractBigCannonProjectile;
 import com.simibubi.create.api.equipment.goggles.IHaveGoggleInformation;
 import com.simibubi.create.foundation.blockEntity.SmartBlockEntity;
 import com.simibubi.create.foundation.blockEntity.behaviour.BlockEntityBehaviour;
@@ -42,39 +41,21 @@ import com.electroradar.cannon.mount.CannonMunition;
 import com.electroradar.cannon.mount.MountedCannon;
 import com.electroradar.config.RadarServerConfig;
 import com.electroradar.radar.alarm.ShellAlarmBlockEntity;
-import com.electroradar.radar.network.ConsumerConnectionLifecycle;
+import com.electroradar.radar.network.InterceptionNetworks;
+import com.electroradar.radar.network.NetworkKind;
 import com.electroradar.radar.network.EndpointKey;
-import com.electroradar.radar.network.LiveResult;
 import com.electroradar.radar.network.NetworkId;
 import com.electroradar.radar.network.NetworkLinkTarget;
-import com.electroradar.radar.network.RadarNetworkManager;
-import com.electroradar.radar.network.TargetAvailability;
 import com.electroradar.radar.network.TargetRef;
-import com.electroradar.radar.network.TargetSources;
 
 /**
- * Контроллер перехвата: наводит соседнюю автопушку на снаряд большой пушки, выбранный на мониторе
- * сети или найденный Shell Alarm, и стреляет зенитными патронами со взрывателем перехвата
- * ({@link InterceptFuzeItem}), который программирует при выстреле ({@link ProgrammedFuzes}).
- *
- * <p><b>Цель.</b> Снаряд большой пушки, выбранный на мониторе, важнее всего: так игрок может указать
- * цель вручную. Иначе контроллер берёт угрозы Shell Alarm своей сети ({@link ShellAlarmBlockEntity#threats})
- * и ведёт самую срочную — ту, что раньше войдёт в защитную зону. Выбранная угроза удерживается, пока
- * тревога её видит; недосягаемая на время откладывается, и контроллер переходит к следующей. Сам
- * контроллер угрозу не оценивает.</p>
- *
- * <p><b>Цикл тика.</b> Состояние снаряда читается из мира и прогнозируется точно
- * ({@link BigCannonShell}); срок его полёта до падения даёт {@link ShellImpactForecast}. Каждый тик
- * ищется встреча при выстреле сейчас ({@link EngagementPlanner#immediate}); к ней установку ведёт
- * {@link AimDrive}, а огонь разрешается по фактическому направлению ствола, как у контроллера
- * наведения. Если встречи сейчас нет, план боя ({@link EngagementPlanner#plan}) находит окно огня, и
- * установка заранее разворачивается к его первому выстрелу.</p>
- *
- * <p>Привод тот же, что у контроллера наведения: скорость и ускорение задаёт серверный конфиг.</p>
+ * Контроллер сети перехвата одного Shell Alarm. Получает угрозы только своего владельца,
+ * который проверяет актуальные права радарной сети перед чтением живой цели.
+ * Наводит соседнюю автопушку и программирует взрыватель при выстреле.
  */
 public final class InterceptControllerBlockEntity extends SmartBlockEntity
         implements NetworkLinkTarget, IHaveGoggleInformation {
-    private static final String NETWORK_ID_TAG = "electroradar_network_id";
+    private static final String NETWORK_ID_TAG = "electroradar_interception_network_id";
     private static final String STATUS_TAG = "electroradar_fire_status";
     private static final double MIN_AIM_TOLERANCE_DEGREES = 0.05D;
     private static final double MAX_AIM_TOLERANCE_DEGREES = 2.0D;
@@ -83,8 +64,6 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
     private static final int SETTLE_TICKS = 3;
     /** План окна дорогой (перебор моментов пуска), поэтому пересчитывается не каждый тик. */
     private static final long WINDOW_REFRESH_TICKS = 5;
-    /** Список приборов сети меняется редко: тревоги ищутся раз в секунду. */
-    private static final long ALARM_REFRESH_TICKS = 20;
     /** На столько тиков откладывается угроза, которую нельзя обстрелять, чтобы взять следующую. */
     private static final long REJECT_TICKS = 20;
     private static final Set<FireStatus> REJECTING = EnumSet.of(FireStatus.TARGET_LOST,
@@ -104,8 +83,7 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
     private final StatusSync statusSync = new StatusSync();
 
     private NetworkId networkId;
-    private final ConsumerConnectionLifecycle connection =
-            new ConsumerConnectionLifecycle("intercept_controller_registration_failed");
+    private ShellAlarmBlockEntity owner;
 
     private ProjectileProfile profile;
     private FlightCoefficients flight;
@@ -115,10 +93,7 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
     private long windowAt;
     private EngagementPlanner.Engagement window;
     private Object connectedCannon;
-    private List<BlockPos> alarms = List.of();
-    private long alarmsAt;
-    private boolean alarmsKnown;
-    /** Угроза Shell Alarm, которую контроллер ведёт сам; null — цели нет или она выбрана на мониторе. */
+    /** Угроза своего Shell Alarm, которую контроллер ведёт; null — цели нет. */
     private UUID automatic;
     private final Map<UUID, Long> rejected = new HashMap<>();
 
@@ -167,8 +142,11 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
     }
 
     private Outcome evaluate(ServerLevel level, MountedCannon cannon) {
-        connection.ensure(level, worldPosition, networkId);
-        if (connection.current() == null) return idle(FireStatus.NO_NETWORK);
+        owner = InterceptionNetworks.owner(level, networkId);
+        var endpoint = new EndpointKey.Static(level.dimension(), worldPosition);
+        if (owner != null) InterceptionNetworks.forServer(level.getServer()).connect(endpoint, networkId);
+        else InterceptionNetworks.forServer(level.getServer()).disconnect(endpoint);
+        if (owner == null) return idle(FireStatus.NO_NETWORK);
         Optional<TargetRef> selected = target(level);
         if (selected.isEmpty()) return idle(FireStatus.NO_THREAT);
         TargetRef target = selected.get();
@@ -264,16 +242,11 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
                 target.id(), shot);
     }
 
-    /** Снаряд, выбранный на мониторе, иначе самая срочная из неотложенных угроз Shell Alarm сети. */
+    /** Самая срочная из неотложенных угроз своего Shell Alarm. */
     private Optional<TargetRef> target(ServerLevel level) {
-        Optional<TargetRef> selected = connection.current().selectedTarget();
-        if (selected.isPresent() && isShell(level, selected.get())) {
-            automatic = null;
-            return selected;
-        }
         long now = level.getGameTime();
         rejected.values().removeIf(until -> until <= now);
-        Map<UUID, Integer> threats = alarmThreats(level, now);
+        Map<UUID, Integer> threats = owner.threats();
         if (automatic == null || !threats.containsKey(automatic) || rejected.containsKey(automatic)) {
             automatic = threats.entrySet().stream()
                     .filter(threat -> !rejected.containsKey(threat.getKey()))
@@ -282,33 +255,6 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
         }
         return automatic == null ? Optional.empty()
                 : Optional.of(new TargetRef(level.dimension(), TargetRef.SourceKind.ENTITY, automatic));
-    }
-
-    private static boolean isShell(ServerLevel level, TargetRef target) {
-        return target.sourceKind() == TargetRef.SourceKind.ENTITY && target.dimension().equals(level.dimension())
-                && level.getEntity(target.id()) instanceof AbstractBigCannonProjectile;
-    }
-
-    /** Угрозы всех загруженных Shell Alarm этой сети в этом измерении; у общего снаряда — наименьший срок. */
-    private Map<UUID, Integer> alarmThreats(ServerLevel level, long now) {
-        if (!alarmsKnown || now < alarmsAt || now - alarmsAt >= ALARM_REFRESH_TICKS) {
-            alarms = RadarNetworkManager.forServer(level.getServer()).registeredEndpoints(networkId).stream()
-                    .filter(endpoint -> endpoint instanceof EndpointKey.Static fixed
-                            && fixed.dimension().equals(level.dimension()) && !fixed.position().equals(worldPosition))
-                    .map(endpoint -> ((EndpointKey.Static) endpoint).position())
-                    .toList();
-            alarmsAt = now;
-            alarmsKnown = true;
-        }
-        Map<UUID, Integer> threats = new HashMap<>();
-        for (BlockPos position : alarms) {
-            if (!level.isLoaded(position) || !(level.getBlockEntity(position) instanceof ShellAlarmBlockEntity alarm)
-                    || !networkId.equals(alarm.networkIdForLinking())) {
-                continue;
-            }
-            alarm.threats().forEach((id, ticks) -> threats.merge(id, ticks, Math::min));
-        }
-        return threats;
     }
 
     /** План окна держится несколько тиков: первый выстрел окна задан моментом, а не тиком наблюдения. */
@@ -331,10 +277,7 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
         if (target.sourceKind() != TargetRef.SourceKind.ENTITY || !target.dimension().equals(level.dimension())) {
             return Optional.empty();
         }
-        TargetSources sources = connection.current().sourcesForTarget(target);
-        boolean permitted = sources.confirmed() && sources.liveResult()
-                .map(LiveResult::availability).filter(TargetAvailability.AVAILABLE::equals).isPresent();
-        if (!permitted) return Optional.empty();
+        if (owner == null || !owner.permits(target)) return Optional.empty();
         Entity entity = level.getEntity(target.id());
         return entity != null && entity.isAlive() ? Optional.of(entity) : Optional.empty();
     }
@@ -377,7 +320,10 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
 
     /** Привязка от предмета при установке блока. */
     void bindNetwork(NetworkId networkId) {
-        reconfigureNetwork(networkId);
+        closeInterceptionConnection();
+        this.networkId = networkId;
+        forgetSolution();
+        setChanged();
     }
 
     @Override
@@ -387,21 +333,31 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
 
     @Override
     public boolean reconfigureNetwork(NetworkId replacement) {
+        if (replacement != null && (!(level instanceof ServerLevel world)
+                || InterceptionNetworks.owner(world, replacement) == null)) return false;
         if (Objects.equals(networkId, replacement)) return true;
-        connection.close();
+        closeInterceptionConnection();
         networkId = replacement;
         forgetSolution();
         automatic = null;
         rejected.clear();
-        alarmsKnown = false;
         setChanged();
         return true;
+    }
+
+    @Override
+    public NetworkKind networkKindForLinking() { return NetworkKind.INTERCEPTION; }
+
+    private void closeInterceptionConnection() {
+        if (level instanceof ServerLevel world) InterceptionNetworks.forServer(world.getServer())
+                .disconnect(new EndpointKey.Static(world.dimension(), worldPosition));
+        owner = null;
     }
 
     /** Create вызывает и при разрушении блока, и при выгрузке чанка; связь закрывается идемпотентно. */
     @Override
     public void invalidate() {
-        connection.close();
+        closeInterceptionConnection();
         super.invalidate();
     }
 
@@ -419,7 +375,7 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
         super.read(tag, registries, clientPacket);
         NetworkId saved = tag.hasUUID(NETWORK_ID_TAG) ? new NetworkId(tag.getUUID(NETWORK_ID_TAG)) : null;
         if (!Objects.equals(saved, networkId)) {
-            connection.close();
+            closeInterceptionConnection();
             networkId = saved;
         }
         if (clientPacket && tag.contains(STATUS_TAG)) {
