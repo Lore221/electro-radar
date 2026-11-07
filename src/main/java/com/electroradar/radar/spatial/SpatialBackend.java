@@ -21,6 +21,10 @@ public interface SpatialBackend {
     default Optional<StructureBody> structure(ServerLevel level, java.util.UUID id) {
         return structures(level).stream().filter(body -> body.target().id().equals(id)).findFirst();
     }
+    /** Линейная скорость пространства прибора в мире, блоков за тик; у обычного мира — ноль. */
+    default net.minecraft.world.phys.Vec3 linearVelocity(Level level, EndpointKey endpoint) {
+        return net.minecraft.world.phys.Vec3.ZERO;
+    }
     default void invalidate(Level level, BlockPos position) { }
     default void beginPhase(MinecraftServer server) { }
     default void completePhase() { }

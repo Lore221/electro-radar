@@ -129,6 +129,15 @@ public final class SableSpatialBackend extends WorldSpatialBackend {
         return Optional.of(pos);
     }
 
+    /** Скорость Sable хранит в блоках за секунду, как и чтение структуры. */
+    @Override public Vec3 linearVelocity(Level level, EndpointKey endpoint) {
+        if (!(endpoint instanceof EndpointKey.Moving moving) || !level.dimension().equals(endpoint.dimension())) return Vec3.ZERO;
+        SubLevelContainer container = SubLevelContainer.getContainer(level);
+        SubLevel sub = container == null ? null : container.getSubLevel(moving.structureId());
+        if (!(sub instanceof dev.ryanhcode.sable.sublevel.ServerSubLevel server) || sub.isRemoved()) return Vec3.ZERO;
+        return new Vec3(server.latestLinearVelocity.x, server.latestLinearVelocity.y, server.latestLinearVelocity.z).scale(0.05D);
+    }
+
     @Override public List<ServerPlayer> watchers(ServerLevel level, BlockPos position) {
         SubLevelContainer container = SubLevelContainer.getContainer(level);
         return container != null && container.inBounds(position)

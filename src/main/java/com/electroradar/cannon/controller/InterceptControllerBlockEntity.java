@@ -158,12 +158,16 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
         if (!(fuze.get().getItem() instanceof InterceptFuzeItem)) return idle(FireStatus.INTERCEPT_FUZE_REQUIRED);
 
         long now = level.getGameTime();
-        Vector3 pivot = vector(cannon.pivot());
+        // Установка на движущейся структуре хранится в её координатах: центр и ствол переводятся
+        // её позой в мир, где летят снаряды. Sable выталкивает выпущенный снаряд в мир с повёрнутой
+        // скоростью ствола, но без скорости структуры, поэтому решение остаётся мировым.
+        MountFrame mount = MountFrame.of(level, cannon);
+        Vector3 pivot = mount.pivot();
         ProjectileProfile shotProfile = reading.profile().orElseThrow();
         EngagementPlanner.Interceptor interceptor = new EngagementPlanner.Interceptor(flight(shotProfile),
-                new AimConstraints(Math.max(-90.0D, cannon.minPitch()), Math.min(90.0D, cannon.maxPitch()), Optional.empty()),
-                pivot, FlightHorizon.clearance(pivot.y(), level.getMinBuildHeight(), reading.reach()),
-                CannonKind.AUTOCANNON.launchDelayTicks(), FIRE_INTERVAL_TICKS, ProgrammedFuzes.KILL_MODEL);
+                mount.constraints(), pivot, FlightHorizon.clearance(pivot.y(), level.getMinBuildHeight(), reading.reach()),
+                CannonKind.AUTOCANNON.launchDelayTicks(), FIRE_INTERVAL_TICKS, ProgrammedFuzes.KILL_MODEL,
+                mount::aimable);
         int lastAirborne = impact.lastAirborne(target, now, shell.get().shell(), () -> new WorldTrajectoryProbe(level));
         EngagementPlanner.Target engaged = new EngagementPlanner.Target(shell.get().shell(), lastAirborne,
                 shell.get().halfSize(), shell.get().durabilityMass());
@@ -176,14 +180,14 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
         double speed = AimDrive.degreesPerTick(parameters.driveRpm());
         double acceleration = AimDrive.degreesPerTickSquared(parameters.accelerationRpmPerSecond());
         if (planned.isEmpty()) {
-            EngagementPlanner.Engagement engagement = window(target, now, interceptor, engaged, cannon,
+            EngagementPlanner.Engagement engagement = window(target, now, interceptor, engaged, mount.turret(),
                     new SlewModel(speed, acceleration, SETTLE_TICKS));
             if (engagement.status() != EngagementPlanner.Status.FEASIBLE) {
                 return idle(engagement.status() == EngagementPlanner.Status.TOO_LATE
                         ? FireStatus.TOO_LATE : FireStatus.TARGET_UNREACHABLE);
             }
             // Окно впереди: доворачиваем к его первому выстрелу, огонь пока не разрешён.
-            FireSolution first = engagement.shots().get(0).solution();
+            MountFrame.Angles first = mount.local(engagement.shots().get(0).solution());
             AimDrive.Step step = drive.step(target, now, cannon.yaw(), cannon.pitch(), first.yaw(), first.pitch(),
                     speed, acceleration);
             cannon.aim((float) step.yaw(), (float) step.pitch());
@@ -192,11 +196,12 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
 
         EngagementPlanner.PlannedShot shot = planned.get();
         FireSolution fire = shot.solution();
-        AimDrive.Step step = drive.step(target, now, cannon.yaw(), cannon.pitch(), fire.yaw(), fire.pitch(),
+        MountFrame.Angles desired = mount.local(fire);
+        AimDrive.Step step = drive.step(target, now, cannon.yaw(), cannon.pitch(), desired.yaw(), desired.pitch(),
                 speed, acceleration);
         cannon.aim((float) step.yaw(), (float) step.pitch());
         // Направление после поворота этого тика: по нему CBC выстрелит, по нему же проверяются допуск и путь.
-        Vec3 barrel = cannon.barrelDirection();
+        Vec3 barrel = mount.barrel();
         double range = shot.interceptPoint().subtract(pivot).length();
         // Промах ствола на дальности встречи должен остаться внутри радиуса срабатывания взрывателя.
         double tolerance = Math.max(MIN_AIM_TOLERANCE_DEGREES, Math.min(MAX_AIM_TOLERANCE_DEGREES,
@@ -238,10 +243,10 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
 
     /** План окна держится несколько тиков: первый выстрел окна задан моментом, а не тиком наблюдения. */
     private EngagementPlanner.Engagement window(TargetRef target, long now, EngagementPlanner.Interceptor interceptor,
-                                                EngagementPlanner.Target engaged, MountedCannon cannon, SlewModel slew) {
+                                                EngagementPlanner.Target engaged, EngagementPlanner.Turret turret,
+                                                SlewModel slew) {
         if (window == null || !target.equals(windowTarget) || now < windowAt || now - windowAt >= WINDOW_REFRESH_TICKS) {
-            window = EngagementPlanner.plan(interceptor, new EngagementPlanner.Turret(cannon.yaw(), cannon.pitch()),
-                    slew, POLICY, engaged);
+            window = EngagementPlanner.plan(interceptor, turret, slew, POLICY, engaged);
             windowTarget = target;
             windowAt = now;
         }

@@ -25,7 +25,14 @@ public final class ZoneSelectionTargeting {
     }
 
     public static BlockPos target(Player player, InteractionHand hand, boolean air, int range) {
-        if (air) return BlockPos.containing(player.getEyePosition().add(player.getLookAngle().scale(range)));
+        return target(player, hand, air, range, java.util.Optional.empty());
+    }
+
+    /** Точка в воздухе попадает в пространство первого угла: мира или структуры. */
+    public static BlockPos target(Player player, InteractionHand hand, boolean air, int range,
+                                  java.util.Optional<BlockPos> firstCorner) {
+        if (air) return ProtectionZoneSpace.airPoint(player.level(),
+                player.getEyePosition().add(player.getLookAngle().scale(range)), firstCorner);
         BlockHitResult hit = trace(player);
         return hit == null ? null : block(player, hand, hit);
     }

@@ -11,12 +11,22 @@ import java.util.function.Consumer;
 
 import com.electroradar.cannon.intercept.HostileShell;
 
-/** Кэш принадлежит одному Alarm. Ни Entity, ни сетевые права, ни UUID после потери доступа не хранит. */
+/**
+ * Кэш принадлежит одному Alarm. Ни Entity, ни сетевые права, ни UUID после потери доступа не хранит.
+ *
+ * <p>Прогноз сделан против зоны в момент расчёта. Зона на движущейся структуре меняет позу каждый
+ * тик, поэтому прогноз переиспользуется, пока зона идёт по его равномерной экстраполяции
+ * ({@link ZoneVolume#continues}); иначе он пересчитывается в пределах бюджета.</p>
+ */
 public final class ShellThreatTracker {
     public static final int PREDICTION_LIMIT = 4_096;
     public static final int PREDICTIONS_PER_TICK = 8;
     private static final double POSITION_EPSILON = 1.0E-4D;
     private static final double VELOCITY_EPSILON = 1.0E-5D;
+    /** Допуск позы зоны относительно экстраполяции прогноза: четверть блока, около 0,8° и 0,02 блока/тик. */
+    private static final double ZONE_DISTANCE_EPSILON = 0.25D;
+    private static final double ZONE_AXIS_COSINE = 1.0D - 1.0E-4D;
+    private static final double ZONE_SPEED_EPSILON = 0.02D;
 
     private final Map<UUID, Entry> entries = new HashMap<>();
     private Map<UUID, Integer> dangerous = Map.of();
@@ -51,12 +61,19 @@ public final class ShellThreatTracker {
     /** Наблюдатель вызывается только при запросе диагностики и не участвует в принятии решения. */
     public void refresh(Collection<Observation> observations, ProtectionBox nextZone, Set<UUID> currentThreats,
                         Consumer<Decision> diagnostics) {
+        refresh(observations, ZoneVolume.fixed(nextZone), currentThreats, diagnostics);
+    }
+
+    /** Зона может быть повёрнута и двигаться вместе со структурой, на которой она выбрана. */
+    public void refresh(Collection<Observation> observations, ZoneVolume nextZone, Set<UUID> currentThreats,
+                        Consumer<Decision> diagnostics) {
         Objects.requireNonNull(observations, "observations");
         Objects.requireNonNull(nextZone, "zone");
         Objects.requireNonNull(currentThreats, "currentThreats");
-        if (!nextZone.equals(zone)) {
+        // Другой прямоугольник — другая зона: прежние прогнозы к ней не относятся.
+        if (!nextZone.local().equals(zone)) {
             clear();
-            zone = nextZone;
+            zone = nextZone.local();
         }
         Set<UUID> present = new HashSet<>();
         Map<UUID, Integer> nextDangerous = new HashMap<>();
@@ -66,11 +83,11 @@ public final class ShellThreatTracker {
         for (Observation sample : observations) {
             if (!present.add(sample.id())) continue;
             var position = sample.shell().position();
-            boolean inside = currentThreats.contains(sample.id()) || nextZone.inflate(sample.reach()).intersects(position, position);
+            boolean inside = currentThreats.contains(sample.id()) || nextZone.inflate(sample.reach()).contains(position);
             if (inside) nextDangerous.put(sample.id(), 0);
             Entry entry = entries.get(sample.id());
             Action action = entry == null ? Action.NEW : Action.CACHED;
-            if (entry == null || !entry.matches(sample)) {
+            if (entry == null || !entry.matches(sample, nextZone)) {
                 if (entry != null) action = Action.REBUILT;
                 entries.remove(sample.id());
                 if (budget-- <= 0) {
@@ -79,7 +96,7 @@ public final class ShellThreatTracker {
                     continue;
                 }
                 try {
-                    entry = new Entry(sample, ShellRoutePrediction.predict(sample.shell(), nextZone,
+                    entry = new Entry(sample, nextZone, ShellRoutePrediction.predict(sample.shell(), nextZone,
                             sample.reach(), PREDICTION_LIMIT));
                 } catch (IllegalArgumentException numericOverflow) {
                     // Чужой data pack/мод может дать конечные входы с невычислимым будущим.
@@ -127,11 +144,12 @@ public final class ShellThreatTracker {
         }
     }
 
-    private record Entry(Observation initial, ShellRoutePrediction prediction) {
-        boolean matches(Observation sample) {
+    private record Entry(Observation initial, ZoneVolume zone, ShellRoutePrediction prediction) {
+        boolean matches(Observation sample, ZoneVolume current) {
             int elapsed = sample.age() - initial.age();
             try {
                 return elapsed >= 0
+                        && current.continues(zone, elapsed, ZONE_DISTANCE_EPSILON, ZONE_AXIS_COSINE, ZONE_SPEED_EPSILON)
                         && (prediction.complete() || elapsed < PREDICTION_LIMIT / 2)
                         && initial.reach() == sample.reach()
                         && initial.shell().motion().drag() == sample.shell().motion().drag()

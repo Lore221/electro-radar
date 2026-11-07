@@ -165,6 +165,7 @@
   "message.electroradar.zone.applied": "Выделитель вставлен в Shell Alarm.",
   "message.electroradar.zone.incomplete": "Перед применением выберите два угла зоны.",
   "message.electroradar.zone.wrong_dimension": "Зона относится к другому измерению или выходит за пределы высоты мира.",
+  "message.electroradar.zone.other_space": "Углы должны быть в одном пространстве: на одной структуре или оба в мире.",
   "message.electroradar.zone.invalid": "Некорректная зона: проверьте высоту, границу мира и предел стороны 2048 блоков.",
   "message.electroradar.zone.ready": "Зона уже сохранена. Shift + ПКМ для нового выделения.",
   "message.electroradar.zone.size": "Зона: %s × %s × %s",

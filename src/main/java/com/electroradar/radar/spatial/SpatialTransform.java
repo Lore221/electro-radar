@@ -23,6 +23,15 @@ public record SpatialTransform(Vec3 localOrigin, Vec3 worldOrigin, Vec3 x, Vec3 
         return x.scale(direction.x).add(y.scale(direction.y)).add(z.scale(direction.z));
     }
 
+    /** Обратное к {@link #direction}: оси ортогональны, поэтому это проекции на них. */
+    public Vec3 localDirection(Vec3 world) {
+        return new Vec3(world.dot(x) / x.lengthSqr(), world.dot(y) / y.lengthSqr(), world.dot(z) / z.lengthSqr());
+    }
+
+    public boolean isIdentity() {
+        return equals(IDENTITY);
+    }
+
     public Vec3 toLocal(Vec3 point) {
         Vec3 offset = point.subtract(worldOrigin);
         return localOrigin.add(offset.dot(x) / x.lengthSqr(), offset.dot(y) / y.lengthSqr(),

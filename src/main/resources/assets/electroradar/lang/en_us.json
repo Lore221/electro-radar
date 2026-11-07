@@ -165,6 +165,7 @@
   "message.electroradar.zone.applied": "Selector inserted into Shell Alarm.",
   "message.electroradar.zone.incomplete": "Select two corners before applying the zone.",
   "message.electroradar.zone.wrong_dimension": "This zone cannot be applied in this dimension or at this height.",
+  "message.electroradar.zone.other_space": "Both corners must be in one space: on the same structure or both in the world.",
   "message.electroradar.zone.invalid": "Invalid zone: check world height, border and the 2048-block side limit.",
   "message.electroradar.zone.ready": "Zone is already saved. Shift + RMB to start again.",
   "message.electroradar.zone.size": "Zone: %s × %s × %s",
