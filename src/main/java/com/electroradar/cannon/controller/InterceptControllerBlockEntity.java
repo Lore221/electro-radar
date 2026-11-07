@@ -1,11 +1,7 @@
 package com.electroradar.cannon.controller;
 
-import java.util.EnumSet;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.UUID;
@@ -64,10 +60,6 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
     private static final int SETTLE_TICKS = 3;
     /** План окна дорогой (перебор моментов пуска), поэтому пересчитывается не каждый тик. */
     private static final long WINDOW_REFRESH_TICKS = 5;
-    /** На столько тиков откладывается угроза, которую нельзя обстрелять, чтобы взять следующую. */
-    private static final long REJECT_TICKS = 20;
-    private static final Set<FireStatus> REJECTING = EnumSet.of(FireStatus.TARGET_LOST,
-            FireStatus.TARGET_UNSUPPORTED, FireStatus.TARGET_UNREACHABLE, FireStatus.TOO_LATE);
     /**
      * Правила боя: окно ищется на 5 секунд вперёд; встреча не позже 2 тиков до падения, не раньше
      * 2-го отрезка и не ближе 16 блоков от пушки; взрыватель взведён ±3 тика вокруг встречи,
@@ -93,9 +85,7 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
     private long windowAt;
     private EngagementPlanner.Engagement window;
     private Object connectedCannon;
-    /** Угроза своего Shell Alarm, которую контроллер ведёт; null — цели нет. */
-    private UUID automatic;
-    private final Map<UUID, Long> rejected = new HashMap<>();
+    private final InterceptionTargetSelection targetSelection = new InterceptionTargetSelection();
 
     private FireStatus status = FireStatus.NO_NETWORK;
 
@@ -124,10 +114,7 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
             drive.stop();
         }
         Outcome outcome = evaluate(serverLevel, cannon);
-        if (automatic != null && REJECTING.contains(outcome.status())) {
-            rejected.put(automatic, serverLevel.getGameTime() + REJECT_TICKS);
-            automatic = null;
-        }
+        targetSelection.recordOutcome(outcome.status(), serverLevel.getGameTime());
         status = outcome.status();
         boolean autocannon = cannon != null && cannon.kind() == CannonKind.AUTOCANNON;
         boolean next = autocannon && trigger.update(CannonKind.AUTOCANNON, outcome.ready(), outcome.held());
@@ -244,17 +231,9 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
 
     /** Самая срочная из неотложенных угроз своего Shell Alarm. */
     private Optional<TargetRef> target(ServerLevel level) {
-        long now = level.getGameTime();
-        rejected.values().removeIf(until -> until <= now);
-        Map<UUID, Integer> threats = owner.threats();
-        if (automatic == null || !threats.containsKey(automatic) || rejected.containsKey(automatic)) {
-            automatic = threats.entrySet().stream()
-                    .filter(threat -> !rejected.containsKey(threat.getKey()))
-                    .min(Map.Entry.<UUID, Integer>comparingByValue().thenComparing(Map.Entry.comparingByKey()))
-                    .map(Map.Entry::getKey).orElse(null);
-        }
-        return automatic == null ? Optional.empty()
-                : Optional.of(new TargetRef(level.dimension(), TargetRef.SourceKind.ENTITY, automatic));
+        UUID selected = targetSelection.select(owner.threats(), level.getGameTime());
+        return selected == null ? Optional.empty()
+                : Optional.of(new TargetRef(level.dimension(), TargetRef.SourceKind.ENTITY, selected));
     }
 
     /** План окна держится несколько тиков: первый выстрел окна задан моментом, а не тиком наблюдения. */
@@ -339,8 +318,7 @@ public final class InterceptControllerBlockEntity extends SmartBlockEntity
         closeInterceptionConnection();
         networkId = replacement;
         forgetSolution();
-        automatic = null;
-        rejected.clear();
+        targetSelection.clear();
         setChanged();
         return true;
     }
