@@ -50,7 +50,8 @@ import com.electroradar.radar.scan.EntityRadarScanner;
  * <p><b>Посещение.</b> Для источника каждое окно — это одно посещение сектора с явной фазой
  * {@link VisitPhase}: IDLE → (окно началось) → OBSERVING или SKIPPED → (следующее окно) → ...
  * В начале OBSERVING выполняется ровно один пространственный поиск, затем до конца окна
- * каждый тик проверяется только найденный набор UUID.</p>
+ * найденный набор UUID проверяется в четырёхтиковой фазе своей сети. Готовность источника
+ * и границы посещения проверяются каждый тик; первое измерение после поиска выполняется сразу.</p>
  *
  * <p><b>Версия.</b> У сети один счётчик {@code contentVersion} — версия видимого содержимого
  * (гарантии и их границы описаны в {@link TargetSnapshot}). Он берётся из общей для менеджера
@@ -311,6 +312,8 @@ public final class RadarNetworkManager {
         try {
             for (NetworkRuntime network : networks.values()) {
                 refreshOwnStructures(network, changed);
+                // Прогреваем живую геометрию каждый тик для наведения после завершения Pre.
+                // Это не публикует новое радарное измерение между четырёхтиковыми шагами.
                 for (TargetRef known : network.targets.keySet()) {
                     if (known.sourceKind() == TargetRef.SourceKind.MOVING_STRUCTURE) {
                         ServerLevel knownLevel = server.getLevel(known.dimension());
@@ -483,6 +486,9 @@ public final class RadarNetworkManager {
                 }
             }
         }
+        // Этот пропуск ограничивает только чтение известных целей. Расписание, готовность
+        // и отзыв прав выше проверяются каждый тик; поиск в начале посещения не задерживается.
+        if (!RadarRefreshSchedule.knownTargetsDue(serverTick, network.id, newVisit)) return;
         for (int sectorIndex : window.activeSectorIndices()) {
             ZoneVisit zone = state.zoneVisits.get(sectorIndex);
             if (zone == null || !zone.observing()) continue;
@@ -674,8 +680,9 @@ public final class RadarNetworkManager {
     }
 
     /**
-     * Обновляет измерения начального набора. Цель вне сектора замораживается, вернувшаяся до
-     * конца окна снова наблюдается без нового поиска. Версия сети меняется только при видимом
+     * Обновляет измерения начального набора на шаге сети (либо сразу после поиска). Цель вне
+     * сектора замораживается на этом шаге, вернувшаяся до конца окна снова наблюдается без
+     * нового поиска. Версия сети меняется только при видимом
      * изменении (положение, тип, переход наблюдение/память), а не каждый тик неподвижной цели.
      */
     private void trackKnownTargets(NetworkRuntime network, EndpointKey endpoint, RadarState state,

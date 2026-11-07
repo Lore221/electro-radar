@@ -56,7 +56,7 @@ public final class TargetView {
         return observingNow;
     }
 
-    /** Возвращает, успешно ли доступный источник проверил цель в текущей серверной фазе. */
+    /** Возвращает факт наблюдения по последнему измерению доступного источника. */
     public boolean observingNow() {
         ensureActive();
         return observingNow;
