@@ -3,6 +3,11 @@ package com.electroradar.cannon.controller;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.function.Predicate;
+
+import net.minecraft.world.phys.Vec3;
+
+import com.electroradar.radar.spatial.SpatialTransform;
 
 import com.electroradar.cannon.ballistics.AimConstraints;
 import com.electroradar.cannon.ballistics.FireSolution;
@@ -46,6 +51,12 @@ final class InterceptPlanner {
     Optional<FireSolution> plan(ProjectileProfile profile, Vector3 pivot, double clearance,
                                 AimConstraints constraints, TargetTrack.Estimate target, int launchDelay,
                                 OptionalInt hint) {
+        return plan(profile, pivot, clearance, constraints, target, launchDelay, hint, direction -> true);
+    }
+
+    private Optional<FireSolution> plan(ProjectileProfile profile, Vector3 pivot, double clearance,
+                                        AimConstraints constraints, TargetTrack.Estimate target, int launchDelay,
+                                        OptionalInt hint, Predicate<Vector3> aimable) {
         Objects.requireNonNull(profile, "profile");
         Objects.requireNonNull(pivot, "pivot");
         Objects.requireNonNull(constraints, "constraints");
@@ -53,8 +64,25 @@ final class InterceptPlanner {
         Objects.requireNonNull(hint, "hint");
         InterceptRequest request = new InterceptRequest(flight(profile), forecast(pivot, target, launchDelay),
                 constraints, horizon(constraints.maxPitch(), clearance), hint);
-        InterceptResult result = InterceptSearch.search(request);
+        InterceptResult result = InterceptSearch.search(request, 0, Integer.MAX_VALUE,
+                solution -> aimable.test(solution.direction()));
         return result.solution();
+    }
+
+    /**
+     * Центр из пространства установки переводится в мир, где задана цель и действует гравитация.
+     * Пределы крепления проверяются после обратного преобразования направления решения.
+     */
+    Optional<FireSolution> planMounted(ProjectileProfile profile, Vector3 storagePivot, SpatialTransform frame,
+                                       int minBuildHeight, double reach, AimConstraints localConstraints,
+                                       TargetTrack.Estimate target, int launchDelay, OptionalInt hint) {
+        Vec3 world = frame.toWorld(new Vec3(storagePivot.x(), storagePivot.y(), storagePivot.z()));
+        Vector3 pivot = new Vector3(world.x, world.y, world.z);
+        AimConstraints worldConstraints = frame.isIdentity() ? localConstraints
+                : new AimConstraints(-90, 90, localConstraints.family());
+        return plan(profile, pivot, FlightHorizon.clearance(pivot.y(), minBuildHeight, reach),
+                worldConstraints, target, launchDelay, hint,
+                direction -> MountFrame.aimable(frame, localConstraints.minPitch(), localConstraints.maxPitch(), direction));
     }
 
     /** Прогноз цели относительно центра вращения в тиках полёта снаряда. */

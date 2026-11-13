@@ -28,7 +28,6 @@ import com.simibubi.create.foundation.blockEntity.behaviour.scrollValue.ScrollOp
 
 import com.electroradar.cannon.ballistics.AimConstraints;
 import com.electroradar.cannon.ballistics.FireSolution;
-import com.electroradar.cannon.ballistics.FlightHorizon;
 import com.electroradar.cannon.ballistics.Vector3;
 import com.electroradar.cannon.ballistics.TrajectoryTrace;
 import com.electroradar.cannon.diagnostics.CannonDiagnostics;
@@ -164,12 +163,12 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
         AABB bounds = entity.get().bounds();
         TargetTrack.Estimate estimate = track.sample(target, level.getGameTime(), vector(bounds.getCenter()),
                 vector(entity.get().velocity()), entity.get().onGround());
-        Vector3 pivot = vector(cannon.pivot());
+        MountFrame mount = MountFrame.of(level, cannon);
+        Vector3 pivot = mount.pivot();
         AimConstraints constraints = new AimConstraints(Math.max(-90.0D, cannon.minPitch()),
                 Math.min(90.0D, cannon.maxPitch()), cannon.kind().family(trajectoryMode.get().family()));
-        Optional<FireSolution> solution = planner.plan(reading.profile().orElseThrow(), pivot,
-                FlightHorizon.clearance(pivot.y(), level.getMinBuildHeight(), reading.reach()),
-                constraints, estimate, cannon.kind().launchDelayTicks(),
+        Optional<FireSolution> solution = planner.planMounted(reading.profile().orElseThrow(), vector(cannon.pivot()), mount.frame(),
+                level.getMinBuildHeight(), reading.reach(), constraints, estimate, cannon.kind().launchDelayTicks(),
                 target.equals(hintTarget) ? hintTick : OptionalInt.empty());
         hintTarget = target;
         hintTick = solution.map(fire -> OptionalInt.of(fire.tick())).orElse(OptionalInt.empty());
@@ -180,12 +179,13 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
 
         FireSolution fire = solution.get();
         RadarServerConfig.TargetControllerParameters parameters = RadarServerConfig.snapshot().targetController();
+        MountFrame.Angles desired = mount.local(fire);
         AimDrive.Step step = drive.step(target, level.getGameTime(), cannon.yaw(), cannon.pitch(),
-                fire.yaw(), fire.pitch(), AimDrive.degreesPerTick(parameters.driveRpm()),
+                desired.yaw(), desired.pitch(), AimDrive.degreesPerTick(parameters.driveRpm()),
                 AimDrive.degreesPerTickSquared(parameters.accelerationRpmPerSecond()));
         cannon.aim((float) step.yaw(), (float) step.pitch());
         // Направление после поворота этого тика: по нему CBC выстрелит, по нему же проверяются допуск и путь.
-        Vec3 barrel = cannon.barrelDirection();
+        Vec3 barrel = mount.barrel();
 
         double distance = estimate.position().subtract(pivot).length();
         double halfSize = 0.5D * Math.min(bounds.getXsize(), bounds.getYsize()) + reading.reach();
