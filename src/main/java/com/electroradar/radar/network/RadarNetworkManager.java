@@ -357,7 +357,7 @@ public final class RadarNetworkManager {
         Map<TargetRef, LiveResult> next = new HashMap<>();
         for (var entry : endpointIndex.entrySet()) {
             if (!(entry.getKey() instanceof EndpointKey.Moving moving) || !entry.getValue().networkId.equals(network.id)
-                    || entry.getValue().role != EndpointRole.RADAR && entry.getValue().role != EndpointRole.MONITOR) continue;
+                    || entry.getValue().role != EndpointRole.RADAR) continue;
             ServerLevel level = server.getLevel(moving.dimension());
             if (level == null) continue;
             RadarSpatial.backend().structure(level, moving.structureId()).ifPresent(body ->

@@ -155,12 +155,13 @@ final class RadarNetworkQueries {
                 .isPresent();
     }
 
+    /** Только радар раскрывает структуру своего размещения; монитор не является источником наблюдений. */
     static boolean ownAccess(NetworkRuntime network, TargetRef target, Map<EndpointKey, Registration> endpointIndex) {
         if (target.sourceKind() != TargetRef.SourceKind.MOVING_STRUCTURE) return false;
         for (var entry : endpointIndex.entrySet()) {
             if (entry.getKey() instanceof EndpointKey.Moving moving && moving.structureId().equals(target.id())
                     && moving.dimension().equals(target.dimension()) && entry.getValue().networkId.equals(network.id)
-                    && (entry.getValue().role == EndpointRole.RADAR || entry.getValue().role == EndpointRole.MONITOR)) return true;
+                    && entry.getValue().role == EndpointRole.RADAR) return true;
         }
         return false;
     }
