@@ -6,21 +6,14 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.phys.Vec3;
 
-import com.electroradar.radar.monitor.MonitorVisualProfileCollector.VisualWindow;
 import com.electroradar.radar.monitor.network.MonitorPayloads;
 import com.electroradar.radar.network.ConsumerConnection;
-import com.electroradar.radar.network.LiveResult;
 import com.electroradar.radar.network.NetworkId;
 import com.electroradar.radar.network.RadarNetworkManager;
 import com.electroradar.radar.network.TargetRef;
-import com.electroradar.radar.network.TargetSnapshot;
-import com.electroradar.radar.network.TargetView;
 
 /**
  * Единственный владелец снимка корневого экрана, его номеров и истории рассылки.
@@ -28,9 +21,9 @@ import com.electroradar.radar.network.TargetView;
  * <p><b>Когда пересобирать.</b> Корень тикает каждый тик, но сеть перечитывает только если
  * изменилась версия сети ({@link ConsumerConnection#contentVersion()}), сама связь, NetworkId
  * или сборка экрана, либо снимок явно сброшен. Версия сети растёт при любом видимом
- * изменении. Обычная пересборка следует общей четырёхтиковой фазе измерений сети через
+ * изменении. Обычная пересборка идёт по собственной четырёхтиковой фазе монитора через
  * {@link MonitorRefreshGate}; смена связи, сети, сборки, выбора цели и открытие GUI
- * применяются сразу.</p>
+ * применяются сразу. Общие данные сети и измерения переиспользуются между мониторами.</p>
  *
  * <p><b>Что отправлять.</b> Всегда полный снимок целей и фаз. Профили радаров тяжёлые, поэтому
  * рассылка включает их только при смене {@code geometryVersion} или после сброса. Адресная
@@ -39,6 +32,9 @@ import com.electroradar.radar.network.TargetView;
  * запросу и очередей частей нет: следующий снимок полностью заменяет предыдущий.</p>
  */
 final class MonitorSnapshotRuntime {
+    /** Vanilla chunk-watch sends immediately; this slower pass covers backends without that event. */
+    private static final long WATCHER_RECONCILE_INTERVAL_TICKS = 20L;
+
     private final MonitorVisualProfileCollector visualProfiles = new MonitorVisualProfileCollector();
     private MonitorSnapshotData latestSnapshot;
     /** Только растут в пределах одной загрузки; сбрасываются лишь вместе с новым loadId. */
@@ -51,6 +47,8 @@ final class MonitorSnapshotRuntime {
 
     private final java.util.Set<java.util.UUID> knownWatchers = new java.util.HashSet<>();
     private final MonitorRefreshGate refreshGate = new MonitorRefreshGate();
+    private boolean watcherReconciliationInitialized;
+    private long lastWatcherReconciliationTick;
     /** Запрошенный выбор сети при последней сборке: его смена видна сразу, без ожидания шага. */
     private TargetRef lastRequestedSelection;
     private boolean rebuildRequired = true;
@@ -62,6 +60,8 @@ final class MonitorSnapshotRuntime {
     void resetForLoad() {
         knownWatchers.clear();
         refreshGate.reset();
+        watcherReconciliationInitialized = false;
+        lastWatcherReconciliationTick = 0L;
         latestSnapshot = null;
         snapshotSequence = 0L;
         geometryVersion = 0L;
@@ -90,7 +90,7 @@ final class MonitorSnapshotRuntime {
             long contentVersion = connection == null ? -1L : connection.contentVersion();
             boolean dirty = urgent || contentVersion != lastContentVersion;
             if (dirty) {
-                rebuild(owner, serverLevel, connection);
+                rebuild(owner, serverLevel, connection, contentVersion);
                 rebuildRequired = false;
                 lastConnection = connection;
                 lastContentVersion = contentVersion;
@@ -98,7 +98,9 @@ final class MonitorSnapshotRuntime {
                 lastNetworkId = owner.networkId();
             }
         }, () -> {
-            if (latestSnapshot != null) {
+            if (latestSnapshot != null && recipient == null && watcherReconciliationDue(now)) {
+                watcherReconciliationInitialized = true;
+                lastWatcherReconciliationTick = now;
                 var watchers = RadarSpatial.backend().watchers(serverLevel, owner.getBlockPos());
                 java.util.Set<java.util.UUID> current = new java.util.HashSet<>();
                 for (ServerPlayer watcher : watchers) {
@@ -114,28 +116,33 @@ final class MonitorSnapshotRuntime {
         });
     }
 
-    private void rebuild(RadarDisplayBlockEntity owner, ServerLevel serverLevel, ConsumerConnection connection) {
+    private boolean watcherReconciliationDue(long now) {
+        return !watcherReconciliationInitialized || now < lastWatcherReconciliationTick
+                || now - lastWatcherReconciliationTick >= WATCHER_RECONCILE_INTERVAL_TICKS;
+    }
+
+    private void rebuild(RadarDisplayBlockEntity owner, ServerLevel serverLevel,
+                         ConsumerConnection connection, long contentVersion) {
         // Без размещения (структура удаляется в этом тике) снимок не строится, прежний остаётся.
         var placement = RadarSpatial.placement(serverLevel, owner.getBlockPos());
         if (placement.isEmpty()) return;
-        TargetSnapshot<MonitorTargetData> targets = connection == null
-                ? TargetSnapshot.empty() : connection.queryTargets(MonitorSnapshotRuntime::projectTarget);
-        VisualWindow visual = connection == null ? VisualWindow.EMPTY
-                : visualProfiles.collect(serverLevel, owner.networkId(), owner.getBlockPos());
-        Selection selection = selection(connection, targets.targets());
+        MonitorNetworkSnapshotCache.Snapshot networkSnapshot = MonitorNetworkSnapshotCache.get(
+                serverLevel, owner.networkId(), owner.getBlockPos(), connection,
+                contentVersion, visualProfiles);
+        Selection selection = selection(connection, networkSnapshot.targets());
         lastRequestedSelection = requestedSelection(connection);
         boolean geometryChanged = latestSnapshot == null
-                || !latestSnapshot.visualProfiles().equals(visual.profiles());
+                || !latestSnapshot.visualProfiles().equals(networkSnapshot.visualProfiles());
         long candidateGeometry = geometryChanged ? geometryVersion + 1 : geometryVersion;
         MonitorSnapshotData candidate = new MonitorSnapshotData(owner.displayId(), owner.getBlockPos(),
                 serverLevel.dimension().location(), owner.loadId(), snapshotSequence + 1, candidateGeometry,
                 currentTick(serverLevel), owner.networkId() != null, selection.unavailable(), selection.target(),
-                targets.targets(), visual.profiles(), visual.phases(),
+                networkSnapshot.targets(), networkSnapshot.visualProfiles(), networkSnapshot.visualPhases(),
                 placement.get().endpoint());
         if (candidate.sameContent(latestSnapshot)) return;
         if (geometryChanged) {
             geometryVersion = candidateGeometry;
-            RadarMonitorDiagnostics.visualGeometryChanged(serverLevel, owner, visual.profiles());
+            RadarMonitorDiagnostics.visualGeometryChanged(serverLevel, owner, networkSnapshot.visualProfiles());
         }
         snapshotSequence = candidate.sequence();
         latestSnapshot = candidate;
@@ -150,6 +157,7 @@ final class MonitorSnapshotRuntime {
         MonitorSnapshotData outgoing = latestSnapshot.withServerTiming(currentTick(serverLevel));
         if (recipient != null) {
             MonitorPayloads.sendToPlayer(recipient, outgoing, openGui);
+            knownWatchers.add(recipient.getUUID());
             RadarMonitorDiagnostics.snapshotSentAddressed(serverLevel, owner, outgoing, recipient, openGui);
             return;
         }
@@ -186,25 +194,6 @@ final class MonitorSnapshotRuntime {
         TargetRef target = requested.orElseThrow();
         return targets.stream().anyMatch(value -> value.target().equals(target))
                 ? new Selection(target, false) : new Selection(null, true);
-    }
-
-    private static MonitorTargetData projectTarget(TargetView view) {
-        TargetRef target = view.target();
-        LiveResult live = view.liveResult();
-        if (live.structure().isPresent() && live.position().isPresent()) {
-            Vec3 point = live.position().get();
-            return new MonitorTargetData(target, live.observing(), true, point.x, point.y, point.z, "",
-                    live.freezeTick(), live.fadeDurationTicks(), live.structure().get().silhouette(),
-                    view.registeredStructure(), live.structure().get().scanAnchor());
-        }
-        if (live.position().isEmpty() || live.entityType().isEmpty()) {
-            return new MonitorTargetData(target, false, false, 0, 0, 0, "",
-                    live.freezeTick(), live.fadeDurationTicks());
-        }
-        Vec3 position = live.position().orElseThrow();
-        EntityType<?> type = live.entityType().orElseThrow();
-        return new MonitorTargetData(target, live.observing(), true, position.x, position.y, position.z,
-                BuiltInRegistries.ENTITY_TYPE.getKey(type).toString(), live.freezeTick(), live.fadeDurationTicks());
     }
 
     private record Selection(TargetRef target, boolean unavailable) { }

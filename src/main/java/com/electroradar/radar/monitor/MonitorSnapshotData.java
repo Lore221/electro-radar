@@ -2,8 +2,10 @@ package com.electroradar.radar.monitor;
 
 import com.electroradar.radar.network.EndpointKey;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -59,10 +61,12 @@ public record MonitorSnapshotData(
         visualPhases = List.copyOf(visualPhases);
         if (!visualProfiles.isEmpty() && !linked) throw new IllegalArgumentException("Unlinked monitor has radar profiles");
         Set<RadarVisualProfile.Key> profileKeys = new HashSet<>();
+        Map<EndpointKey, RadarVisualProfile> profilesBySource = new HashMap<>();
         for (RadarVisualProfile profile : visualProfiles) {
             if (!profile.dimension().equals(dimension) || !profileKeys.add(profile.key())) {
                 throw new IllegalArgumentException("Monitor snapshot profiles must be unique and same-dimension");
             }
+            profilesBySource.putIfAbsent(profile.source(), profile);
         }
         Set<TargetRef> targetRefs = new HashSet<>();
         for (MonitorTargetData target : targets) {
@@ -72,9 +76,7 @@ public record MonitorSnapshotData(
         }
         Set<EndpointKey> phasePositions = new HashSet<>();
         for (MonitorVisualPhase phase : visualPhases) {
-            RadarVisualProfile profile = visualProfiles.stream()
-                    .filter(candidate -> candidate.source().equals(phase.radarEndpoint()))
-                    .findFirst().orElse(null);
+            RadarVisualProfile profile = profilesBySource.get(phase.radarEndpoint());
             if (!phasePositions.add(phase.radarEndpoint()) || profile == null
                     || phase.activeSectorIndices().stream().anyMatch(index -> index >= profile.sectorCount())) {
                 throw new IllegalArgumentException("Monitor phase has no unique geometry profile");

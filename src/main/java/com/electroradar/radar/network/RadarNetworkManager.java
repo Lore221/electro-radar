@@ -355,9 +355,14 @@ public final class RadarNetworkManager {
 
     private void refreshOwnStructures(NetworkRuntime network, Set<NetworkId> changed) {
         Map<TargetRef, LiveResult> next = new HashMap<>();
-        for (var entry : endpointIndex.entrySet()) {
-            if (!(entry.getKey() instanceof EndpointKey.Moving moving) || !entry.getValue().networkId.equals(network.id)
-                    || entry.getValue().role != EndpointRole.RADAR) continue;
+        // Walk this network's radar index; scanning every consumer endpoint for every network
+        // makes monitor registrations multiply the server-tick work.
+        for (var entry : network.radars.entrySet()) {
+            if (!(entry.getKey() instanceof EndpointKey.Moving moving)) continue;
+            Registration registration = endpointIndex.get(entry.getKey());
+            if (registration == null || registration.role != EndpointRole.RADAR
+                    || !registration.networkId.equals(network.id)
+                    || !registration.token.equals(entry.getValue().token)) continue;
             ServerLevel level = server.getLevel(moving.dimension());
             if (level == null) continue;
             RadarSpatial.backend().structure(level, moving.structureId()).ifPresent(body ->
