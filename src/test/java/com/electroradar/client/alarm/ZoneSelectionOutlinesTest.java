@@ -12,6 +12,17 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ZoneSelectionOutlinesTest {
+    @Test void structureSelectionKeepsLocalChasingBoxForSableRenderInterpolation() {
+        Outliner outliner = new Outliner();
+        ZoneSelectionOutlines selection = new ZoneSelectionOutlines(outliner);
+        AABB local = new AABB(1000000, 0, 1000000, 1000003, 2, 1000004);
+        selection.update(local, net.minecraft.core.Direction.UP, 0, null);
+        assertEquals(1, outliner.getOutlines().size(), "Sable needs one local box, not tick-transformed edges");
+        var outline = outliner.getOutlines().values().iterator().next().getOutline();
+        assertInstanceOf(ChasingAABBOutline.class, outline);
+        assertEquals(local, ((AABBOutline) outline).getBounds());
+    }
+
     @Test void movingSelectionEasesTowardItsNewBoundaryInsteadOfJumping() {
         Outliner outliner = new Outliner();
         ZoneSelectionOutlines selection = new ZoneSelectionOutlines(outliner);
