@@ -12,6 +12,10 @@ import net.minecraft.world.level.Level;
 /** Integration interface. Implementations never force chunks or sub-levels to load. */
 public interface SpatialBackend {
     Optional<Placement> placement(Level level, BlockPos position);
+    /** Selection volumes may occupy empty plot chunks; identifying their space must not load them. */
+    default Optional<Placement> selectionPlacement(Level level, BlockPos position) {
+        return placement(level, position);
+    }
     default Optional<Placement> renderPlacement(Level level, BlockPos position, float partialTick) {
         return placement(level, position);
     }

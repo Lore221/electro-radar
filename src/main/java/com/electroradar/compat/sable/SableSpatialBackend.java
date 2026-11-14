@@ -92,10 +92,14 @@ public final class SableSpatialBackend extends WorldSpatialBackend {
     }
 
     @Override public Optional<Placement> placement(Level level, BlockPos position) {
+        return level.hasChunkAt(position) ? selectionPlacement(level, position) : Optional.empty();
+    }
+
+    @Override public Optional<Placement> selectionPlacement(Level level, BlockPos position) {
         SubLevelContainer container = SubLevelContainer.getContainer(level);
         if (container == null || !container.inBounds(position)) return super.placement(level, position);
         var plot = container.getPlot(new ChunkPos(position));
-        if (plot == null || !level.hasChunkAt(position)) return Optional.empty();
+        if (plot == null) return Optional.empty();
         SubLevel sub = plot.getSubLevel();
         if (sub.isRemoved()) return Optional.empty();
         EndpointKey key = new EndpointKey.Moving(level.dimension(), sub.getUniqueId(),
