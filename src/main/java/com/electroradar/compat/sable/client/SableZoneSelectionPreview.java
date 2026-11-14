@@ -31,7 +31,7 @@ public final class SableZoneSelectionPreview {
                 OutlineKey key = new OutlineKey(structure.getUniqueId());
                 current.add(key);
                 outliner.chaseAABB(key, structure.getPlot().getBoundingBox().toAABB())
-                        .colored(0x86A4E3).lineWidth(1 / 32f)
+                        .colored(0xFF9F43).lineWidth(1 / 32f)
                         .withFaceTextures(AllSpecialTextures.CHECKERED, AllSpecialTextures.HIGHLIGHT_CHECKERED);
             }
         }
