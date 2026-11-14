@@ -38,6 +38,29 @@ class MovingZoneTest {
         }
     }
 
+    @Test void scalarSweepMatchesVectorGeometryForMovingRotatedAndScaledFrames() {
+        Random random = new Random(20261114);
+        for (int i = 0; i < 2_000; i++) {
+            double yaw = random.nextDouble() * Math.PI * 2, pitch = random.nextDouble() - .5;
+            double c = Math.cos(yaw), t = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+            Vector3 origin = i % 2 == 0 ? Vector3.ZERO : new Vector3(10_000_000, 64, 10_000_000);
+            ZoneFrame frame = new ZoneFrame(origin, new Vector3(50, 80, -30),
+                    new Vector3(c, 0, t).scale(.5 + random.nextDouble()),
+                    new Vector3(-t * sp, cp, c * sp).scale(.5 + random.nextDouble()),
+                    new Vector3(-t * cp, -sp, c * cp).scale(.5 + random.nextDouble()));
+            ZoneVolume volume = new ZoneVolume(new ProtectionBox(origin.subtract(new Vector3(10, 10, 10)),
+                    origin.add(new Vector3(10, 10, 10))), frame,
+                    new Vector3(random.nextDouble() - .5, random.nextDouble() - .5, random.nextDouble() - .5));
+            Vector3 start = new Vector3(random.nextDouble() * 200 - 50, random.nextDouble() * 160, random.nextDouble() * 160 - 80);
+            Vector3 end = start.add(new Vector3(random.nextDouble() * 100 - 50,
+                    random.nextDouble() * 100 - 50, random.nextDouble() * 100 - 50));
+            int tick = random.nextInt(100);
+            assertEquals(volume.intersects(start, tick, end, tick + 1),
+                    volume.intersects(start.x(), start.y(), start.z(), tick, end.x(), end.y(), end.z(), tick + 1),
+                    "geometry case " + i);
+        }
+    }
+
     @Test void fixedZoneGivesTheSamePredictionAsTheBox() {
         ProtectionBox box = box(-2, -10, 10, 2, 10, 20);
         HostileShell shell = shell(Vector3.ZERO, new Vector3(0, 0, 2), .01, .025);

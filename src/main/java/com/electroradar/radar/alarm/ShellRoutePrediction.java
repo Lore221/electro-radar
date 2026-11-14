@@ -32,41 +32,40 @@ public record ShellRoutePrediction(int firstDangerTick, int lastDangerTick, bool
         double drag = shell.motion().drag();
         double g = shell.motion().gravity();
         int first = -1, last = -1;
-        Vector3 start = shell.position();
-        Vector3 velocity = shell.velocity();
-        Vector3 gravity = new Vector3(0, -g, 0);
+        double x = shell.position().x(), y = shell.position().y(), z = shell.position().z();
+        double vx = shell.velocity().x(), vy = shell.velocity().y(), vz = shell.velocity().z();
+        boolean stationaryWorldZone = zone.frame().identity() && zoneVelocity.equals(Vector3.ZERO);
         for (int n = 0; n < limit; n++) {
-            // При последовательном проходе рекурсия дешевле четырёх вычислений expm1
-            // на каждый ход. Замкнутая модель HostileShell остаётся проверкой кэша.
-            Vector3 acceleration = velocity.scale(-drag).add(gravity);
-            Vector3 nextVelocity = velocity.add(acceleration);
-            Vector3 end = start.add(nextVelocity);
-            Vector3 moved = start.add(velocity).add(acceleration.scale(.5));
-            // Это виртуальная зона: учитываем и фактическое перемещение, и native CBC
-            // collision sweep. Между концом sweep и следующей позицией возможен зазор.
-            if (expanded.intersects(start, n, end, n + 1) || expanded.intersects(start, n, moved, n + 1)) {
+            // Та же рекурсия CBC; примитивы исключают десятки временных векторов на ход.
+            double ax = vx * -drag, ay = vy * -drag - g, az = vz * -drag;
+            double nextVx = vx + ax, nextVy = vy + ay, nextVz = vz + az;
+            double endX = x + nextVx, endY = y + nextVy, endZ = z + nextVz;
+            double movedX = x + vx + ax * .5, movedY = y + vy + ay * .5, movedZ = z + vz + az * .5;
+            if (!Double.isFinite(nextVx) || !Double.isFinite(nextVy) || !Double.isFinite(nextVz)
+                    || !Double.isFinite(movedX) || !Double.isFinite(movedY) || !Double.isFinite(movedZ))
+                throw new IllegalArgumentException("Non-finite predicted motion");
+            boolean intersects = stationaryWorldZone
+                    ? bounds.intersects(x, y, z, endX, endY, endZ) || bounds.intersects(x, y, z, movedX, movedY, movedZ)
+                    : expanded.intersects(x, y, z, n, endX, endY, endZ, n + 1)
+                            || expanded.intersects(x, y, z, n, movedX, movedY, movedZ, n + 1);
+            if (intersects) {
                 if (first == -1) first = n;
                 last = n;
             }
-            Vector3 relStart = start.subtract(zoneVelocity.scale(n));
-            Vector3 relEnd = end.subtract(zoneVelocity.scale(n + 1));
-            Vector3 relative = velocity.subtract(zoneVelocity);
-            // Каждая компонента относительной скорости монотонно идёт к своему пределу:
-            // горизонтальные — к −скорости зоны, вертикальная — к −g/k − скорости зоны.
-            // Снаряд по ту сторону зоны, чья скорость к ней уже никогда не повернёт, не вернётся.
-            if (past(relStart.x(), relEnd.x(), relative.x(), limitX(velocity.x(), drag, zoneVelocity.x()),
-                    bounds.min().x(), bounds.max().x())
-                    || past(relStart.z(), relEnd.z(), relative.z(), limitX(velocity.z(), drag, zoneVelocity.z()),
-                    bounds.min().z(), bounds.max().z())
-                    || past(relStart.y(), relEnd.y(), relative.y(), limitY(velocity.y(), drag, g, zoneVelocity.y()),
-                    bounds.min().y(), bounds.max().y())) {
+            // Те же доказательства невозможности возвращения в зону, в мировых осях.
+            if (past(x - zoneVelocity.x() * n, endX - zoneVelocity.x() * (n + 1), vx - zoneVelocity.x(),
+                    limitX(vx, drag, zoneVelocity.x()), bounds.min().x(), bounds.max().x())
+                    || past(z - zoneVelocity.z() * n, endZ - zoneVelocity.z() * (n + 1), vz - zoneVelocity.z(),
+                    limitX(vz, drag, zoneVelocity.z()), bounds.min().z(), bounds.max().z())
+                    || past(y - zoneVelocity.y() * n, endY - zoneVelocity.y() * (n + 1), vy - zoneVelocity.y(),
+                    limitY(vy, drag, g, zoneVelocity.y()), bounds.min().y(), bounds.max().y())) {
                 return new ShellRoutePrediction(first, last, true);
             }
-            if (g == 0 && velocity.length() == 0 && zoneVelocity.length() == 0) {
+            if (g == 0 && vx * vx + vy * vy + vz * vz == 0 && zoneVelocity.dot(zoneVelocity) == 0) {
                 return new ShellRoutePrediction(first, first == -1 ? -1 : Integer.MAX_VALUE, true);
             }
-            start = moved;
-            velocity = nextVelocity;
+            x = movedX; y = movedY; z = movedZ;
+            vx = nextVx; vy = nextVy; vz = nextVz;
         }
         // Предел расчёта не доказывает отсутствия более поздних пересечений.
         return new ShellRoutePrediction(first, last, false);

@@ -18,10 +18,18 @@ public record ProtectionBox(Vector3 min, Vector3 max) {
 
     /** Slab test: проверяется весь отрезок, в том числе начало внутри и нулевой отрезок. */
     public boolean intersects(Vector3 start, Vector3 end) {
+        return intersects(start.x(), start.y(), start.z(), end.x(), end.y(), end.z());
+    }
+
+    /** Без временных векторов для потикового прогноза. */
+    boolean intersects(double sx, double sy, double sz, double ex, double ey, double ez) {
+        if (!Double.isFinite(sx) || !Double.isFinite(sy) || !Double.isFinite(sz)
+                || !Double.isFinite(ex) || !Double.isFinite(ey) || !Double.isFinite(ez))
+            throw new IllegalArgumentException("Non-finite segment");
         double enter = 0, exit = 1;
         for (int axis = 0; axis < 3; axis++) {
-            double a = axis == 0 ? start.x() : axis == 1 ? start.y() : start.z();
-            double b = axis == 0 ? end.x() : axis == 1 ? end.y() : end.z();
+            double a = axis == 0 ? sx : axis == 1 ? sy : sz;
+            double b = axis == 0 ? ex : axis == 1 ? ey : ez;
             double lo = axis == 0 ? min.x() : axis == 1 ? min.y() : min.z();
             double hi = axis == 0 ? max.x() : axis == 1 ? max.y() : max.z();
             double step = b - a;
