@@ -2,6 +2,7 @@ package com.electroradar.radar.network;
 
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -49,6 +50,7 @@ final class RadarNetworkState {
         final NetworkId id;
         final Map<EndpointKey, RadarState> radars = new TreeMap<>(ENDPOINT_ORDER);
         final Map<TargetRef, TargetEntry> targets = new HashMap<>();
+        final Set<TargetRef> movingStructures = new HashSet<>();
         final Map<TargetRef, LiveResult> ownStructures = new HashMap<>();
         NetworkPolicy policy;
         TargetRef selectedTarget;
@@ -65,6 +67,20 @@ final class RadarNetworkState {
         NetworkRuntime(NetworkId id) { this.id = id; }
 
         boolean windowStarted() { return slotSerial >= 0; }
+
+        TargetEntry getOrCreateTarget(TargetRef target) {
+            return targets.computeIfAbsent(target, ref -> {
+                if (ref.sourceKind() == TargetRef.SourceKind.MOVING_STRUCTURE) movingStructures.add(ref);
+                return new TargetEntry();
+            });
+        }
+
+        void removeTargetSource(EndpointKey endpoint, TargetRef target, SourceLink link) {
+            TargetEntry entry = targets.get(target);
+            if (entry == null) return;
+            entry.sources.remove(endpoint,link);
+            if (entry.sources.isEmpty() && targets.remove(target,entry)) movingStructures.remove(target);
+        }
     }
 
     /** Состояние посещения сектора одним источником. Переходы выполняет только менеджер. */

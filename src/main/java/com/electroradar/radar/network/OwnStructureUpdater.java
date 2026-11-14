@@ -11,7 +11,7 @@ final class OwnStructureUpdater {
 
     static boolean refresh(RadarNetworkState.NetworkRuntime network,
                            Map<EndpointKey, RadarNetworkState.Registration> registrations, long tick,
-                           Function<EndpointKey.Moving, Optional<StructureBody>> lookup) {
+                           Function<TargetRef, Optional<StructureBody>> lookup) {
         boolean changed = false;
         for (var entry : network.radars.entrySet()) {
             if (!(entry.getKey() instanceof EndpointKey.Moving moving)) continue;
@@ -23,7 +23,7 @@ final class OwnStructureUpdater {
             LiveResult previous = network.ownStructures.get(target);
             // Несколько радаров на одной структуре публикуют один sample текущего тика.
             if (previous != null && previous.sampledTick() == tick) continue;
-            var body = lookup.apply(moving);
+            var body = lookup.apply(target);
             if (body.isEmpty()) continue;
             LiveResult next = LiveResult.observedStructure(tick, body.orElseThrow());
             changed |= !next.sameVisibleState(previous);

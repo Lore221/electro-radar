@@ -67,13 +67,15 @@ class OwnStructureUpdaterTest {
     static final class Fixture {
         final ResourceKey<Level> world = ResourceKey.create(Registries.DIMENSION, ResourceLocation.withDefaultNamespace("overworld"));
         final TargetRef target = new TargetRef(world, TargetRef.SourceKind.MOVING_STRUCTURE, new UUID(0,1));
-        final RadarNetworkState.NetworkRuntime network = new RadarNetworkState.NetworkRuntime(new NetworkId(new UUID(0,2)));
+        final RadarNetworkState.NetworkRuntime network;
         final EndpointKey.Moving first = new EndpointKey.Moving(world, target.id(), BlockPos.ZERO);
         final EndpointKey.Moving second = new EndpointKey.Moving(world, target.id(), new BlockPos(1,0,0));
         final Map<EndpointKey, RadarNetworkState.Registration> endpoints = new HashMap<>();
         final StructureBody body = new StructureBody(target, List.of(), new Vec3(0,64,0),
                 new StructureMeasurement("ship", Silhouette.EMPTY, new Vec3(0,64,0), Vec3.ZERO, 1));
-        Fixture() {
+        Fixture() { this(2); }
+        Fixture(long networkId) {
+            network = new RadarNetworkState.NetworkRuntime(new NetworkId(new UUID(0,networkId)));
             for (var endpoint : List.of(first,second)) {
                 var registration = new RadarNetworkState.Registration(network.id, EndpointRole.RADAR, RegistrationToken.create());
                 endpoints.put(endpoint, registration);
