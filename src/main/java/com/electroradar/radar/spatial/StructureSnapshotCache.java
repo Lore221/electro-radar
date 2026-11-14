@@ -2,8 +2,6 @@ package com.electroradar.radar.spatial;
 
 import java.util.*;
 import com.electroradar.radar.network.TargetRef;
-import com.electroradar.radar.scan.AabbRadarScanArea;
-import com.electroradar.radar.scan.ConvexRadarIntersection;
 import com.electroradar.radar.visual.RadarVisualGeometry.Point;
 import com.electroradar.radar.visual.RadarVisualGeometry.Segment;
 import net.minecraft.world.phys.AABB;
@@ -73,7 +71,7 @@ public final class StructureSnapshotCache {
             Set<Long> cells;
             if (sameOrigin && old != null && samePart(child, old.part)) cells = old.cells;
             else {
-                cells = childCells(child, origin);
+                cells = ProjectedBlockRasterizer.rasterize(child, origin, MAX_CELLS);
                 if (old != null && cells.equals(old.cells)) cells = old.cells;
             }
             changed |= old == null || cells != old.cells;
@@ -90,29 +88,12 @@ public final class StructureSnapshotCache {
         baseShape=blocks; gridOrigin=origin; baseCells=nextBase; childGrids=List.copyOf(nextChildren);
     }
 
-    private static Set<Long> childCells(StructureBody.Part child, Vec3 origin) {
-        Set<Long> result = new HashSet<>();
-        for (AABB box : child.boxes()) {
-            AABB bounds = child.transform().bounds(box);
-            List<Vec3> corners = child.transform().corners(box);
-            for (int z=(int)Math.floor(bounds.minZ-origin.z);z<Math.ceil(bounds.maxZ-origin.z);z++) {
-                for (int x=(int)Math.floor(bounds.minX-origin.x);x<Math.ceil(bounds.maxX-origin.x);x++) {
-                    var cell = new AabbRadarScanArea(new AABB(x+origin.x,bounds.minY,z+origin.z,
-                            x+origin.x+1,bounds.maxY,z+origin.z+1));
-                    if (ConvexRadarIntersection.intersects(cell,corners)) result.add(GridSilhouette.key(x,z));
-                    checkBudget(result);
-                }
-            }
-        }
-        return result;
-    }
-
     private static void checkBudget(Set<Long> cells) {
         if (cells.size() > MAX_CELLS) throw new IllegalStateException("Radar silhouette grid budget exceeded");
     }
 
     private static boolean samePart(StructureBody.Part first, StructureBody.Part second) {
-        return first.shape() == second.shape() && first.transform().equals(second.transform());
+        return first.shape() == second.shape() && first.transform().samePose(second.transform());
     }
 
     private static boolean sameParts(List<StructureBody.Part> first, List<StructureBody.Part> second) {

@@ -30,7 +30,20 @@ public record SpatialTransform(Vec3 localOrigin, Vec3 worldOrigin, Vec3 x, Vec3 
     }
 
     public boolean isIdentity() {
-        return equals(IDENTITY);
+        return samePose(IDENTITY);
+    }
+
+    /** Точное сравнение для частых проверок кэша: без округления позы и record MethodHandle. */
+    public boolean samePose(SpatialTransform other) {
+        return this == other || other != null && sameVector(localOrigin,other.localOrigin)
+                && sameVector(worldOrigin,other.worldOrigin) && sameVector(x,other.x)
+                && sameVector(y,other.y) && sameVector(z,other.z);
+    }
+
+    private static boolean sameVector(Vec3 first, Vec3 second) {
+        return first == second || first != null && second != null
+                && Double.compare(first.x,second.x) == 0 && Double.compare(first.y,second.y) == 0
+                && Double.compare(first.z,second.z) == 0;
     }
 
     public Vec3 toLocal(Vec3 point) {
