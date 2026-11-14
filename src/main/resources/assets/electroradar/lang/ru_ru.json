@@ -175,7 +175,7 @@
   "message.electroradar.shell_alarm.status.danger": "Обнаружены опасные снаряды",
   "message.electroradar.shell_alarm.status.incomplete": "Прогноз неполон или физика не поддерживается",
   "message.electroradar.shell_alarm.count": "Опасных снарядов: %s",
-  "message.electroradar.shell_alarm.input_counts": "Целей сети: %s | Крупных снарядов: %s | Прогнозируется: %s",
+  "message.electroradar.shell_alarm.input_counts": "Кандидатов CBC: %s | Крупных снарядов: %s | Прогнозируется: %s",
   "message.electroradar.zone.no_target": "Нет цели. Наведитесь на блок или удерживайте Ctrl для выбора в воздухе.",
   "item.electroradar.linker.alarm_ports": "ПКМ по Shell Alarm: радарная сеть; повторный — сеть перехвата.",
   "message.electroradar.linker.interception_copied": "Сеть перехвата скопирована",

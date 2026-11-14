@@ -10,7 +10,7 @@ import net.minecraft.server.level.ServerLevel;
 final class ShellAlarmProfiler {
     static final boolean ENABLED = ShellRouteMetrics.ENABLED;
     private static final Logger LOGGER = LogUtils.getLogger();
-    enum Stage { SETUP, QUERY, OBSERVE, FORECAST, PUBLISH }
+    enum Stage { SETUP, ZONE, QUERY, OBSERVE, FORECAST, PUBLISH }
     private final long[] stages = new long[Stage.values().length];
     private long start, mark, total, peak, searchesAtStart, evaluatedAtStart, fallbacksAtStart;
     private long searches, evaluated, fallbacks, predictions, targets, shells;
@@ -41,9 +41,10 @@ final class ShellAlarmProfiler {
         fallbacks += ShellRouteMetrics.fallbacks() - fallbacksAtStart;
         predictions += newPredictions;
         if (++ticks < 20) return;
-        LOGGER.info("[ElectroRadar/ShellAlarmPerf] dimension={} alarm={} ticks={} avgUs={} maxUs={} setupUs={} queryAndZoneUs={} observeUs={} forecastUs={} publishUs={} targetsAvg={} targetsMax={} shellsAvg={} shellsMax={} predictions={} searches={} evaluatedTicks={} fallbacks={}",
+        LOGGER.info("[ElectroRadar/ShellAlarmPerf] dimension={} alarm={} category=SHELL ticks={} avgUs={} maxUs={} setupUs={} queryAndZoneUs={} zoneUs={} queryUs={} observeUs={} forecastUs={} publishUs={} targetsAvg={} targetsMax={} shellsAvg={} shellsMax={} predictions={} searches={} evaluatedTicks={} fallbacks={}",
                 level.dimension().location(), position, ticks, us(total), decimal(peak / 1000.0),
-                us(stages[0]), us(stages[1]), us(stages[2]), us(stages[3]), us(stages[4]),
+                us(Stage.SETUP), us(stages[Stage.ZONE.ordinal()] + stages[Stage.QUERY.ordinal()]),
+                us(Stage.ZONE), us(Stage.QUERY), us(Stage.OBSERVE), us(Stage.FORECAST), us(Stage.PUBLISH),
                 decimal(targets / (double) ticks), peakTargets, decimal(shells / (double) ticks), peakShells,
                 predictions, searches, evaluated, fallbacks);
         java.util.Arrays.fill(stages, 0);
@@ -52,5 +53,6 @@ final class ShellAlarmProfiler {
     }
 
     private String us(long nanos) { return decimal(nanos / (1000.0 * ticks)); }
+    private String us(Stage stage) { return us(stages[stage.ordinal()]); }
     private static String decimal(double value) { return String.format(Locale.ROOT, "%.2f", value); }
 }

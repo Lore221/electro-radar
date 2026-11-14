@@ -34,6 +34,7 @@ import com.electroradar.radar.network.LiveResult;
 import com.electroradar.radar.network.NetworkId;
 import com.electroradar.radar.network.NetworkLinkTarget;
 import com.electroradar.radar.network.TargetAvailability;
+import com.electroradar.radar.network.TargetCategory;
 import com.electroradar.radar.network.TargetRef;
 
 public final class ShellAlarmBlockEntity extends SmartBlockEntity implements NetworkLinkTarget, IHaveGoggleInformation {
@@ -93,7 +94,7 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
     private Status status = Status.NO_NETWORK;
     private int dangerousCount;
     private int unsupportedCount;
-    private int networkTargetCount;
+    private int shellCandidateCount;
     private int bigShellCount;
     private int supportedShellCount;
     /** Клиент получает разрешение на диагностическую подсказку от серверной JVM. */
@@ -138,10 +139,10 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
         boolean wasDangerous = dangerousCount > 0;
         Status oldStatus = status;
         int oldCount = dangerousCount, oldUnsupported = unsupportedCount;
-        int oldTargets = networkTargetCount, oldBig = bigShellCount, oldSupported = supportedShellCount;
+        int oldCandidates = shellCandidateCount, oldBig = bigShellCount, oldSupported = supportedShellCount;
         int available = 0, resolved = 0, current = 0;
         int oldPredictions = tracker.predictionCount();
-        networkTargetCount = bigShellCount = supportedShellCount = 0;
+        shellCandidateCount = bigShellCount = supportedShellCount = 0;
         unsupportedCount = 0;
         if (profiler != null) profiler.end(ShellAlarmProfiler.Stage.SETUP);
         if (connection.current() == null) {
@@ -155,14 +156,16 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
             Set<UUID> currentThreats = new HashSet<>();
             // Зона, выбранная на структуре, повёрнута её позой и движется вместе с ней.
             ZoneVolume volume = ProtectionZoneSpace.volume(world, zone);
-            // Тот же контракт разрешённого чтения, что у Target Controller: только доступные
-            // сети обнаружения с AVAILABLE sample, включая её обычную память.
-            var targets = connection.current().queryTargets(view -> new Candidate(view.target(), view.liveResult()));
+            if (profiler != null) profiler.end(ShellAlarmProfiler.Stage.ZONE);
+            // Ядро обходит только индекс крупных снарядов доступных радаров. Проверка
+            // AVAILABLE и живой сущности ниже сохраняет обычную память радарной сети.
+            var targets = connection.current().queryTargets(TargetCategory.SHELL,
+                    view -> new Candidate(view.target(), view.liveResult()));
             if (profiler != null) {
                 profiler.end(ShellAlarmProfiler.Stage.QUERY);
                 profiler.targets(targets.targets().size());
             }
-            networkTargetCount = ShellAlarmDiagnostics.ENABLED ? targets.targets().size() : 0;
+            shellCandidateCount = ShellAlarmDiagnostics.ENABLED ? targets.targets().size() : 0;
             for (Candidate candidate : targets.targets()) {
                 TargetRef ref = candidate.target();
                 if (candidate.sample().availability() != TargetAvailability.AVAILABLE) {
@@ -216,11 +219,11 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
                     : tracker.incompleteCount() > 0 || unsupportedCount > 0 ? Status.INCOMPLETE : Status.CLEAR;
         }
         dangerousCount = dangerousProjectiles().size();
-        diagnostics.summary(status.name(), networkTargetCount, available, resolved, bigShellCount, supportedShellCount,
+        diagnostics.summary(status.name(), shellCandidateCount, available, resolved, bigShellCount, supportedShellCount,
                 current, dangerousCount, unsupportedCount, tracker.incompleteCount(), tracker.predictionCount() - oldPredictions);
         if (wasDangerous != (dangerousCount > 0)) world.updateNeighborsAt(worldPosition, getBlockState().getBlock());
         if (status != oldStatus || oldCount != dangerousCount || oldUnsupported != unsupportedCount
-                || oldTargets != networkTargetCount || oldBig != bigShellCount || oldSupported != supportedShellCount) sendData();
+                || oldCandidates != shellCandidateCount || oldBig != bigShellCount || oldSupported != supportedShellCount) sendData();
         if (profiler != null) {
             profiler.end(ShellAlarmProfiler.Stage.PUBLISH);
             profiler.finish(world, worldPosition, tracker.predictionCount() - oldPredictions);
@@ -249,7 +252,7 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
         tracker.clear();
         dangerousCount = 0;
         unsupportedCount = 0;
-        networkTargetCount = bigShellCount = supportedShellCount = 0;
+        shellCandidateCount = bigShellCount = supportedShellCount = 0;
         status = networkId == null ? Status.NO_NETWORK : zone == null ? Status.NO_ZONE : Status.CLEAR;
         return active;
     }
@@ -276,7 +279,7 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
             tag.putInt("UnsupportedCount", unsupportedCount);
             if (ShellAlarmDiagnostics.ENABLED) {
                 tag.putBoolean("AlarmDiagnostics", true);
-                tag.putInt("NetworkTargetCount", networkTargetCount);
+                tag.putInt("ShellCandidateCount", shellCandidateCount);
                 tag.putInt("BigShellCount", bigShellCount);
                 tag.putInt("SupportedShellCount", supportedShellCount);
             }
@@ -304,7 +307,7 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
             dangerousCount = Math.max(0, tag.getInt("DangerousCount"));
             unsupportedCount = Math.max(0, tag.getInt("UnsupportedCount"));
             diagnosticDisplay = tag.getBoolean("AlarmDiagnostics");
-            networkTargetCount = diagnosticDisplay ? Math.max(0, tag.getInt("NetworkTargetCount")) : 0;
+            shellCandidateCount = diagnosticDisplay ? Math.max(0, tag.getInt("ShellCandidateCount")) : 0;
             bigShellCount = diagnosticDisplay ? Math.max(0, tag.getInt("BigShellCount")) : 0;
             supportedShellCount = diagnosticDisplay ? Math.max(0, tag.getInt("SupportedShellCount")) : 0;
         }
@@ -316,7 +319,7 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
                 + status.name().toLowerCase(java.util.Locale.ROOT)).withStyle(status == Status.DANGER ? ChatFormatting.RED : ChatFormatting.GRAY)));
         tooltip.add(Component.literal("    ").append(Component.translatable("message.electroradar.shell_alarm.count", dangerousCount)));
         if (sneaking && diagnosticDisplay) tooltip.add(Component.literal("    ").append(Component.translatable(
-                "message.electroradar.shell_alarm.input_counts", networkTargetCount, bigShellCount, supportedShellCount)
+                "message.electroradar.shell_alarm.input_counts", shellCandidateCount, bigShellCount, supportedShellCount)
                 .withStyle(ChatFormatting.GRAY)));
         if (zone != null) tooltip.add(Component.literal("    ").append(Component.translatable("message.electroradar.zone.size",
                 zone.width(), zone.height(), zone.depth()).withStyle(ChatFormatting.AQUA)));
