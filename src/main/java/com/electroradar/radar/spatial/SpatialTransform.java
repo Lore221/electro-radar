@@ -1,6 +1,7 @@
 package com.electroradar.radar.spatial;
 
 import java.util.List;
+import java.util.Optional;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -50,14 +51,41 @@ public record SpatialTransform(Vec3 localOrigin, Vec3 worldOrigin, Vec3 x, Vec3 
     }
 
     public AABB bounds(AABB box) {
-        List<Vec3> corners = corners(box);
-        Vec3 first = corners.getFirst();
-        double minX = first.x, minY = first.y, minZ = first.z;
-        double maxX = minX, maxY = minY, maxZ = minZ;
-        for (Vec3 p : corners) {
-            minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); minZ = Math.min(minZ, p.z);
-            maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); maxZ = Math.max(maxZ, p.z);
-        }
-        return new AABB(minX, minY, minZ, maxX, maxY, maxZ);
+        // Экстремум линейной координаты достигается на выбранных по знакам концах интервалов.
+        // Порядок сумм совпадает с direction/toWorld; восемь временных вершин не нужны.
+        return new AABB(
+                minimum(box,x.x,y.x,z.x,worldOrigin.x), minimum(box,x.y,y.y,z.y,worldOrigin.y),
+                minimum(box,x.z,y.z,z.z,worldOrigin.z), maximum(box,x.x,y.x,z.x,worldOrigin.x),
+                maximum(box,x.y,y.y,z.y,worldOrigin.y), maximum(box,x.z,y.z,z.z,worldOrigin.z));
     }
+
+    /** Точные границы объединения, без промежуточного AABB на каждый занятый блок. */
+    public Optional<AABB> bounds(List<AABB> boxes) {
+        if (boxes.isEmpty()) return Optional.empty();
+        double minX=Double.POSITIVE_INFINITY,minY=minX,minZ=minX,maxX=Double.NEGATIVE_INFINITY,maxY=maxX,maxZ=maxX;
+        for (AABB box : boxes) {
+            minX=Math.min(minX,minimum(box,x.x,y.x,z.x,worldOrigin.x));
+            minY=Math.min(minY,minimum(box,x.y,y.y,z.y,worldOrigin.y));
+            minZ=Math.min(minZ,minimum(box,x.z,y.z,z.z,worldOrigin.z));
+            maxX=Math.max(maxX,maximum(box,x.x,y.x,z.x,worldOrigin.x));
+            maxY=Math.max(maxY,maximum(box,x.y,y.y,z.y,worldOrigin.y));
+            maxZ=Math.max(maxZ,maximum(box,x.z,y.z,z.z,worldOrigin.z));
+        }
+        return Optional.of(new AABB(minX,minY,minZ,maxX,maxY,maxZ));
+    }
+
+    private double minimum(AABB box,double a,double b,double c,double origin) {
+        return origin + (lower(box.minX-localOrigin.x,box.maxX-localOrigin.x,a)
+                + lower(box.minY-localOrigin.y,box.maxY-localOrigin.y,b)
+                + lower(box.minZ-localOrigin.z,box.maxZ-localOrigin.z,c));
+    }
+
+    private double maximum(AABB box,double a,double b,double c,double origin) {
+        return origin + (upper(box.minX-localOrigin.x,box.maxX-localOrigin.x,a)
+                + upper(box.minY-localOrigin.y,box.maxY-localOrigin.y,b)
+                + upper(box.minZ-localOrigin.z,box.maxZ-localOrigin.z,c));
+    }
+
+    private static double lower(double min, double max, double axis) { return (axis < 0 ? max : min) * axis; }
+    private static double upper(double min, double max, double axis) { return (axis < 0 ? min : max) * axis; }
 }

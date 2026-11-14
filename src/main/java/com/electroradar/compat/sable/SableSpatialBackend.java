@@ -56,7 +56,7 @@ public final class SableSpatialBackend extends WorldSpatialBackend {
     @Override public void invalidate(Level level, BlockPos position) {
         var container = SubLevelContainer.getContainer(level);
         var plot = container == null ? null : container.getPlot(new ChunkPos(position));
-        if (plot != null) structureReader.invalidate(plot.getSubLevel());
+        if (plot != null) structureReader.invalidate(plot.getSubLevel(), position);
     }
 
     @Override public java.util.List<StructureBody> structures(ServerLevel level) {
