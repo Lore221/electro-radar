@@ -10,6 +10,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 
 import com.electroradar.radar.monitor.network.MonitorPayloads;
+import com.electroradar.radar.monitor.network.MonitorSnapshotPayload;
 import com.electroradar.radar.network.ConsumerConnection;
 import com.electroradar.radar.network.NetworkId;
 import com.electroradar.radar.network.RadarNetworkManager;
@@ -37,6 +38,7 @@ final class MonitorSnapshotRuntime {
 
     private final MonitorVisualProfileCollector visualProfiles = new MonitorVisualProfileCollector();
     private MonitorSnapshotData latestSnapshot;
+    private MonitorSnapshotPayload.Prepared latestPrepared;
     /** Только растут в пределах одной загрузки; сбрасываются лишь вместе с новым loadId. */
     private long snapshotSequence;
     private long geometryVersion;
@@ -63,6 +65,7 @@ final class MonitorSnapshotRuntime {
         watcherReconciliationInitialized = false;
         lastWatcherReconciliationTick = 0L;
         latestSnapshot = null;
+        latestPrepared = null;
         snapshotSequence = 0L;
         geometryVersion = 0L;
         lastBroadcastSequence = -1L;
@@ -106,7 +109,8 @@ final class MonitorSnapshotRuntime {
                 for (ServerPlayer watcher : watchers) {
                     current.add(watcher.getUUID());
                     if (!knownWatchers.contains(watcher.getUUID())) {
-                        MonitorPayloads.sendToPlayer(watcher, latestSnapshot.withServerTiming(currentTick(serverLevel)), false);
+                        MonitorPayloads.sendToPlayer(watcher, latestSnapshot.withServerTiming(currentTick(serverLevel)),
+                                latestPrepared, false);
                     }
                 }
                 knownWatchers.retainAll(current);
@@ -146,6 +150,7 @@ final class MonitorSnapshotRuntime {
         }
         snapshotSequence = candidate.sequence();
         latestSnapshot = candidate;
+        latestPrepared = networkSnapshot.prepared();
         RadarMonitorDiagnostics.snapshotReceived(serverLevel, owner, latestSnapshot);
     }
 
@@ -156,13 +161,13 @@ final class MonitorSnapshotRuntime {
         // Снимок мог быть собран раньше, а клиент пересчитывает freeze и фазу от observedServerTick.
         MonitorSnapshotData outgoing = latestSnapshot.withServerTiming(currentTick(serverLevel));
         if (recipient != null) {
-            MonitorPayloads.sendToPlayer(recipient, outgoing, openGui);
+            MonitorPayloads.sendToPlayer(recipient, outgoing, latestPrepared, openGui);
             knownWatchers.add(recipient.getUUID());
             RadarMonitorDiagnostics.snapshotSentAddressed(serverLevel, owner, outgoing, recipient, openGui);
             return;
         }
         boolean includeGeometry = broadcastRequired || outgoing.geometryVersion() != lastBroadcastGeometryVersion;
-        MonitorPayloads.sendToTracking(serverLevel, outgoing, includeGeometry);
+        MonitorPayloads.sendToTracking(serverLevel, outgoing, latestPrepared, includeGeometry);
         RadarMonitorDiagnostics.snapshotBroadcast(serverLevel, owner, outgoing, includeGeometry);
         lastBroadcastSequence = outgoing.sequence();
         lastBroadcastGeometryVersion = outgoing.geometryVersion();

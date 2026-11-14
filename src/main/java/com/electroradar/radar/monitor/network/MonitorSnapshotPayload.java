@@ -10,10 +10,12 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import io.netty.buffer.Unpooled;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceKey;
@@ -51,9 +53,7 @@ public record MonitorSnapshotPayload(
         boolean includesGeometry,
         int partIndex,
         int partCount,
-        List<MonitorTargetData> targets,
-        List<RadarVisualProfile> visualProfiles,
-        List<MonitorVisualPhase> visualPhases,
+        Body body,
         EndpointKey rootEndpoint
 ) implements CustomPacketPayload {
     public static final int TARGETS_PER_PART = 192;
@@ -72,47 +72,146 @@ public record MonitorSnapshotPayload(
         rootPosition = Objects.requireNonNull(rootPosition, "rootPosition").immutable();
         Objects.requireNonNull(dimension, "dimension");
         Objects.requireNonNull(loadId, "loadId");
-        targets = List.copyOf(targets);
-        visualProfiles = List.copyOf(visualProfiles);
-        visualPhases = List.copyOf(visualPhases);
+        Objects.requireNonNull(body, "body");
         if (sequence < 0 || geometryVersion < 0 || observedServerTick < 0
                 || partCount < 1 || partCount > MAX_PARTS || partIndex < 0 || partIndex >= partCount
-                || targets.size() > TARGETS_PER_PART || visualProfiles.size() > PROFILES_PER_PART
-                || visualPhases.size() > PHASES_PER_PART
-                || !visualProfiles.isEmpty() && (!includesGeometry || !linked)) {
+                || body.targets.size() > TARGETS_PER_PART || body.visualProfiles.size() > PROFILES_PER_PART
+                || body.visualPhases.size() > PHASES_PER_PART
+                || !body.visualProfiles.isEmpty() && (!includesGeometry || !linked)) {
             throw new IllegalArgumentException("Invalid monitor snapshot part bounds");
         }
     }
 
+    public MonitorSnapshotPayload(UUID displayId, BlockPos rootPosition, ResourceLocation dimension,
+            UUID loadId, long sequence, long geometryVersion, long observedServerTick, boolean linked,
+            boolean selectedTargetUnavailable, TargetRef selectedTarget, boolean includesGeometry,
+            int partIndex, int partCount, List<MonitorTargetData> targets,
+            List<RadarVisualProfile> visualProfiles, List<MonitorVisualPhase> visualPhases,
+            EndpointKey rootEndpoint) {
+        this(displayId, rootPosition, dimension, loadId, sequence, geometryVersion, observedServerTick,
+                linked, selectedTargetUnavailable, selectedTarget, includesGeometry, partIndex, partCount,
+                new Body(targets, visualProfiles, visualPhases), rootEndpoint);
+    }
+
+    public List<MonitorTargetData> targets() { return body.targets; }
+    public List<RadarVisualProfile> visualProfiles() { return body.visualProfiles; }
+    public List<MonitorVisualPhase> visualPhases() { return body.visualPhases; }
+
     /** Разбивает снимок на части; профили включаются, только если {@code includeGeometry}. */
     public static List<MonitorSnapshotPayload> split(MonitorSnapshotData snapshot, boolean includeGeometry) {
-        List<RadarVisualProfile> profiles = includeGeometry ? snapshot.visualProfiles() : List.of();
-        List<List<MonitorTargetData>> targetParts = new ArrayList<>();
-        List<MonitorTargetData> batch = new ArrayList<>();
-        int bytes = 0;
-        for (MonitorTargetData target : snapshot.targets()) {
-            int weight = 256 + target.silhouette().fills().size() * 64 + target.silhouette().outline().size() * 32;
-            if (!batch.isEmpty() && (bytes + weight > 300_000 || batch.size() >= TARGETS_PER_PART)) {
-                targetParts.add(List.copyOf(batch)); batch.clear(); bytes = 0;
+        return prepare(snapshot.targets(), snapshot.visualProfiles(), snapshot.visualPhases())
+                .address(snapshot, includeGeometry);
+    }
+
+    public static Prepared prepare(List<MonitorTargetData> targets, List<RadarVisualProfile> profiles,
+                                   List<MonitorVisualPhase> phases) {
+        return new Prepared(targets, profiles, phases);
+    }
+
+    /** Shared by all displays of one immutable network view. Preparation is lazy until a viewer exists. */
+    public static final class Prepared {
+        private final List<MonitorTargetData> targets;
+        private final List<RadarVisualProfile> profiles;
+        private final List<MonitorVisualPhase> phases;
+        private List<List<MonitorTargetData>> targetParts;
+        private List<Body> fullParts;
+        private List<Body> updateParts;
+
+        private Prepared(List<MonitorTargetData> targets, List<RadarVisualProfile> profiles,
+                         List<MonitorVisualPhase> phases) {
+            this.targets = List.copyOf(targets);
+            this.profiles = List.copyOf(profiles);
+            this.phases = List.copyOf(phases);
+        }
+
+        public List<MonitorSnapshotPayload> address(MonitorSnapshotData snapshot, boolean includeGeometry) {
+            List<Body> bodies = bodies(includeGeometry);
+            ArrayList<MonitorSnapshotPayload> addressed = new ArrayList<>(bodies.size());
+            for (int index = 0; index < bodies.size(); index++) {
+                addressed.add(new MonitorSnapshotPayload(snapshot.displayId(), snapshot.rootPosition(),
+                        snapshot.dimension(), snapshot.loadId(), snapshot.sequence(), snapshot.geometryVersion(),
+                        snapshot.observedServerTick(), snapshot.linked(), snapshot.selectedTargetUnavailable(),
+                        snapshot.selectedTarget(), includeGeometry, index, bodies.size(), bodies.get(index),
+                        snapshot.rootEndpoint()));
             }
-            batch.add(target); bytes += weight;
+            return List.copyOf(addressed);
         }
-        if (!batch.isEmpty()) targetParts.add(List.copyOf(batch));
-        int count = Math.max(1, Math.max(targetParts.size(),
-                Math.max(parts(profiles.size(), PROFILES_PER_PART),
-                        parts(snapshot.visualPhases().size(), PHASES_PER_PART))));
-        if (count > MAX_PARTS) throw new IllegalArgumentException("Monitor snapshot exceeds multipart limit");
-        ArrayList<MonitorSnapshotPayload> parts = new ArrayList<>(count);
-        for (int index = 0; index < count; index++) {
-            parts.add(new MonitorSnapshotPayload(snapshot.displayId(), snapshot.rootPosition(),
-                    snapshot.dimension(), snapshot.loadId(), snapshot.sequence(), snapshot.geometryVersion(),
-                    snapshot.observedServerTick(), snapshot.linked(), snapshot.selectedTargetUnavailable(),
-                    snapshot.selectedTarget(), includeGeometry, index, count,
-                    index < targetParts.size() ? targetParts.get(index) : List.of(),
-                    slice(profiles, index, PROFILES_PER_PART),
-                    slice(snapshot.visualPhases(), index, PHASES_PER_PART), snapshot.rootEndpoint()));
+
+        private synchronized List<Body> bodies(boolean geometry) {
+            List<Body> cached = geometry ? fullParts : updateParts;
+            if (cached != null) return cached;
+            if (targetParts == null) {
+                List<List<MonitorTargetData>> batches = new ArrayList<>();
+                List<MonitorTargetData> batch = new ArrayList<>();
+                int bytes = 0;
+                for (MonitorTargetData target : targets) {
+                    int weight = 256 + target.silhouette().fills().size() * 64
+                            + target.silhouette().outline().size() * 32;
+                    if (!batch.isEmpty() && (bytes + weight > 300_000 || batch.size() >= TARGETS_PER_PART)) {
+                        batches.add(List.copyOf(batch)); batch.clear(); bytes = 0;
+                    }
+                    batch.add(target); bytes += weight;
+                }
+                if (!batch.isEmpty()) batches.add(List.copyOf(batch));
+                targetParts = List.copyOf(batches);
+            }
+            List<RadarVisualProfile> outgoingProfiles = geometry ? profiles : List.of();
+            int count = Math.max(1, Math.max(targetParts.size(),
+                    Math.max(parts(outgoingProfiles.size(), PROFILES_PER_PART), parts(phases.size(), PHASES_PER_PART))));
+            if (count > MAX_PARTS) throw new IllegalArgumentException("Monitor snapshot exceeds multipart limit");
+            List<Body> prepared = new ArrayList<>(count);
+            for (int index = 0; index < count; index++) {
+                prepared.add(new Body(index < targetParts.size() ? targetParts.get(index) : List.of(),
+                        slice(outgoingProfiles, index, PROFILES_PER_PART), slice(phases, index, PHASES_PER_PART)));
+            }
+            cached = List.copyOf(prepared);
+            if (geometry) fullParts = cached; else updateParts = cached;
+            return cached;
         }
-        return List.copyOf(parts);
+    }
+
+    /** Registry-independent wire body; bytes are immutable and reused across recipients and displays. */
+    public static final class Body {
+        private final List<MonitorTargetData> targets;
+        private final List<RadarVisualProfile> visualProfiles;
+        private final List<MonitorVisualPhase> visualPhases;
+        private volatile byte[] encoded;
+
+        private Body(List<MonitorTargetData> targets, List<RadarVisualProfile> profiles, List<MonitorVisualPhase> phases) {
+            this.targets = List.copyOf(targets);
+            this.visualProfiles = List.copyOf(profiles);
+            this.visualPhases = List.copyOf(phases);
+        }
+
+        private void writeTo(FriendlyByteBuf output) {
+            byte[] bytes = encoded;
+            output.writeBytes(bytes == null ? encode() : bytes);
+        }
+
+        private synchronized byte[] encode() {
+            if (encoded == null) {
+                FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer());
+                try {
+                    buffer.writeVarInt(visualProfiles.size());
+                    for (RadarVisualProfile profile : visualProfiles) writeProfile(buffer, profile);
+                    buffer.writeVarInt(visualPhases.size());
+                    for (MonitorVisualPhase phase : visualPhases) writePhase(buffer, phase);
+                    buffer.writeVarInt(targets.size());
+                    for (MonitorTargetData target : targets) writeTargetData(buffer, target);
+                    byte[] bytes = new byte[buffer.readableBytes()];
+                    buffer.readBytes(bytes);
+                    encoded = bytes;
+                } finally { buffer.release(); }
+            }
+            return encoded;
+        }
+
+        @Override public boolean equals(Object other) {
+            return this == other || other instanceof Body value && targets.equals(value.targets)
+                    && visualProfiles.equals(value.visualProfiles) && visualPhases.equals(value.visualPhases);
+        }
+
+        @Override public int hashCode() { return Objects.hash(targets, visualProfiles, visualPhases); }
     }
 
     private static int parts(int size, int perPart) {
@@ -154,12 +253,7 @@ public record MonitorSnapshotPayload(
         buffer.writeBoolean(payload.includesGeometry);
         buffer.writeVarInt(payload.partIndex);
         buffer.writeVarInt(payload.partCount);
-        buffer.writeVarInt(payload.visualProfiles.size());
-        for (RadarVisualProfile profile : payload.visualProfiles) writeProfile(buffer, profile);
-        buffer.writeVarInt(payload.visualPhases.size());
-        for (MonitorVisualPhase phase : payload.visualPhases) writePhase(buffer, phase);
-        buffer.writeVarInt(payload.targets.size());
-        for (MonitorTargetData target : payload.targets) writeTargetData(buffer, target);
+        payload.body.writeTo(buffer);
     }
 
     private static MonitorSnapshotPayload read(RegistryFriendlyByteBuf buffer) {
@@ -191,7 +285,7 @@ public record MonitorSnapshotPayload(
                 targets, profiles, phases, endpoint);
     }
 
-    private static void writePhase(RegistryFriendlyByteBuf buffer, MonitorVisualPhase phase) {
+    private static void writePhase(FriendlyByteBuf buffer, MonitorVisualPhase phase) {
         buffer.writeBlockPos(phase.radarPosition());
         EndpointKeyCodec.write(buffer, phase.radarEndpoint());
         buffer.writeVarInt(phase.activeSectorIndices().size());
@@ -223,7 +317,7 @@ public record MonitorSnapshotPayload(
                 buffer.readVarLong(), buffer.readVarLong(), endpoint);
     }
 
-    private static void writeTargetData(RegistryFriendlyByteBuf buffer, MonitorTargetData target) {
+    private static void writeTargetData(FriendlyByteBuf buffer, MonitorTargetData target) {
         writeTargetRef(buffer, target.target());
         buffer.writeBoolean(target.observing());
         buffer.writeBoolean(target.hasPosition());
@@ -270,7 +364,7 @@ public record MonitorSnapshotPayload(
                 registeredStructure, scanAnchor);
     }
 
-    private static void writeSilhouette(RegistryFriendlyByteBuf b, Silhouette shape) {
+    private static void writeSilhouette(FriendlyByteBuf b, Silhouette shape) {
         b.writeBoolean(shape.detailLimited());
         b.writeVarInt(shape.fills().size());
         for (var q : shape.fills()) { writePoint(b, q.a()); writePoint(b, q.b()); writePoint(b, q.c()); writePoint(b, q.d()); }
@@ -290,7 +384,7 @@ public record MonitorSnapshotPayload(
     }
 
     /** Универсальный формат примитивов; номер порядка одинаков для всех наблюдателей. */
-    private static void writeProfile(RegistryFriendlyByteBuf buffer, RadarVisualProfile profile) {
+    private static void writeProfile(FriendlyByteBuf buffer, RadarVisualProfile profile) {
         buffer.writeResourceLocation(profile.dimension());
         buffer.writeBlockPos(profile.radarPosition());
         EndpointKeyCodec.write(buffer, profile.source());
@@ -360,7 +454,7 @@ public record MonitorSnapshotPayload(
                 inactiveSectorFadeStyle, source);
     }
 
-    private static void writePoint(RegistryFriendlyByteBuf buffer, RadarVisualGeometry.Point point) {
+    private static void writePoint(FriendlyByteBuf buffer, RadarVisualGeometry.Point point) {
         buffer.writeDouble(point.x());
         buffer.writeDouble(point.z());
     }
@@ -369,7 +463,7 @@ public record MonitorSnapshotPayload(
         return new RadarVisualGeometry.Point(buffer.readDouble(), buffer.readDouble());
     }
 
-    private static void writeSegments(RegistryFriendlyByteBuf buffer,
+    private static void writeSegments(FriendlyByteBuf buffer,
                                       List<RadarVisualGeometry.Segment> segments) {
         buffer.writeVarInt(segments.size());
         for (RadarVisualGeometry.Segment segment : segments) {
@@ -395,7 +489,7 @@ public record MonitorSnapshotPayload(
         return count;
     }
 
-    static void writeTargetRef(RegistryFriendlyByteBuf buffer, TargetRef target) {
+    static void writeTargetRef(FriendlyByteBuf buffer, TargetRef target) {
         buffer.writeBoolean(target != null);
         if (target == null) {
             return;

@@ -21,6 +21,7 @@ import com.electroradar.radar.network.TargetRef;
 import com.electroradar.radar.network.TargetSnapshot;
 import com.electroradar.radar.network.TargetView;
 import com.electroradar.radar.visual.RadarVisualProfile;
+import com.electroradar.radar.monitor.network.MonitorSnapshotPayload;
 
 /**
  * Reuses the immutable monitor view shared by connections to one network and dimension.
@@ -89,8 +90,14 @@ final class MonitorNetworkSnapshotCache {
     }
 
     record Snapshot(long contentVersion, List<MonitorTargetData> targets,
-                    List<RadarVisualProfile> visualProfiles, List<MonitorVisualPhase> visualPhases) {
+                    List<RadarVisualProfile> visualProfiles, List<MonitorVisualPhase> visualPhases,
+                    MonitorSnapshotPayload.Prepared prepared) {
         private static final Snapshot EMPTY = new Snapshot(-1L, List.of(), List.of(), List.of());
+
+        Snapshot(long contentVersion, List<MonitorTargetData> targets,
+                 List<RadarVisualProfile> profiles, List<MonitorVisualPhase> phases) {
+            this(contentVersion, targets, profiles, phases, MonitorSnapshotPayload.prepare(targets, profiles, phases));
+        }
 
         Snapshot {
             targets = List.copyOf(targets);
