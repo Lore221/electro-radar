@@ -28,6 +28,11 @@ public record HostileShell(Vector3 position, Vector3 velocity, LinearDragMotion 
         Objects.requireNonNull(motion, "motion");
     }
 
+    /** Положение и скорость в произвольный тик, вычисленные по одному набору коэффициентов. */
+    public HostileShell after(int ticks) {
+        return motion.advance(this, ticks);
+    }
+
     public Vector3 positionAfter(int ticks) {
         return position.add(motion.displacement(velocity, ticks));
     }

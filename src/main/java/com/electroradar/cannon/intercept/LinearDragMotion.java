@@ -41,6 +41,16 @@ public final class LinearDragMotion {
         return gravity;
     }
 
+    HostileShell advance(HostileShell initial, int ticks) {
+        Sweep sweep = unit.sweep(ticks);
+        Vector3 v = initial.velocity();
+        Vector3 displacement = new Vector3(v.x() * sweep.radius(),
+                v.y() * sweep.radius() - gravity * sweep.drop(), v.z() * sweep.radius());
+        double decay = decay(sweep);
+        Vector3 velocity = new Vector3(v.x() * decay, v.y() * decay - gravity * sum(sweep), v.z() * decay);
+        return new HostileShell(initial.position().add(displacement), velocity, this);
+    }
+
     /** Смещение за {@code ticks} обновлений: {@code A·V₀ − g·B·ŷ}. */
     public Vector3 displacement(Vector3 initialVelocity, int ticks) {
         Sweep sweep = unit.sweep(ticks);

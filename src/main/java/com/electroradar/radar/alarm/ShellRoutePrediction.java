@@ -26,6 +26,15 @@ public record ShellRoutePrediction(int firstDangerTick, int lastDangerTick, bool
      */
     public static ShellRoutePrediction predict(HostileShell shell, ZoneVolume zone, double reach, int limit) {
         if (limit < 1) throw new IllegalArgumentException("Invalid prediction limit");
+        try {
+            return new ShellRouteSearch(shell, zone, reach, limit).predict();
+        } catch (IllegalArgumentException numericFailure) {
+            // Для экстремальных чисел замкнутые формулы могут переполниться раньше рекурсии.
+            return stepwise(shell, zone, reach, limit);
+        }
+    }
+
+    private static ShellRoutePrediction stepwise(HostileShell shell, ZoneVolume zone, double reach, int limit) {
         ZoneVolume expanded = zone.inflate(reach);
         ProtectionBox bounds = expanded.worldBounds();
         Vector3 zoneVelocity = zone.velocity();
@@ -72,11 +81,11 @@ public record ShellRoutePrediction(int firstDangerTick, int lastDangerTick, bool
     }
 
     /** Предел горизонтальной относительной скорости: сопротивление гасит собственную скорость снаряда. */
-    private static double limitX(double velocity, double drag, double zoneVelocity) {
+    static double limitX(double velocity, double drag, double zoneVelocity) {
         return (drag > 0 ? 0 : velocity) - zoneVelocity;
     }
 
-    private static double limitY(double velocity, double drag, double gravity, double zoneVelocity) {
+    static double limitY(double velocity, double drag, double gravity, double zoneVelocity) {
         if (drag > 0) return -gravity / drag - zoneVelocity;
         return gravity > 0 ? Double.NEGATIVE_INFINITY : velocity - zoneVelocity;
     }
@@ -85,7 +94,7 @@ public record ShellRoutePrediction(int firstDangerTick, int lastDangerTick, bool
      * Снаряд ниже зоны и его относительная скорость по оси никогда не станет положительной,
      * или выше зоны и никогда не станет отрицательной.
      */
-    private static boolean past(double start, double end, double speed, double limit, double min, double max) {
+    static boolean past(double start, double end, double speed, double limit, double min, double max) {
         return Math.max(start, end) < min && speed <= 0 && limit <= 0
                 || Math.min(start, end) > max && speed >= 0 && limit >= 0;
     }
