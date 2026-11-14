@@ -48,6 +48,15 @@ public record MonitorTargetData(TargetRef target, boolean observing, boolean has
                 Silhouette.EMPTY);
     }
 
+    boolean sameContent(MonitorTargetData other) {
+        return other != null && target.equals(other.target) && observing == other.observing
+                && hasPosition == other.hasPosition && Double.compare(x, other.x) == 0
+                && Double.compare(y, other.y) == 0 && Double.compare(z, other.z) == 0
+                && entityTypeId.equals(other.entityTypeId) && freezeTick == other.freezeTick
+                && fadeDurationTicks == other.fadeDurationTicks && registeredStructure == other.registeredStructure
+                && scanAnchor.equals(other.scanAnchor) && silhouette.sameView(other.silhouette);
+    }
+
     /** Старое имя для экранных компонентов. */
     public boolean detectedThisWindow() { return observing; }
 }

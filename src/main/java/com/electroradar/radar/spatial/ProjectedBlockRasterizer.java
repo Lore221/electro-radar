@@ -22,7 +22,7 @@ final class ProjectedBlockRasterizer {
             for (int z=(int)Math.floor(bounds.minZ-origin.z);z<Math.ceil(bounds.maxZ-origin.z);z++) {
                 for (int x=(int)Math.floor(bounds.minX-origin.x);x<Math.ceil(bounds.maxX-origin.x);x++) {
                     if (columns.intersects(x+origin.x,z+origin.z)) result.add(GridSilhouette.key(x,z));
-                    if (result.size() > budget) throw new IllegalStateException("Radar silhouette grid budget exceeded");
+                    if (result.size() > budget) throw new SilhouetteBudgetExceeded("Radar silhouette grid budget exceeded");
                 }
             }
         }

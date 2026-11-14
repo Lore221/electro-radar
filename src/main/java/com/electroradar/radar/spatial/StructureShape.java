@@ -20,6 +20,9 @@ public final class StructureShape {
 
     public List<AABB> boxes() { return boxes; }
 
+    /** Общие локальные габариты для приближённого изображения, не точной физики. */
+    Optional<AABB> localBounds() { return root == null ? Optional.empty() : Optional.of(root.bounds); }
+
     public boolean intersects(RadarScanArea area, SpatialTransform frame) {
         return root != null && !area.isEmpty() && intersects(root, area.queryBounds().inflate(1.0E-7), area, frame);
     }

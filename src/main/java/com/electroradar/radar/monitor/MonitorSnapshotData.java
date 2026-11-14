@@ -103,7 +103,13 @@ public record MonitorSnapshotData(
         return other != null && linked == other.linked
                 && selectedTargetUnavailable == other.selectedTargetUnavailable
                 && Objects.equals(selectedTarget, other.selectedTarget)
-                && targets.equals(other.targets) && visualProfiles.equals(other.visualProfiles)
+                && sameTargets(other.targets) && visualProfiles.equals(other.visualProfiles)
                 && visualPhases.equals(other.visualPhases);
+    }
+
+    private boolean sameTargets(List<MonitorTargetData> other) {
+        if (targets.size() != other.size()) return false;
+        for (int i = 0; i < targets.size(); i++) if (!targets.get(i).sameContent(other.get(i))) return false;
+        return true;
     }
 }

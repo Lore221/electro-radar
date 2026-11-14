@@ -18,6 +18,13 @@ public record StructureMeasurement(String name, Silhouette silhouette, Vec3 aimC
         this(name, silhouette, aimCenter, velocity, aimRadius, Optional.empty());
     }
 
+    /** Сравнение метаданных не должно запускать построение изображения. */
+    public boolean sameVisibleState(StructureMeasurement other) {
+        return other != null && name.equals(other.name) && aimCenter.equals(other.aimCenter)
+                && velocity.equals(other.velocity) && Double.compare(aimRadius, other.aimRadius) == 0
+                && scanAnchor.equals(other.scanAnchor) && silhouette.sameView(other.silhouette);
+    }
+
     public StructureMeasurement withScanAnchor(ScanAnchor anchor) {
         return new StructureMeasurement(name, silhouette, aimCenter, velocity, aimRadius, Optional.of(anchor));
     }
