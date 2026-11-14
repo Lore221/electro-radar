@@ -79,6 +79,23 @@ public final class ConsumerConnection implements AutoCloseable {
     }
 
     /**
+     * Читает только запрошенную категорию через поддерживаемые ядром индексы радаров.
+     * Измерения и источники выбираются среди подтверждений этой категории; права
+     * проверяются заново при каждом запросе. SHELL также входит в PROJECTILE.
+     */
+    public <T> TargetSnapshot<T> queryTargets(TargetCategory category, TargetProjection<T> projection) {
+        Objects.requireNonNull(category, "category");
+        Objects.requireNonNull(projection, "projection");
+        checkServerThread();
+        RegistrationToken current = currentToken();
+        if (current == null) {
+            logClosedAccess("query_category_targets");
+            return TargetSnapshot.empty();
+        }
+        return manager.queryTargets(endpoint, networkId, current, category, projection);
+    }
+
+    /**
      * Дешёвая проверка изменений: версия видимого содержимого сети или {@code -1}, если связь
      * закрыта или регистрацию уже заменили. Пока номер прежний, повторный запрос вернёт то же
      * видимое содержимое, и потребитель изображения может его пропустить. Свежесть времён
@@ -99,6 +116,18 @@ public final class ConsumerConnection implements AutoCloseable {
             return TargetSnapshot.empty();
         }
         return manager.queryTargetRefs(endpoint, networkId, current);
+    }
+
+    /** Снимок идентичностей выбранной категории без обхода остальных целей сети. */
+    public TargetSnapshot<TargetRef> queryTargetRefs(TargetCategory category) {
+        Objects.requireNonNull(category, "category");
+        checkServerThread();
+        RegistrationToken current = currentToken();
+        if (current == null) {
+            logClosedAccess("query_category_target_refs");
+            return TargetSnapshot.empty();
+        }
+        return manager.queryTargetRefs(endpoint, networkId, current, category);
     }
 
     /** Групповое чтение только явно запрошенных и всё ещё разрешённых TargetRef. */

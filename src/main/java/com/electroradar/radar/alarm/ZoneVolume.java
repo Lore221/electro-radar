@@ -40,6 +40,26 @@ public record ZoneVolume(ProtectionBox local, ZoneFrame frame, Vector3 velocity)
                 frame.toLocal(end.subtract(velocity.scale(endTick))));
     }
 
+    /** Тот же отрезок без выделения векторов на каждом шаге прогноза. */
+    boolean intersects(double sx, double sy, double sz, double startTick,
+                       double ex, double ey, double ez, double endTick) {
+        double ax = sx - velocity.x() * startTick - frame.worldOrigin().x();
+        double ay = sy - velocity.y() * startTick - frame.worldOrigin().y();
+        double az = sz - velocity.z() * startTick - frame.worldOrigin().z();
+        double bx = ex - velocity.x() * endTick - frame.worldOrigin().x();
+        double by = ey - velocity.y() * endTick - frame.worldOrigin().y();
+        double bz = ez - velocity.z() * endTick - frame.worldOrigin().z();
+        Vector3 origin = frame.localOrigin();
+        return local.intersects(origin.x() + project(ax, ay, az, frame.x()),
+                origin.y() + project(ax, ay, az, frame.y()), origin.z() + project(ax, ay, az, frame.z()),
+                origin.x() + project(bx, by, bz, frame.x()), origin.y() + project(bx, by, bz, frame.y()),
+                origin.z() + project(bx, by, bz, frame.z()));
+    }
+
+    private static double project(double x, double y, double z, Vector3 axis) {
+        return (x * axis.x() + y * axis.y() + z * axis.z()) / axis.dot(axis);
+    }
+
     /** Точка в момент наблюдения. */
     public boolean contains(Vector3 point) {
         return intersects(point, 0, point, 0);

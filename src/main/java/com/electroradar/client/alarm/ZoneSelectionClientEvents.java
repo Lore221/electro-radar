@@ -49,6 +49,7 @@ public final class ZoneSelectionClientEvents {
         InteractionHand hand = activeHand();
         if (mc.level == null || mc.player == null || mc.screen != null || hand == null) {
             OUTLINES.clear();
+            updateStructurePreview(null);
             lastLevel = null;
             lastHand = null;
             lastSelection = null;
@@ -69,9 +70,8 @@ public final class ZoneSelectionClientEvents {
         lastSelection = id;
         AABB selection = null;
         AABB applied = null;
-        // Зона, выбранная на структуре, лежит в её координатах: контур переводится её позой.
+        // Hit testing uses the logical pose; Catnip/Sable applies the render pose to the local box.
         SpatialTransform selectionSpace = SpatialTransform.IDENTITY;
-        SpatialTransform appliedSpace = SpatialTransform.IDENTITY;
         Direction face = null;
         int color = 0x58BDEB;
         var saved = ZoneSelectionItem.zone(stack);
@@ -100,9 +100,15 @@ public final class ZoneSelectionClientEvents {
                 && mc.level.getBlockEntity(hit.getBlockPos()) instanceof ShellAlarmBlockEntity alarm
                 && alarm.zone() != null && alarm.zone().dimension().equals(mc.level.dimension().location())) {
             applied = alarm.zone().bounds();
-            appliedSpace = ProtectionZoneSpace.of(mc.level, alarm.zone());
         }
-        OUTLINES.update(selection, selectionSpace, face, color, applied, appliedSpace);
+        OUTLINES.update(selection, face, color, applied);
+        updateStructurePreview(selection);
+    }
+
+    private static void updateStructurePreview(AABB selection) {
+        if (net.neoforged.fml.ModList.get().isLoaded("sable")) {
+            com.electroradar.compat.sable.client.SableZoneSelectionPreview.update(selection);
+        }
     }
 
     @SubscribeEvent public static void use(InputEvent.InteractionKeyMappingTriggered event) {

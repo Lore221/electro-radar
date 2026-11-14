@@ -52,9 +52,12 @@ record MountFrame(MountedCannon cannon, SpatialTransform frame) {
     }
 
     boolean aimable(Vector3 world) {
-        if (frame.isIdentity()) return true;
-        double pitch = local(world).pitch();
-        return pitch >= cannon.minPitch() - PITCH_EPSILON && pitch <= cannon.maxPitch() + PITCH_EPSILON;
+        return aimable(frame, cannon.minPitch(), cannon.maxPitch(), world);
+    }
+
+    static boolean aimable(SpatialTransform frame, double minPitch, double maxPitch, Vector3 world) {
+        double pitch = local(frame, world).pitch();
+        return pitch >= minPitch - PITCH_EPSILON && pitch <= maxPitch + PITCH_EPSILON;
     }
 
     /** Текущее мировое направление ствола в углах решателя: от него оценивается разворот. */
@@ -70,6 +73,10 @@ record MountFrame(MountedCannon cannon, SpatialTransform frame) {
     }
 
     private Angles local(Vector3 world) {
+        return local(frame, world);
+    }
+
+    static Angles local(SpatialTransform frame, Vector3 world) {
         Vec3 local = frame.localDirection(new Vec3(world.x(), world.y(), world.z()));
         return angles(new Vector3(local.x, local.y, local.z));
     }

@@ -20,7 +20,7 @@ public final class ProtectionZoneSpace {
 
     /** Серверная зона в мире на этот тик; без загруженной структуры — как обычная мировая. */
     public static ZoneVolume volume(Level level, ProtectionZone zone) {
-        var placement = RadarSpatial.placement(level, center(zone));
+        var placement = RadarSpatial.backend().selectionPlacement(level, center(zone));
         if (placement.isEmpty() || placement.get().endpoint() instanceof EndpointKey.Static) {
             return ZoneVolume.fixed(zone.geometry());
         }
@@ -35,14 +35,14 @@ public final class ProtectionZoneSpace {
 
     /** Пространство точки: мир или структура, в чьих координатах она хранится. */
     public static SpatialTransform at(Level level, BlockPos position) {
-        return RadarSpatial.placement(level, position)
+        return RadarSpatial.backend().selectionPlacement(level, position)
                 .filter(placement -> placement.endpoint() instanceof EndpointKey.Moving)
                 .map(Placement::transform).orElse(SpatialTransform.IDENTITY);
     }
 
     /** Структура, в координатах которой хранится позиция; пусто — обычный мир. */
     public static java.util.Optional<java.util.UUID> structureOf(Level level, BlockPos position) {
-        return RadarSpatial.placement(level, position)
+        return RadarSpatial.backend().selectionPlacement(level, position)
                 .filter(placement -> placement.endpoint() instanceof EndpointKey.Moving)
                 .map(placement -> ((EndpointKey.Moving) placement.endpoint()).structureId());
     }

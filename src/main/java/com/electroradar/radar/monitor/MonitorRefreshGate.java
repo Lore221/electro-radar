@@ -1,18 +1,17 @@
 package com.electroradar.radar.monitor;
 
 import com.electroradar.radar.network.NetworkId;
-import com.electroradar.radar.network.RadarRefreshSchedule;
 
 /**
  * Частота обновления снимка монитора.
  *
- * <p>Обычные снимки следуют той же {@value #INTERVAL_TICKS}-тиковой фазе, в которой радары
- * сети измеряют известные цели. Фаза не зависит от времени загрузки монитора или адресных
- * запросов. Срочные изменения (сеть, сборка, выбор цели, открытие GUI) применяются сразу.</p>
+ * <p>Частота монитора намеренно независима от частоты радарных измерений. Фаза
+ * детерминированно привязана к сети и не зависит от загрузки монитора или адресных запросов.
+ * Срочные изменения (сеть, сборка, выбор цели, открытие GUI) применяются сразу.</p>
  */
 final class MonitorRefreshGate {
     /** 5 обновлений в секунду. */
-    static final long INTERVAL_TICKS = RadarRefreshSchedule.INTERVAL_TICKS;
+    static final long INTERVAL_TICKS = 4;
 
     private long lastRefreshTick;
     private boolean refreshed;
@@ -35,7 +34,13 @@ final class MonitorRefreshGate {
      */
     boolean due(long now, boolean urgent, NetworkId networkId) {
         return urgent || !refreshed || now < lastRefreshTick
-                || now != lastRefreshTick && RadarRefreshSchedule.isDue(now, networkId);
+                || now != lastRefreshTick && isDue(now, networkId);
+    }
+
+    private static boolean isDue(long serverTick, NetworkId networkId) {
+        long phase = networkId == null ? 0
+                : Math.floorMod(networkId.value().hashCode(), INTERVAL_TICKS);
+        return Math.floorMod(serverTick, INTERVAL_TICKS) == phase;
     }
 
     void refreshed(long now) {

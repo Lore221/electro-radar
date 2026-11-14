@@ -77,6 +77,7 @@ public record LiveResult(long sampledTick, TargetAvailability availability,
     boolean sameVisibleState(LiveResult other) {
         return other != null && observing == other.observing && freezeTick == other.freezeTick
                 && availability == other.availability && position.equals(other.position)
-                && entityType.equals(other.entityType) && structure.equals(other.structure);
+                && entityType.equals(other.entityType) && (structure.isEmpty() ? other.structure.isEmpty()
+                        : other.structure.isPresent() && structure.get().sameVisibleState(other.structure.get()));
     }
 }

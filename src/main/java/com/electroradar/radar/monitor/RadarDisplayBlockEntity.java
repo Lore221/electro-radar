@@ -155,7 +155,6 @@ public final class RadarDisplayBlockEntity extends BlockEntity implements Networ
         if (display.assemblyDirty) {
             RadarDisplayAssembly.resolve(display);
         }
-        display.ensureConnection(serverLevel);
         // Данные готовятся в Pre, поэтому корень читает и публикует единый итог каждый тик.
         display.refreshAndBroadcast(false, null);
     }
@@ -539,7 +538,7 @@ public final class RadarDisplayBlockEntity extends BlockEntity implements Networ
         if (!(level instanceof ServerLevel serverLevel) || !isRoot()) return;
         ensureConnection(serverLevel);
         snapshots.refreshAndBroadcast(this, serverLevel,
-                isConnectionOpen() ? connection : null, openGui, recipient);
+                connection, openGui, recipient);
     }
 
     private boolean isConnectionOpen() {

@@ -61,7 +61,8 @@ public final class ZoneSelectionItem extends Item {
             apply(player, stack, alarm);
         } else {
             BlockHitResult hit = new BlockHitResult(context.getClickLocation(), context.getClickedFace(), pos, false);
-            select(stack, player, ZoneSelectionTargeting.block(player, context.getHand(), hit));
+            select(stack, player, ZoneSelectionTargeting.block(player, context.getHand(), hit,
+                    firstCorner(stack, level.dimension().location())));
         }
         return InteractionResult.CONSUME;
     }
@@ -94,7 +95,8 @@ public final class ZoneSelectionItem extends Item {
         if (zone(stack).isPresent()) { message(player, "ready"); return; }
         BlockPos target = air ? ZoneSelectionTargeting.target(player, hand, true, range,
                         firstCorner(stack, level.dimension().location()))
-                : hit == null ? null : ZoneSelectionTargeting.block(player, hand, hit);
+                : hit == null ? null : ZoneSelectionTargeting.block(player, hand, hit,
+                        firstCorner(stack, level.dimension().location()));
         if (target == null) { message(player, "no_target"); return; }
         if (!level.mayInteract(player, target)) return;
         select(stack, player, target);

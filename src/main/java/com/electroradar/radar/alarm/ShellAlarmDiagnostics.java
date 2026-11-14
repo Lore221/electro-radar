@@ -72,7 +72,7 @@ final class ShellAlarmDiagnostics {
                 current, dangerous, unsupported, incomplete, newPredictions, suppressed);
         if (!gate.due("summary", summary, tick)) return;
         gate.sent("summary", summary, tick);
-        LOGGER.info("[ElectroRadar/ShellAlarmDebug] event=scan tick={} alarm={} dimension={} network={} status={} zone={} networkTargets={} available={} resolved={} bigShells={} supported={} current={} dangerous={} unsupported={} incomplete={} newPredictions={} detailsSuppressed={}",
+        LOGGER.info("[ElectroRadar/ShellAlarmDebug] event=scan tick={} alarm={} dimension={} network={} status={} zone={} category=SHELL shellCandidates={} available={} resolved={} bigShells={} supported={} current={} dangerous={} unsupported={} incomplete={} newPredictions={} detailsSuppressed={}",
                 tick, alarm, dimension, network, status, zone, targets, available, resolved, big, supported,
                 current, dangerous, unsupported, incomplete, newPredictions, suppressed);
     }

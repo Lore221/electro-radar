@@ -1,12 +1,17 @@
 package com.electroradar.cannon.controller;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Random;
 
 import org.junit.jupiter.api.Test;
+
+import net.minecraft.world.phys.Vec3;
+
+import com.electroradar.radar.spatial.SpatialTransform;
 
 import com.electroradar.cannon.ballistics.AimConstraints;
 import com.electroradar.cannon.ballistics.ArcFamily;
@@ -16,6 +21,56 @@ import com.electroradar.cannon.ballistics.Vector3;
 
 class InterceptPlannerTest {
     private static final AimConstraints MOUNT = AimConstraints.pitchRange(-30.0D, 60.0D);
+
+    @Test void structureStorageCoordinatesDoNotMakeNearbyWorldTargetUnreachable() {
+        var frame = new SpatialTransform(new Vec3(10_000_000, 64, 10_000_000),
+                new Vec3(0, 64, 0), new Vec3(1, 0, 0), new Vec3(0, 1, 0), new Vec3(0, 0, 1));
+        var profile = ProjectileProfile.of(8, 2, .01, .05);
+        var target = new TargetTrack.Estimate(new Vector3(100, 64, 0), Vector3.ZERO, Vector3.ZERO, 10);
+        var solution = new InterceptPlanner().planMounted(profile, new Vector3(10_000_000, 64, 10_000_000),
+                frame, -64, 0, MOUNT, target, 1, OptionalInt.empty());
+        assertTrue(solution.isPresent(), "Nearby world target must be reachable from a Sable plot");
+        var fire = solution.orElseThrow();
+        assertTrue(sweepDistance(profile, new Vector3(0, 64, 0), fire.direction(), fire.tick(), target.position()) < 1e-6);
+    }
+
+    @Test void tiltedMountUsesLocalPitchLimitsAndConvertsAimBackToWorld() {
+        double angle = Math.toRadians(60);
+        Vec3 localPivot = new Vec3(10_000_000, 64, 10_000_000);
+        Vec3 worldPivot = new Vec3(20, 80, -30);
+        var frame = new SpatialTransform(localPivot, worldPivot, new Vec3(1, 0, 0),
+                new Vec3(0, Math.cos(angle), Math.sin(angle)), new Vec3(0, -Math.sin(angle), Math.cos(angle)));
+        var profile = ProjectileProfile.of(8, 2, .01, .05);
+        var target = new TargetTrack.Estimate(new Vector3(20, 80, 70), Vector3.ZERO, Vector3.ZERO, 10);
+        var limits = AimConstraints.pitchRange(55, 70).withFamily(ArcFamily.LOW);
+        var solution = new InterceptPlanner().planMounted(profile,
+                new Vector3(localPivot.x, localPivot.y, localPivot.z), frame, -64, 0, limits, target, 1, OptionalInt.empty());
+        assertTrue(solution.isPresent(), "World elevation must not be checked against tilted local pitch limits");
+        var fire = solution.orElseThrow();
+        assertTrue(fire.pitch() < 55);
+        var local = MountFrame.local(frame, fire.direction());
+        assertTrue(local.pitch() >= 55 && local.pitch() <= 70);
+        double pitch = Math.toRadians(local.pitch()), yaw = Math.toRadians(local.yaw());
+        Vec3 worldDirection = frame.direction(new Vec3(-Math.cos(pitch) * Math.sin(yaw),
+                Math.sin(pitch), Math.cos(pitch) * Math.cos(yaw)));
+        assertEquals(fire.direction().x(), worldDirection.x, 1e-10);
+        assertEquals(fire.direction().y(), worldDirection.y, 1e-10);
+        assertEquals(fire.direction().z(), worldDirection.z, 1e-10);
+        assertTrue(sweepDistance(profile, new Vector3(20, 80, -30), fire.direction(), fire.tick(), target.position()) < 1e-6);
+        assertTrue(new InterceptPlanner().planMounted(profile,
+                new Vector3(localPivot.x, localPivot.y, localPivot.z), frame, -64, 0,
+                AimConstraints.pitchRange(-10, 10).withFamily(ArcFamily.LOW), target, 1, OptionalInt.empty()).isEmpty(),
+                "A world solution outside the local mount limits must be rejected");
+    }
+
+    @Test void mountedPlanningWithIdentityFramePreservesExistingWorldSolution() {
+        var profile = ProjectileProfile.of(8, 2, .01, .05);
+        var pivot = new Vector3(0, 64, 0);
+        var target = new TargetTrack.Estimate(new Vector3(100, 64, 0), Vector3.ZERO, Vector3.ZERO, 10);
+        var planner = new InterceptPlanner();
+        assertEquals(planner.plan(profile, pivot, 128, MOUNT, target, 1, OptionalInt.empty()),
+                planner.planMounted(profile, pivot, SpatialTransform.IDENTITY, -64, 0, MOUNT, target, 1, OptionalInt.empty()));
+    }
 
     /**
      * Сквозная проверка соглашения о времени: снаряд, впервые обновлённый в {@code T + d}, по найденному

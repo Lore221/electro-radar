@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import net.minecraft.world.phys.Vec3;
 import com.electroradar.radar.spatial.SpatialTransform;
+import com.electroradar.radar.visual.RadarVisualGeometry;
 
 /** SAT between a transformed box and the convex prisms composing a radar area. */
 public final class ConvexRadarIntersection {
@@ -14,15 +15,8 @@ public final class ConvexRadarIntersection {
     public static boolean intersects(RadarScanArea area, List<Vec3> box) {
         if (area.isEmpty()) return false;
         if (area instanceof SectorRadarScanArea sector) {
-            for (var triangle : sector.footprint()) {
-                List<Vec3> prism = new ArrayList<>(6);
-                for (var p : List.of(triangle.a(), triangle.b(), triangle.c())) prism.add(new Vec3(p.x(), sector.minY(), p.z()));
-                for (var p : List.of(triangle.a(), triangle.b(), triangle.c())) prism.add(new Vec3(p.x(), sector.maxY(), p.z()));
-                Vec3 vertical = new Vec3(0, 1, 0);
-                List<Vec3> edges = List.of(prism.get(1).subtract(prism.get(0)),
-                        prism.get(2).subtract(prism.get(1)), prism.get(0).subtract(prism.get(2)), vertical);
-                if (overlap(box, prism, edges, List.of(vertical,
-                        edges.get(0).cross(vertical), edges.get(1).cross(vertical), edges.get(2).cross(vertical)))) return true;
+            for (PreparedPrism prism : sector.prisms()) {
+                if (overlap(box, prism.vertices, prism.edges, prism.normals)) return true;
             }
             return false;
         }
@@ -39,26 +33,38 @@ public final class ConvexRadarIntersection {
         if (area.isEmpty()) return Optional.empty();
         Polyhedron solid = box(box);
         if (area instanceof SectorRadarScanArea sector) {
-            for (var triangle : sector.footprint()) {
-                List<Vec3> prism = new ArrayList<>(6);
-                for (var p : List.of(triangle.a(), triangle.b(), triangle.c())) prism.add(new Vec3(p.x(), sector.minY(), p.z()));
-                for (var p : List.of(triangle.a(), triangle.b(), triangle.c())) prism.add(new Vec3(p.x(), sector.maxY(), p.z()));
-                Polyhedron clip = new Polyhedron(prism,
-                        new int[][] {{0,1},{1,2},{2,0},{3,4},{4,5},{5,3},{0,3},{1,4},{2,5}},
-                        new int[0][]);
-                Vec3 vertical = new Vec3(0, 1, 0);
-                clip.addPlane(prism.get(0), vertical.scale(-1));
-                clip.addPlane(prism.get(3), vertical);
-                for (int i = 0; i < 3; i++) {
-                    // Высота обзора может быть нулевой: нормаль не зависит от длины вертикального ребра.
-                    clip.addPlane(prism.get(i), prism.get((i + 1) % 3).subtract(prism.get(i)).cross(vertical));
-                }
-                Optional<Vec3> point = intersectionPoint(solid, clip);
+            for (PreparedPrism prism : sector.prisms()) {
+                Optional<Vec3> point = intersectionPoint(solid, prism.clip);
                 if (point.isPresent()) return point;
             }
             return Optional.empty();
         }
         return intersectionPoint(solid, box(SpatialTransform.IDENTITY.corners(area.queryBounds())));
+    }
+
+    /** Неизменяемые данные призмы принадлежат области обзора, а не каждой проверке блока. */
+    static PreparedPrism preparePrism(RadarVisualGeometry.Triangle triangle, double minY, double maxY) {
+        List<Vec3> vertices = new ArrayList<>(6);
+        for (var p : List.of(triangle.a(), triangle.b(), triangle.c())) vertices.add(new Vec3(p.x(), minY, p.z()));
+        for (var p : List.of(triangle.a(), triangle.b(), triangle.c())) vertices.add(new Vec3(p.x(), maxY, p.z()));
+        Vec3 vertical = new Vec3(0,1,0);
+        List<Vec3> edges = List.of(vertices.get(1).subtract(vertices.get(0)), vertices.get(2).subtract(vertices.get(1)),
+                vertices.get(0).subtract(vertices.get(2)), vertical);
+        List<Vec3> normals = List.of(vertical, edges.get(0).cross(vertical), edges.get(1).cross(vertical), edges.get(2).cross(vertical));
+        Polyhedron clip = new Polyhedron(vertices, new int[][] {{0,1},{1,2},{2,0},{3,4},{4,5},{5,3},{0,3},{1,4},{2,5}}, new int[0][]);
+        clip.addPlane(vertices.get(0), vertical.scale(-1));
+        clip.addPlane(vertices.get(3), vertical);
+        // Нулевая высота тоже допустима: нормаль не зависит от вертикального ребра.
+        for (int i=0;i<3;i++) clip.addPlane(vertices.get(i), vertices.get((i+1)%3).subtract(vertices.get(i)).cross(vertical));
+        return new PreparedPrism(List.copyOf(vertices), edges, normals, clip);
+    }
+
+    static final class PreparedPrism {
+        private final List<Vec3> vertices, edges, normals;
+        private final Polyhedron clip;
+        private PreparedPrism(List<Vec3> vertices, List<Vec3> edges, List<Vec3> normals, Polyhedron clip) {
+            this.vertices=vertices; this.edges=edges; this.normals=normals; this.clip=clip;
+        }
     }
 
     private static Polyhedron box(List<Vec3> vertices) {
@@ -145,10 +151,14 @@ public final class ConvexRadarIntersection {
             Vec3 origin = box.getFirst();
             double minA = Double.POSITIVE_INFINITY, maxA = Double.NEGATIVE_INFINITY;
             double minB = minA, maxB = maxA;
-            for (Vec3 p : box) { double d = p.subtract(origin).dot(n); minA = Math.min(minA, d); maxA = Math.max(maxA, d); }
-            for (Vec3 p : other) { double d = p.subtract(origin).dot(n); minB = Math.min(minB, d); maxB = Math.max(maxB, d); }
+            for (Vec3 p : box) { double d = projection(p, origin, n); minA = Math.min(minA, d); maxA = Math.max(maxA, d); }
+            for (Vec3 p : other) { double d = projection(p, origin, n); minB = Math.min(minB, d); maxB = Math.max(maxB, d); }
             if (maxA < minB - EPSILON || maxB < minA - EPSILON) return false;
         }
         return true;
+    }
+
+    private static double projection(Vec3 point, Vec3 origin, Vec3 axis) {
+        return (point.x-origin.x)*axis.x + (point.y-origin.y)*axis.y + (point.z-origin.z)*axis.z;
     }
 }

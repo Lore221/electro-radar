@@ -35,6 +35,7 @@ import com.electroradar.radar.network.RadarNetworkState.VisitWindow;
 import com.electroradar.radar.network.RadarNetworkState.VisitPhase;
 import com.electroradar.radar.network.RadarNetworkState.ZoneVisit;
 import com.electroradar.radar.scan.EntityRadarScanner;
+import com.electroradar.radar.scan.EntityTargetCategories;
 
 /**
  * Серверный координатор секторного наблюдения и владелец регистраций, обнаружений и памяти.
@@ -241,6 +242,27 @@ public final class RadarNetworkManager {
                 endpointIndex, networks);
     }
 
+    public <T> TargetSnapshot<T> queryTargets(EndpointKey consumer, NetworkId networkId,
+                                             RegistrationToken token, TargetCategory category,
+                                             TargetProjection<T> projection) {
+        checkActive();
+        Objects.requireNonNull(category, "category");
+        Objects.requireNonNull(projection, "projection");
+        Registration registration = queryRegistration(consumer, networkId, token, "query_category_targets");
+        if (registration == null) return TargetSnapshot.empty();
+        return RadarNetworkQueries.queryTargets(consumer, registration, category, projection, serverTick,
+                endpointIndex, networks);
+    }
+
+    public TargetSnapshot<TargetRef> queryTargetRefs(EndpointKey consumer, NetworkId networkId,
+                                                    RegistrationToken token, TargetCategory category) {
+        checkActive();
+        Objects.requireNonNull(category, "category");
+        Registration registration = queryRegistration(consumer, networkId, token, "query_category_target_refs");
+        if (registration == null) return TargetSnapshot.empty();
+        return RadarNetworkQueries.queryTargetRefs(consumer, registration, category, serverTick, endpointIndex, networks);
+    }
+
     public <T> TargetSnapshot<T> queryTargetDetails(EndpointKey consumer, NetworkId networkId,
                                                     RegistrationToken token, Collection<TargetRef> targets,
                                                     TargetProjection<T> projection) {
@@ -309,16 +331,14 @@ public final class RadarNetworkManager {
         RadarServerConfig.Snapshot parameters = RadarServerConfig.snapshot();
         Set<NetworkId> changed = new HashSet<>();
         PhaseEntityCache entityCache = new PhaseEntityCache();
+        StructureGeometryPhase geometry = new StructureGeometryPhase(this::loadStructureGeometry);
         try {
             for (NetworkRuntime network : networks.values()) {
-                refreshOwnStructures(network, changed);
+                refreshOwnStructures(network, changed, geometry);
                 // Прогреваем живую геометрию каждый тик для наведения после завершения Pre.
                 // Это не публикует новое радарное измерение между четырёхтиковыми шагами.
-                for (TargetRef known : network.targets.keySet()) {
-                    if (known.sourceKind() == TargetRef.SourceKind.MOVING_STRUCTURE) {
-                        ServerLevel knownLevel = server.getLevel(known.dimension());
-                        if (knownLevel != null) RadarSpatial.backend().structure(knownLevel, known.id());
-                    }
+                for (TargetRef known : network.movingStructures) {
+                    geometry.get(known);
                 }
                 if (network.radars.isEmpty()) {
                     resetWindow(network);
@@ -353,19 +373,13 @@ public final class RadarNetworkManager {
         markChanged(changed);
     }
 
-    private void refreshOwnStructures(NetworkRuntime network, Set<NetworkId> changed) {
-        Map<TargetRef, LiveResult> next = new HashMap<>();
-        for (var entry : endpointIndex.entrySet()) {
-            if (!(entry.getKey() instanceof EndpointKey.Moving moving) || !entry.getValue().networkId.equals(network.id)
-                    || entry.getValue().role != EndpointRole.RADAR && entry.getValue().role != EndpointRole.MONITOR) continue;
-            ServerLevel level = server.getLevel(moving.dimension());
-            if (level == null) continue;
-            RadarSpatial.backend().structure(level, moving.structureId()).ifPresent(body ->
-                    next.put(body.target(), LiveResult.observedStructure(serverTick, body)));
-        }
-        if (!network.ownStructures.keySet().equals(next.keySet()) || next.entrySet().stream()
-                .anyMatch(e -> !e.getValue().sameVisibleState(network.ownStructures.get(e.getKey())))) changed.add(network.id);
-        network.ownStructures.clear(); network.ownStructures.putAll(next);
+    private void refreshOwnStructures(NetworkRuntime network, Set<NetworkId> changed, StructureGeometryPhase geometry) {
+        if (OwnStructureUpdater.refresh(network, endpointIndex, serverTick, geometry::get)) changed.add(network.id);
+    }
+
+    private Optional<StructureBody> loadStructureGeometry(TargetRef target) {
+        ServerLevel level = server.getLevel(target.dimension());
+        return level == null ? Optional.empty() : RadarSpatial.backend().structure(level, target.id());
     }
 
     /**
@@ -646,7 +660,7 @@ public final class RadarNetworkManager {
         for (TargetRef target : found) {
             if (!target.dimension().equals(endpoint.dimension())) continue;
             SourceLink link = state.detections.computeIfAbsent(target, ignored -> {
-                TargetEntry entry = network.targets.computeIfAbsent(target, unused -> new TargetEntry());
+                TargetEntry entry = network.getOrCreateTarget(target);
                 SourceLink created = new SourceLink();
                 entry.sources.put(endpoint, created);
                 changed.add(network.id);
@@ -712,8 +726,8 @@ public final class RadarNetworkManager {
                         var anchor = new com.electroradar.radar.spatial.ScanAnchor(endpoint,
                                 new com.electroradar.radar.visual.RadarVisualGeometry.Point(point.x, point.z));
                         LiveResult next = LiveResult.observedStructure(serverTick, body.orElseThrow(), anchor);
-                        if (!next.sameVisibleState(confirmation.measurement)) changed.add(network.id);
-                        confirmation.measurement = next;
+                        if (state.publishMeasurement(target, confirmation, next,
+                                Set.of(TargetCategory.MOVING_STRUCTURE))) changed.add(network.id);
                         confirmation.lastSuccessfulVisitTick = serverTick;
                     }
                     continue;
@@ -724,8 +738,10 @@ public final class RadarNetworkManager {
                     continue;
                 }
                 LiveResult next = LiveResult.observed(serverTick, RadarSpatial.worldPosition(entity), entity.getType());
-                if (!next.sameVisibleState(confirmation.measurement)) changed.add(network.id);
-                confirmation.measurement = next;
+                if (state.publishMeasurement(target, confirmation, next,
+                        EntityTargetCategories.classify(entity.getClass(), entity.getType().getCategory()))) {
+                    changed.add(network.id);
+                }
                 confirmation.lastSuccessfulVisitTick = serverTick;
             } catch (RuntimeException exception) {
                 freezeConfirmation(confirmation, zone.window.fadeDurationTicks(), changed, network.id);
@@ -782,11 +798,11 @@ public final class RadarNetworkManager {
     private void removeSectorConfirmation(NetworkRuntime network, EndpointKey endpoint, RadarState state,
                                           TargetRef target, int sectorIndex, Set<NetworkId> changed) {
         SourceLink link = state.detections.get(target);
-        if (link == null || link.sectors.remove(sectorIndex) == null) return;
+        if (!state.removeConfirmation(target, sectorIndex)) return;
+        changed.add(network.id);
         if (!link.sectors.isEmpty()) return;
         state.detections.remove(target);
-        removeTargetSource(network, endpoint, target, link);
-        changed.add(network.id);
+        network.removeTargetSource(endpoint, target, link);
     }
 
     /**
@@ -800,23 +816,14 @@ public final class RadarNetworkManager {
         while (detections.hasNext()) {
             Map.Entry<TargetRef, SourceLink> detection = detections.next();
             SourceLink link = detection.getValue();
-            int before = link.sectors.size();
-            link.sectors.values().removeIf(this::faded);
-            forgotten += before - link.sectors.size();
+            forgotten += state.forgetFadedConfirmations(detection.getKey(), serverTick);
             if (link.sectors.isEmpty()) {
                 detections.remove();
-                removeTargetSource(network, endpoint, detection.getKey(), link);
+                network.removeTargetSource(endpoint, detection.getKey(), link);
             }
         }
         if (forgotten > 0) changed.add(network.id);
         return forgotten;
-    }
-
-    private boolean faded(SectorConfirmation confirmation) {
-        LiveResult measurement = confirmation.measurement;
-        if (measurement == null) return true;
-        if (measurement.observing() || measurement.freezeTick() < 0) return false;
-        return serverTick - measurement.freezeTick() >= measurement.fadeDurationTicks();
     }
 
     /** Снимает все подтверждения источника с обеих сторон индекса. */
@@ -824,19 +831,12 @@ public final class RadarNetworkManager {
                                        Set<NetworkId> changed) {
         int count = state.detections.size();
         for (Map.Entry<TargetRef, SourceLink> detection : state.detections.entrySet()) {
-            removeTargetSource(network, endpoint, detection.getKey(), detection.getValue());
+            network.removeTargetSource(endpoint, detection.getKey(), detection.getValue());
         }
         state.detections.clear();
+        state.categories.clear();
         if (count > 0) changed.add(network.id);
         return count;
-    }
-
-    private static void removeTargetSource(NetworkRuntime network, EndpointKey endpoint,
-                                           TargetRef target, SourceLink link) {
-        TargetEntry entry = network.targets.get(target);
-        if (entry == null) return;
-        entry.sources.remove(endpoint, link);
-        if (entry.sources.isEmpty()) network.targets.remove(target, entry);
     }
 
     // ---------------------------------------------------------------------------------------

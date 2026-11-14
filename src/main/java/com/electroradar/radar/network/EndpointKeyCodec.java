@@ -1,13 +1,14 @@
 package com.electroradar.radar.network;
 
 import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 
 /** Shared bounded endpoint wire format for monitor identity and commands. */
 public final class EndpointKeyCodec {
     private EndpointKeyCodec() { }
-    public static void write(RegistryFriendlyByteBuf b, EndpointKey key) {
+    public static void write(FriendlyByteBuf b, EndpointKey key) {
         b.writeResourceLocation(key.dimension().location());
         b.writeBoolean(key instanceof EndpointKey.Moving);
         if (key instanceof EndpointKey.Moving moving) {

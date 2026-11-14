@@ -17,6 +17,7 @@ public final class SectorRadarScanArea implements RadarScanArea {
     private final double maxY;
     private final List<RadarVisualGeometry.Triangle> footprint;
     private final List<List<Axis>> axes;
+    private final List<ConvexRadarIntersection.PreparedPrism> prisms;
 
     public SectorRadarScanArea(AABB queryBounds, double minY, double maxY,
                                List<RadarVisualGeometry.Triangle> footprint) {
@@ -28,6 +29,8 @@ public final class SectorRadarScanArea implements RadarScanArea {
         this.maxY = maxY;
         this.footprint = List.copyOf(footprint);
         this.axes = this.footprint.stream().map(SectorRadarScanArea::prepare).toList();
+        this.prisms = this.footprint.stream().map(triangle ->
+                ConvexRadarIntersection.preparePrism(triangle, minY, maxY)).toList();
     }
 
     @Override public AABB queryBounds() { return queryBounds; }
@@ -35,6 +38,7 @@ public final class SectorRadarScanArea implements RadarScanArea {
     public double minY() { return minY; }
     public double maxY() { return maxY; }
     public List<RadarVisualGeometry.Triangle> footprint() { return footprint; }
+    List<ConvexRadarIntersection.PreparedPrism> prisms() { return prisms; }
 
     @Override
     public boolean contains(Entity entity) {
