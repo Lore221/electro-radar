@@ -41,6 +41,7 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
     private static final String ZONE = "ProtectionZone";
     private final ShellThreatTracker tracker = new ShellThreatTracker();
     private final ShellAlarmDiagnostics diagnostics = new ShellAlarmDiagnostics();
+    private final ShellAlarmProfiler profiler = ShellAlarmProfiler.ENABLED ? new ShellAlarmProfiler() : null;
     private NetworkId networkId;
     private final ConsumerConnectionLifecycle connection =
             new ConsumerConnectionLifecycle("shell_alarm_registration_failed");
@@ -128,6 +129,7 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
     }
 
     void serverTick() {
+        if (profiler != null) profiler.begin();
         tick();
         if (!(level instanceof ServerLevel world)) return;
         getOrCreateInterceptionNetwork();
@@ -141,6 +143,7 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
         int oldPredictions = tracker.predictionCount();
         networkTargetCount = bigShellCount = supportedShellCount = 0;
         unsupportedCount = 0;
+        if (profiler != null) profiler.end(ShellAlarmProfiler.Stage.SETUP);
         if (connection.current() == null) {
             tracker.clear();
             status = Status.NO_NETWORK;
@@ -155,6 +158,10 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
             // Тот же контракт разрешённого чтения, что у Target Controller: только доступные
             // сети обнаружения с AVAILABLE sample, включая её обычную память.
             var targets = connection.current().queryTargets(view -> new Candidate(view.target(), view.liveResult()));
+            if (profiler != null) {
+                profiler.end(ShellAlarmProfiler.Stage.QUERY);
+                profiler.targets(targets.targets().size());
+            }
             networkTargetCount = ShellAlarmDiagnostics.ENABLED ? targets.targets().size() : 0;
             for (Candidate candidate : targets.targets()) {
                 TargetRef ref = candidate.target();
@@ -198,8 +205,13 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
             // Пограничные/изменяющие движение цели не должны постоянно занимать бюджет первыми.
             if (!observations.isEmpty()) Collections.rotate(observations, -(int) (world.getGameTime() % observations.size()));
             current = currentThreats.size();
+            if (profiler != null) {
+                profiler.end(ShellAlarmProfiler.Stage.OBSERVE);
+                profiler.shells(observations.size());
+            }
             tracker.refresh(observations, volume, currentThreats,
                     ShellAlarmDiagnostics.ENABLED ? diagnostics::prediction : null);
+            if (profiler != null) profiler.end(ShellAlarmProfiler.Stage.FORECAST);
             status = !dangerousProjectiles().isEmpty() ? Status.DANGER
                     : tracker.incompleteCount() > 0 || unsupportedCount > 0 ? Status.INCOMPLETE : Status.CLEAR;
         }
@@ -209,6 +221,10 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
         if (wasDangerous != (dangerousCount > 0)) world.updateNeighborsAt(worldPosition, getBlockState().getBlock());
         if (status != oldStatus || oldCount != dangerousCount || oldUnsupported != unsupportedCount
                 || oldTargets != networkTargetCount || oldBig != bigShellCount || oldSupported != supportedShellCount) sendData();
+        if (profiler != null) {
+            profiler.end(ShellAlarmProfiler.Stage.PUBLISH);
+            profiler.finish(world, worldPosition, tracker.predictionCount() - oldPredictions);
+        }
     }
 
     @Override public NetworkId networkIdForLinking() { return networkId; }

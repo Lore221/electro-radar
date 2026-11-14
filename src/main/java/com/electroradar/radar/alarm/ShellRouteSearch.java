@@ -148,6 +148,8 @@ final class ShellRouteSearch {
 
     private record Window(int lo, int hi) { }
 
+    int evaluatedTicks() { return samples.size(); }
+
     private Bounds bounds(int lo, int hi) {
         Bounds bounds = new Bounds();
         bounds.include(sample(lo).local());

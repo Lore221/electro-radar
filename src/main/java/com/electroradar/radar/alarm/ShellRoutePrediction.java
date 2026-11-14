@@ -27,9 +27,15 @@ public record ShellRoutePrediction(int firstDangerTick, int lastDangerTick, bool
     public static ShellRoutePrediction predict(HostileShell shell, ZoneVolume zone, double reach, int limit) {
         if (limit < 1) throw new IllegalArgumentException("Invalid prediction limit");
         try {
-            return new ShellRouteSearch(shell, zone, reach, limit).predict();
+            ShellRouteSearch search = new ShellRouteSearch(shell, zone, reach, limit);
+            try {
+                return search.predict();
+            } finally {
+                if (ShellRouteMetrics.ENABLED) ShellRouteMetrics.searched(search.evaluatedTicks());
+            }
         } catch (IllegalArgumentException numericFailure) {
             // Для экстремальных чисел замкнутые формулы могут переполниться раньше рекурсии.
+            if (ShellRouteMetrics.ENABLED) ShellRouteMetrics.fallback();
             return stepwise(shell, zone, reach, limit);
         }
     }
