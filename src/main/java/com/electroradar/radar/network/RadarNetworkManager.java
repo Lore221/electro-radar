@@ -376,23 +376,10 @@ public final class RadarNetworkManager {
     }
 
     private void refreshOwnStructures(NetworkRuntime network, Set<NetworkId> changed) {
-        Map<TargetRef, LiveResult> next = new HashMap<>();
-        // Walk this network's radar index; scanning every consumer endpoint for every network
-        // makes monitor registrations multiply the server-tick work.
-        for (var entry : network.radars.entrySet()) {
-            if (!(entry.getKey() instanceof EndpointKey.Moving moving)) continue;
-            Registration registration = endpointIndex.get(entry.getKey());
-            if (registration == null || registration.role != EndpointRole.RADAR
-                    || !registration.networkId.equals(network.id)
-                    || !registration.token.equals(entry.getValue().token)) continue;
+        if (OwnStructureUpdater.refresh(network, endpointIndex, serverTick, moving -> {
             ServerLevel level = server.getLevel(moving.dimension());
-            if (level == null) continue;
-            RadarSpatial.backend().structure(level, moving.structureId()).ifPresent(body ->
-                    next.put(body.target(), LiveResult.observedStructure(serverTick, body)));
-        }
-        if (!network.ownStructures.keySet().equals(next.keySet()) || next.entrySet().stream()
-                .anyMatch(e -> !e.getValue().sameVisibleState(network.ownStructures.get(e.getKey())))) changed.add(network.id);
-        network.ownStructures.clear(); network.ownStructures.putAll(next);
+            return level == null ? Optional.empty() : RadarSpatial.backend().structure(level, moving.structureId());
+        })) changed.add(network.id);
     }
 
     /**
