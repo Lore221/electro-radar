@@ -60,22 +60,25 @@ public final class MonitorPayloads {
     }
 
     /** Адресный снимок всегда несёт геометрию: у получателя её может ещё не быть. */
-    public static void sendToPlayer(ServerPlayer player, MonitorSnapshotData snapshot, boolean openGui) {
+    public static void sendToPlayer(ServerPlayer player, MonitorSnapshotData snapshot,
+                                    MonitorSnapshotPayload.Prepared prepared, boolean openGui) {
         if (openGui) {
             PacketDistributor.sendToPlayer(player, new MonitorOpenPayload(snapshot.displayId(),
                     snapshot.rootPosition(), snapshot.dimension(), snapshot.loadId(), snapshot.rootEndpoint()));
         }
-        for (MonitorSnapshotPayload part : MonitorSnapshotPayload.split(snapshot, true)) {
+        for (MonitorSnapshotPayload part : prepared.address(snapshot, true)) {
             PacketDistributor.sendToPlayer(player, part);
         }
     }
 
     /** Рассылает снимок наблюдателям чанка корня; геометрию — только когда она изменилась. */
-    public static void sendToTracking(ServerLevel level, MonitorSnapshotData snapshot, boolean includeGeometry) {
+    public static void sendToTracking(ServerLevel level, MonitorSnapshotData snapshot,
+                                      MonitorSnapshotPayload.Prepared prepared, boolean includeGeometry) {
         var position = RadarSpatial.resolve(level, snapshot.rootEndpoint());
         if (position.isEmpty()) return;
         var recipients = RadarSpatial.backend().watchers(level, position.get());
-        for (MonitorSnapshotPayload part : MonitorSnapshotPayload.split(snapshot, includeGeometry)) {
+        if (recipients.isEmpty()) return;
+        for (MonitorSnapshotPayload part : prepared.address(snapshot, includeGeometry)) {
             for (ServerPlayer player : recipients) PacketDistributor.sendToPlayer(player, part);
         }
     }
