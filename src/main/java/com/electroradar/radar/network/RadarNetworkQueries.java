@@ -24,6 +24,35 @@ final class RadarNetworkQueries {
     private RadarNetworkQueries() { }
 
     static TargetSnapshot<TargetRef> queryTargetRefs(EndpointKey consumer, Registration registration,
+                                                      TargetCategory category, long serverTick,
+                                                      Map<EndpointKey, Registration> endpointIndex,
+                                                      Map<NetworkId, NetworkRuntime> networks) {
+        Objects.requireNonNull(category, "category");
+        NetworkRuntime network = networks.get(registration.networkId);
+        if (network == null) return TargetSnapshot.empty();
+        Set<TargetRef> targets = new HashSet<>();
+        for (AccessibleRadar radar : accessibleRadars(consumer, registration, network, endpointIndex)) {
+            targets.addAll(radar.state().categories.targets(category));
+        }
+        if (category == TargetCategory.MOVING_STRUCTURE) {
+            for (TargetRef target : network.ownStructures.keySet()) {
+                if (ownAccess(network, target, endpointIndex)) targets.add(target);
+            }
+        }
+        List<TargetRef> ordered = targets.stream().filter(target -> target.dimension().equals(consumer.dimension()))
+                .sorted(RadarNetworkState.TARGET_ORDER).toList();
+        return new TargetSnapshot<>(network.contentVersion, ordered);
+    }
+
+    static <T> TargetSnapshot<T> queryTargets(EndpointKey consumer, Registration registration,
+                                               TargetCategory category, TargetProjection<T> projection, long serverTick,
+                                               Map<EndpointKey, Registration> endpointIndex,
+                                               Map<NetworkId, NetworkRuntime> networks) {
+        var refs = queryTargetRefs(consumer, registration, category, serverTick, endpointIndex, networks);
+        return projectDetails(consumer, registration, refs.targets(), category, projection, serverTick, endpointIndex, networks);
+    }
+
+    static TargetSnapshot<TargetRef> queryTargetRefs(EndpointKey consumer, Registration registration,
                                                       long serverTick,
                                                       Map<EndpointKey, Registration> endpointIndex,
                                                       Map<NetworkId, NetworkRuntime> networks) {
@@ -49,6 +78,14 @@ final class RadarNetworkQueries {
                                                      TargetProjection<T> projection, long serverTick,
                                                      Map<EndpointKey, Registration> endpointIndex,
                                                      Map<NetworkId, NetworkRuntime> networks) {
+        return projectDetails(consumer, registration, requestedTargets, null, projection, serverTick, endpointIndex, networks);
+    }
+
+    private static <T> TargetSnapshot<T> projectDetails(EndpointKey consumer, Registration registration,
+                                                     Collection<TargetRef> requestedTargets, TargetCategory category,
+                                                     TargetProjection<T> projection, long serverTick,
+                                                     Map<EndpointKey, Registration> endpointIndex,
+                                                     Map<NetworkId, NetworkRuntime> networks) {
         Objects.requireNonNull(requestedTargets, "requestedTargets");
         Objects.requireNonNull(projection, "projection");
         NetworkRuntime network = networks.get(registration.networkId);
@@ -62,13 +99,15 @@ final class RadarNetworkQueries {
         List<T> results = new ArrayList<>(ordered.size());
         for (TargetRef ref : ordered) {
             TargetEntry entry = network.targets.get(ref);
-            LiveResult own = ownAccess(network, ref, endpointIndex) ? network.ownStructures.get(ref) : null;
+            LiveResult own = (category == null || category == TargetCategory.MOVING_STRUCTURE)
+                    && ownAccess(network, ref, endpointIndex) ? network.ownStructures.get(ref) : null;
             if (own == null && (entry == null || entry.sources.keySet().stream().noneMatch(accessible::contains))) continue;
-            Optional<LiveResult> live = own == null ? latestAccessibleMeasurement(entry, accessible) : Optional.of(own);
+            Optional<LiveResult> live = own == null ? latestAccessibleMeasurement(entry, accessible, category) : Optional.of(own);
+            if (category != null && live.isEmpty()) continue;
             LiveResult result = live.orElseGet(() -> LiveResult.unavailable(0L, -1L, 0L));
             boolean observing = result.observing();
             TargetView view = new TargetView(ref, observing, result,
-                    () -> entry == null ? List.of() : accessibleSources(entry, accessible), own != null);
+                    () -> entry == null ? List.of() : accessibleSources(entry, accessible, category), own != null);
             try {
                 results.add(Objects.requireNonNull(projection.project(view),
                         "TargetProjection must not return null"));
@@ -173,10 +212,15 @@ final class RadarNetworkQueries {
     }
 
     private static Optional<LiveResult> latestAccessibleMeasurement(TargetEntry entry, Set<EndpointKey> endpoints) {
+        return latestAccessibleMeasurement(entry, endpoints, null);
+    }
+
+    private static Optional<LiveResult> latestAccessibleMeasurement(TargetEntry entry, Set<EndpointKey> endpoints,
+                                                                   TargetCategory category) {
         LiveResult selected = null;
         for (Map.Entry<EndpointKey, SourceLink> source : entry.sources.entrySet()) {
             if (!endpoints.contains(source.getKey())) continue;
-            LiveResult candidate = bestMeasurement(source.getValue()).orElse(null);
+            LiveResult candidate = bestMeasurement(source.getValue(), category).orElse(null);
             if (candidate != null && (selected == null
                     || candidate.observing() && !selected.observing()
                     || candidate.observing() == selected.observing()
@@ -187,9 +231,10 @@ final class RadarNetworkQueries {
         return Optional.ofNullable(selected);
     }
 
-    private static Optional<LiveResult> bestMeasurement(SourceLink link) {
+    private static Optional<LiveResult> bestMeasurement(SourceLink link, TargetCategory category) {
         LiveResult selected = null;
         for (SectorConfirmation confirmation : link.sectors.values()) {
+            if (category != null && !confirmation.categories.contains(category)) continue;
             LiveResult candidate = confirmation.measurement;
             if (candidate != null && (selected == null
                     || candidate.observing() && !selected.observing()
@@ -200,10 +245,15 @@ final class RadarNetworkQueries {
     }
 
     private static List<RadarSource> accessibleSources(TargetEntry target, Set<EndpointKey> endpoints) {
+        return accessibleSources(target, endpoints, null);
+    }
+
+    private static List<RadarSource> accessibleSources(TargetEntry target, Set<EndpointKey> endpoints,
+                                                      TargetCategory category) {
         List<RadarSource> sources = new ArrayList<>();
         for (Map.Entry<EndpointKey, SourceLink> source : target.sources.entrySet()) {
             if (endpoints.contains(source.getKey())) {
-                bestConfirmation(source.getValue()).ifPresent(value -> sources.add(new RadarSource(
+                bestConfirmation(source.getValue(), category).ifPresent(value -> sources.add(new RadarSource(
                         source.getKey(), value.getKey(), value.getValue().missedVisits,
                         value.getValue().measurement != null && value.getValue().measurement.observing(),
                         value.getValue().lastSuccessfulVisitTick,
@@ -213,9 +263,11 @@ final class RadarNetworkQueries {
         return List.copyOf(sources);
     }
 
-    private static Optional<Map.Entry<Integer, SectorConfirmation>> bestConfirmation(SourceLink link) {
+    private static Optional<Map.Entry<Integer, SectorConfirmation>> bestConfirmation(SourceLink link,
+                                                                                    TargetCategory category) {
         Map.Entry<Integer, SectorConfirmation> selected = null;
         for (Map.Entry<Integer, SectorConfirmation> entry : link.sectors.entrySet()) {
+            if (category != null && !entry.getValue().categories.contains(category)) continue;
             LiveResult candidate = entry.getValue().measurement;
             LiveResult current = selected == null ? null : selected.getValue().measurement;
             if (selected == null || candidate != null && (current == null

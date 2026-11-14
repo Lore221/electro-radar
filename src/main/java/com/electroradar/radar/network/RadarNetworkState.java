@@ -4,6 +4,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
@@ -115,6 +116,7 @@ final class RadarNetworkState {
         final long participatesFromSlot;
         final RadarObservationSource source;
         final Map<TargetRef, SourceLink> detections = new HashMap<>();
+        final TargetCategoryIndex categories = new TargetCategoryIndex();
         final Map<Integer, ZoneVisit> zoneVisits = new HashMap<>();
         RadarObservationPlan plan;
         /** Проверенная при подготовке плана кратность; исключения SPI не попадают в часы сети. */
@@ -128,6 +130,42 @@ final class RadarNetworkState {
         }
 
         boolean observing() { return zoneVisits.values().stream().anyMatch(ZoneVisit::observing); }
+
+        boolean publishMeasurement(TargetRef target, SectorConfirmation confirmation, LiveResult measurement,
+                                   Set<TargetCategory> nextCategories) {
+            Set<TargetCategory> immutable = Set.copyOf(nextCategories);
+            boolean changed = !measurement.sameVisibleState(confirmation.measurement)
+                    || !immutable.equals(confirmation.categories);
+            categories.replace(target, confirmation.categories, immutable);
+            confirmation.categories = immutable;
+            confirmation.measurement = measurement;
+            return changed;
+        }
+
+        boolean removeConfirmation(TargetRef target, int sector) {
+            SourceLink link = detections.get(target);
+            SectorConfirmation removed = link == null ? null : link.sectors.remove(sector);
+            if (removed == null) return false;
+            removeCategories(target, removed);
+            return true;
+        }
+
+        private void removeCategories(TargetRef target, SectorConfirmation confirmation) {
+            categories.replace(target, confirmation.categories, Set.of());
+            confirmation.categories = Set.of();
+        }
+
+        int forgetFadedConfirmations(TargetRef target, long serverTick) {
+            SourceLink link = detections.get(target);
+            if (link == null) return 0;
+            int before = link.sectors.size();
+            link.sectors.values().removeIf(confirmation -> {
+                if (!confirmation.faded(serverTick)) return false;
+                removeCategories(target, confirmation);
+                return true;
+            });
+            return before - link.sectors.size();
+        }
     }
 
     /** Только диагностические счётчики одного посещения; на поведение не влияют. */
@@ -172,8 +210,15 @@ final class RadarNetworkState {
         /** Частота поиска может быть выше прежней частоты учёта промахов памяти. */
         long nextMissTick;
         Optional<ObservationClassification> classification = Optional.empty();
+        Set<TargetCategory> categories = Set.of();
         LiveResult measurement;
         long lastSuccessfulVisitTick = -1;
+
+        boolean faded(long serverTick) {
+            if (measurement == null) return true;
+            return !measurement.observing() && measurement.freezeTick() >= 0
+                    && serverTick - measurement.freezeTick() >= measurement.fadeDurationTicks();
+        }
     }
 
     record AccessibleRadar(EndpointKey endpoint, RadarState state) { }

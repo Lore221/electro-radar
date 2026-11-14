@@ -91,6 +91,19 @@ class OwnStructureQueryTest {
                 fixture.networks).targets());
     }
 
+    @Test void registeredPlacementAppearsOnlyInStructureCategoryAndOnlyWithRadarAccess() {
+        var fixture = new StructureFixture();
+        assertTrue(RadarNetworkQueries.queryTargets(fixture.monitor, fixture.monitorRegistration,
+                TargetCategory.MOVING_STRUCTURE, TargetView::target, 10, fixture.index, fixture.networks).targets().isEmpty());
+        var movingRadar = new EndpointKey.Moving(fixture.world, fixture.structure.id(), new BlockPos(1, 0, 0));
+        var index = Map.of(fixture.monitor, fixture.monitorRegistration, movingRadar, fixture.radarRegistration);
+        assertEquals(List.of(fixture.structure), RadarNetworkQueries.queryTargets(fixture.monitor,
+                fixture.monitorRegistration, TargetCategory.MOVING_STRUCTURE, TargetView::target,
+                10, index, fixture.networks).targets());
+        assertTrue(RadarNetworkQueries.queryTargets(fixture.monitor, fixture.monitorRegistration,
+                TargetCategory.SHELL, TargetView::target, 10, index, fixture.networks).targets().isEmpty());
+    }
+
     private static final class StructureFixture {
         final ResourceKey<Level> world =
                 ResourceKey.create(Registries.DIMENSION, ResourceLocation.withDefaultNamespace("overworld"));
