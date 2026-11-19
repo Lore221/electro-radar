@@ -141,11 +141,16 @@ final class MonitorTargetSweepState {
         double since = snapshot == evaluatedSnapshot ? evaluatedAt : Math.max(evaluatedAt, receivedAt);
         for (var frame : frames) {
             var profile = frame.profile();
-            if (profile.rotation().isEmpty() || Math.abs(raw.y() - profile.centerY()) > 20) continue;
+            if (profile.rotation().isEmpty()) continue;
+            var anchor = raw.scanAnchor().filter(a -> a.radar().equals(profile.source()));
+            // Подтверждённая объёмная цель может иметь центр за пределами цилиндра.
+            if (anchor.isEmpty() && Math.abs(raw.y() - profile.centerY()) > 20) continue;
             if (profile.source() instanceof EndpointKey.Moving moving
                     && raw.target().sourceKind() == TargetRef.SourceKind.MOVING_STRUCTURE
                     && moving.structureId().equals(raw.target().id())) continue;
-            double crossing = MonitorRotatingSweep.lastCrossing(frame, raw.x(), raw.z(), now);
+            double crossing = MonitorRotatingSweep.lastCrossing(frame,
+                    anchor.map(a -> a.point().x()).orElse(raw.x()),
+                    anchor.map(a -> a.point().z()).orElse(raw.z()), now);
             if (crossing > since || marker == null && Math.abs(crossing - now) < 1e-8)
                 crossedAt = Math.max(crossedAt, crossing);
         }

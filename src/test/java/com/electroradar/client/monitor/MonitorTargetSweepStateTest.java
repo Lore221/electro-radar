@@ -141,6 +141,19 @@ class MonitorTargetSweepStateTest {
         assertTrue(state.targets(KEY, rotating(radar), 20).isEmpty());
     }
 
+    @Test void rotatingCoarseContactUsesAcceptedAnchorAndFreezesActualCenter() {
+        var radar = RADAR.withRotation(new com.electroradar.radar.simple.RadarRotation(0, 0));
+        var state = new MonitorTargetSweepState();
+        var coarse = new MonitorTargetData(TARGET, true, true, 110, 100, 0, "", -1, 0, Silhouette.EMPTY,
+                false, Optional.of(new ScanAnchor(radar.source(), new Point(40, 0))));
+        state.accept(snapshot(coarse, 1), 0);
+        assertTrue(state.targets(KEY, rotating(radar), 0).isEmpty());
+        var shown = state.targets(KEY, rotating(radar), 20).getFirst();
+        assertEquals(110, shown.x());
+        assertEquals(100, shown.y());
+        assertEquals(18.75, shown.rememberedFadeStartClientTick(), 1e-8);
+    }
+
     private static List<MonitorSectorAnimationState.ProfileFrame> rotating(RadarVisualProfile radar) {
         return List.of(new MonitorSectorAnimationState.ProfileFrame(radar, List.of(), Map.of(), 0,
                 Double.POSITIVE_INFINITY));
