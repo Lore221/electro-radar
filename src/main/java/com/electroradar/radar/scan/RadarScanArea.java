@@ -20,4 +20,7 @@ public interface RadarScanArea {
 
     /** Возвращает результат точной проверки кандидата после пространственного запроса. */
     boolean contains(Entity entity);
+
+    /** Консервативная проверка готового объёма; поставщик может уточнить её под свою геометрию. */
+    default boolean intersectsBounds(AABB bounds) { return queryBounds().intersects(bounds); }
 }

@@ -9,6 +9,8 @@ import com.electroradar.config.RadarServerConfig;
  * контроллера, его BlockEntity или способ подготовки собственной геометрии.
  */
 public interface RadarObservationSource {
+    default NetworkKind networkKind() { return NetworkKind.RADAR; }
+
     /** Готовит кешируемый immutable план на общей границе с одним атомарным снимком конфига. */
     Optional<RadarObservationPlan> createObservationPlan(RadarServerConfig.Snapshot parameters);
 

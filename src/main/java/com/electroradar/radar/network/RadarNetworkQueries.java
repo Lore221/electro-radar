@@ -196,7 +196,7 @@ final class RadarNetworkQueries {
 
     /** Только радар раскрывает структуру своего размещения; монитор не является источником наблюдений. */
     static boolean ownAccess(NetworkRuntime network, TargetRef target, Map<EndpointKey, Registration> endpointIndex) {
-        if (target.sourceKind() != TargetRef.SourceKind.MOVING_STRUCTURE) return false;
+        if (network.kind == NetworkKind.SIMPLE_RADAR || target.sourceKind() != TargetRef.SourceKind.MOVING_STRUCTURE) return false;
         for (var entry : endpointIndex.entrySet()) {
             if (entry.getKey() instanceof EndpointKey.Moving moving && moving.structureId().equals(target.id())
                     && moving.dimension().equals(target.dimension()) && entry.getValue().networkId.equals(network.id)

@@ -34,6 +34,15 @@ class NetworkBindingPersistenceTest {
         assertNull(NetworkItemBinding.read(restored));
         assertEquals("kept", restored.get(DataComponents.CUSTOM_DATA).copyTag().getString("marker"));
     }
+    @Test void simpleRadarNetworkRemainsDistinctFromOrdinaryAndInterceptionBindings() {
+        var stack = new ItemStack(Items.PAPER);
+        var id = NetworkId.create();
+        NetworkItemBinding.write(stack,id,NetworkKind.SIMPLE_RADAR);
+        var registries = RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY);
+        var restored = ItemStack.parseOptional(registries,(CompoundTag)stack.save(registries));
+        assertEquals(id,NetworkItemBinding.read(restored));
+        assertEquals(NetworkKind.SIMPLE_RADAR,NetworkItemBinding.kind(restored));
+    }
     @Test void oldBindingIsRadarAndRadarCopyReplacesInterceptionType() {
         var stack = new ItemStack(Items.PAPER); var id = NetworkId.create();
         CustomData.update(DataComponents.CUSTOM_DATA, stack, tag -> tag.putUUID(NetworkItemBinding.NETWORK_ID_TAG, id.value()));

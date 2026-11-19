@@ -20,19 +20,26 @@ import net.minecraft.world.phys.Vec3;
 public record LiveResult(long sampledTick, TargetAvailability availability,
                          Optional<Vec3> position, Optional<EntityType<?>> entityType,
                          boolean observing, long freezeTick, long fadeDurationTicks,
-                         Optional<StructureMeasurement> structure) {
+                         Optional<StructureMeasurement> structure, Optional<ScanAnchor> pointAnchor) {
     public LiveResult {
         Objects.requireNonNull(structure, "structure");
+        Objects.requireNonNull(pointAnchor, "pointAnchor");
         Objects.requireNonNull(availability, "availability");
         Objects.requireNonNull(position, "position");
         Objects.requireNonNull(entityType, "entityType");
         if (sampledTick < 0 || freezeTick < -1 || fadeDurationTicks < 0
-                || availability == TargetAvailability.AVAILABLE && (position.isEmpty() || entityType.isPresent() == structure.isPresent())
+                || availability == TargetAvailability.AVAILABLE && (position.isEmpty() || (entityType.isPresent() && structure.isPresent()))
                 || availability == TargetAvailability.UNAVAILABLE && (position.isPresent() || entityType.isPresent() || structure.isPresent())
                 || observing && (availability != TargetAvailability.AVAILABLE || freezeTick != -1)
                 || !observing && freezeTick < 0 && availability == TargetAvailability.AVAILABLE) {
             throw new IllegalArgumentException("Invalid measured target state");
         }
+    }
+
+    public LiveResult(long sampledTick, TargetAvailability availability, Optional<Vec3> position,
+            Optional<EntityType<?>> entityType, boolean observing, long freezeTick, long fadeDurationTicks,
+            Optional<StructureMeasurement> structure) {
+        this(sampledTick,availability,position,entityType,observing,freezeTick,fadeDurationTicks,structure,Optional.empty());
     }
 
     public LiveResult(long sampledTick, TargetAvailability availability, Optional<Vec3> position,
@@ -57,10 +64,21 @@ public record LiveResult(long sampledTick, TargetAvailability availability,
                 Optional.of(Objects.requireNonNull(entityType, "entityType")), true, -1, 0);
     }
 
+    /** Неидентифицированная точка простого радара: доступна без сведений о типе и форме. */
+    public static LiveResult observedPoint(long tick, Vec3 position) {
+        return new LiveResult(tick, TargetAvailability.AVAILABLE, Optional.of(Objects.requireNonNull(position)),
+                Optional.empty(), true, -1, 0);
+    }
+
+    public static LiveResult observedPoint(long tick,Vec3 position,ScanAnchor anchor) {
+        return new LiveResult(tick,TargetAvailability.AVAILABLE,Optional.of(position),Optional.empty(),
+                true,-1,0,Optional.empty(),Optional.of(anchor));
+    }
+
     /** Замораживает sample без чтения сущности вне области и сохраняет исходный тик координат. */
     public LiveResult frozen(long tick, long fadeTicks) {
         if (!observing && availability == TargetAvailability.AVAILABLE) return this;
-        return new LiveResult(sampledTick, availability, position, entityType, false, tick, fadeTicks, structure);
+        return new LiveResult(sampledTick, availability, position, entityType, false, tick, fadeTicks, structure, pointAnchor);
     }
 
     /** Объект был обнаружен, но не удалось получить корректное измерение. Координаты не выдумываются. */
@@ -77,7 +95,7 @@ public record LiveResult(long sampledTick, TargetAvailability availability,
     boolean sameVisibleState(LiveResult other) {
         return other != null && observing == other.observing && freezeTick == other.freezeTick
                 && availability == other.availability && position.equals(other.position)
-                && entityType.equals(other.entityType) && (structure.isEmpty() ? other.structure.isEmpty()
+                && entityType.equals(other.entityType) && pointAnchor.equals(other.pointAnchor) && (structure.isEmpty() ? other.structure.isEmpty()
                         : other.structure.isPresent() && structure.get().sameVisibleState(other.structure.get()));
     }
 }

@@ -32,13 +32,17 @@ public final class NetworkItemBinding {
     public static NetworkKind kind(ItemStack stack) {
         String kind = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).copyTag()
                 .getString("electroradar:network_kind");
-        return "interception".equals(kind) ? NetworkKind.INTERCEPTION : NetworkKind.RADAR;
+        return switch (kind) {
+            case "interception" -> NetworkKind.INTERCEPTION;
+            case "simple_radar" -> NetworkKind.SIMPLE_RADAR;
+            default -> NetworkKind.RADAR;
+        };
     }
 
     public static void write(ItemStack stack, NetworkId networkId, NetworkKind kind) {
         CustomData.update(DataComponents.CUSTOM_DATA, stack, data -> {
             data.putUUID(NETWORK_ID_TAG, networkId.value());
-            data.putString("electroradar:network_kind", kind == NetworkKind.INTERCEPTION ? "interception" : "radar");
+            data.putString("electroradar:network_kind", kind.name().toLowerCase(java.util.Locale.ROOT));
         });
     }
 
