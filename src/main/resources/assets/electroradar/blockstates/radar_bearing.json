@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "electroradar:block/radar_bearing"
+    }
+  }
+}

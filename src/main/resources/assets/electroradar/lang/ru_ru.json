@@ -183,5 +183,12 @@
   "message.electroradar.linker.interception_applied": "Подключено к выбранной сети перехвата",
   "message.electroradar.linker.interception_already_connected": "Уже подключено к выбранной сети перехвата",
   "message.electroradar.linker.interception_disconnected": "Контроллер отключён от сети перехвата",
-  "message.electroradar.zone.insert_failed": "Не удалось вставить: слот занят или зона в другом измерении."
+  "message.electroradar.zone.insert_failed": "Не удалось вставить: слот занят или зона в другом измерении.",
+  "block.electroradar.radar_bearing": "Подшипник радара",
+  "block.electroradar.antenna_section": "Секция антенны",
+  "message.electroradar.bearing.assembled": "Антенна собрана",
+  "message.electroradar.bearing.disassembled": "Антенна разобрана",
+  "message.electroradar.bearing.invalid_sections": "Установите от 1 до 5 секций антенны над подшипником",
+  "message.electroradar.bearing.capture_failed": "Сборка антенны не удалась; блоки восстановлены",
+  "message.electroradar.bearing.restore_deferred": "Разборка отложена: место занято или конструкция ещё загружается"
 }
