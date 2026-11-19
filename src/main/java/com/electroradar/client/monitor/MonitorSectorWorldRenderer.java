@@ -81,7 +81,7 @@ final class MonitorSectorWorldRenderer {
             var frame = frameByProfile.get(source.key());
             RadarVisualProfile profile = frame == null ? source : frame.profile();
             MonitorSectorProjection.ProjectedCoverage coverage = MonitorSectorProjection.project(
-                    profile, snapshot.dimension(), worldCenterX, worldCenterZ, mapFacing,
+                    profile, frame, snapshot.dimension(), worldCenterX, worldCenterZ, mapFacing,
                     0.0D, 0.0D, mapDiameter);
             MonitorSectorMesh.emit(coverage, profile.animation(), frame, colors, sink);
         }
