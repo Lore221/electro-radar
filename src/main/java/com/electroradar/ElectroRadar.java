@@ -30,6 +30,7 @@ public final class ElectroRadar {
 
     /** Подключает создание, тиканье и очистку серверного менеджера к lifecycle-событиям NeoForge. */
     public ElectroRadar(IEventBus modEventBus, ModContainer modContainer) {
+        com.electroradar.radar.bearing.RadarBearingContent.register(modEventBus);
         RadarControllerContent.register(modEventBus);
         RadarControllerContent.registerCreateMovementPolicy();
         RadarDisplayContent.register(modEventBus);
@@ -62,5 +63,7 @@ public final class ElectroRadar {
         NeoForge.EVENT_BUS.addListener(MonitorPayloads::onChunkWatched);
         NeoForge.EVENT_BUS.addListener(RadarControllerBlockEntity::onEntityStartTracking);
         NeoForge.EVENT_BUS.addListener(RadarPanelContraption::onEntityTick);
+        NeoForge.EVENT_BUS.addListener(com.electroradar.radar.bearing.AntennaContraption::onEntityTick);
+        NeoForge.EVENT_BUS.addListener(com.electroradar.radar.bearing.AntennaContraption::onEntityTickEnd);
     }
 }

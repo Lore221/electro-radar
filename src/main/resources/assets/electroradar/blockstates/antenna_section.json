@@ -1,0 +1,20 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "electroradar:block/antenna_section",
+      "y": 0
+    },
+    "facing=east": {
+      "model": "electroradar:block/antenna_section",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "electroradar:block/antenna_section",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "electroradar:block/antenna_section",
+      "y": 270
+    }
+  }
+}

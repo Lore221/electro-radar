@@ -183,5 +183,12 @@
   "message.electroradar.linker.interception_applied": "Connected to the selected interception network",
   "message.electroradar.linker.interception_already_connected": "Already connected to the selected interception network",
   "message.electroradar.linker.interception_disconnected": "Controller disconnected from the interception network",
-  "message.electroradar.zone.insert_failed": "Cannot insert: slot occupied or zone belongs to another dimension."
+  "message.electroradar.zone.insert_failed": "Cannot insert: slot occupied or zone belongs to another dimension.",
+  "block.electroradar.radar_bearing": "Radar bearing",
+  "block.electroradar.antenna_section": "Antenna section",
+  "message.electroradar.bearing.assembled": "Antenna assembled",
+  "message.electroradar.bearing.disassembled": "Antenna disassembled",
+  "message.electroradar.bearing.invalid_sections": "Place 1–5 antenna sections directly above the bearing",
+  "message.electroradar.bearing.capture_failed": "Antenna assembly failed; blocks restored",
+  "message.electroradar.bearing.restore_deferred": "Antenna restoration deferred: destination blocked or entity still loading"
 }

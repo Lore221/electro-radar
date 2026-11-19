@@ -74,6 +74,8 @@ public final class RadarControllerContent {
                         output.accept(SURFACE_RADAR_CONTROLLER_ITEM.get());
                         output.accept(RADAR_PANEL_ITEM.get());
                         output.accept(OVERVIEW_MODULE_ITEM.get());
+                        output.accept(com.electroradar.radar.bearing.RadarBearingContent.RADAR_BEARING_ITEM.get());
+                        output.accept(com.electroradar.radar.bearing.RadarBearingContent.ANTENNA_SECTION_ITEM.get());
                         output.accept(RadarDisplayContent.RADAR_DISPLAY_ITEM.get());
                         output.accept(TargetControllerContent.TARGET_CONTROLLER_ITEM.get());
                         output.accept(InterceptControllerContent.INTERCEPT_CONTROLLER_ITEM.get());
