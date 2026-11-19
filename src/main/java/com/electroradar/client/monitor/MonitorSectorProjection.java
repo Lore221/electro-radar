@@ -27,6 +27,22 @@ final class MonitorSectorProjection {
     private MonitorSectorProjection() {
     }
 
+    static ProjectedCoverage project(RadarVisualProfile profile,
+                                     MonitorSectorAnimationState.ProfileFrame frame, ResourceLocation mapDimension,
+                                     double mapCenterX, double mapCenterZ, MapFacing mapUp,
+                                     double offsetX, double offsetZ, double mapDiameter) {
+        if (profile.rotation().isEmpty()) return project(profile, mapDimension, mapCenterX, mapCenterZ,
+                mapUp, offsetX, offsetZ, mapDiameter);
+        if (!profile.dimension().equals(mapDimension)) return ProjectedCoverage.EMPTY;
+        ArrayList<ProjectedSegment> outline = new ArrayList<>();
+        for (var line : profile.coverage().outline()) projectSegment(profile, mapDimension, mapCenterX, mapCenterZ,
+                mapUp, offsetX, offsetZ, mapDiameter, line).ifPresent(outline::add);
+        var beam = frame == null ? java.util.Optional.<ProjectedSegment>empty()
+                : projectSegment(profile, mapDimension, mapCenterX, mapCenterZ, mapUp, offsetX, offsetZ,
+                        mapDiameter, MonitorRotatingSweep.beam(frame, frame.sampledClientTick()));
+        return new ProjectedCoverage(outline, beam.stream().toList(), List.of());
+    }
+
     static ProjectedCoverage project(RadarVisualProfile profile, ResourceLocation mapDimension,
                                      double mapCenterX, double mapCenterZ, MapFacing mapUp,
                                      double offsetX, double offsetZ, double mapDiameter) {

@@ -390,6 +390,10 @@ public record MonitorSnapshotPayload(
         EndpointKeyCodec.write(buffer, profile.source());
         // Явный ограниченный ID сохраняет wire-контракт независимым от enum.ordinal().
         buffer.writeVarInt(profile.animation().wireId());
+        profile.rotation().ifPresent(rotation -> {
+            buffer.writeLong(rotation.epochTick());
+            buffer.writeDouble(rotation.angleAtEpoch());
+        });
         buffer.writeVarInt(profile.sectorOrderVariant());
         buffer.writeVarInt(profile.inactiveSectorFadeStyle().wireId());
         buffer.writeDouble(profile.centerX());
@@ -416,6 +420,9 @@ public record MonitorSnapshotPayload(
         BlockPos position = buffer.readBlockPos();
         var source = EndpointKeyCodec.read(buffer);
         RadarVisualAnimation animation = RadarVisualAnimation.fromWireId(buffer.readVarInt());
+        var rotation = animation == RadarVisualAnimation.ROTATING_SWEEP
+                ? java.util.Optional.of(new com.electroradar.radar.simple.RadarRotation(buffer.readLong(), buffer.readDouble()))
+                : java.util.Optional.<com.electroradar.radar.simple.RadarRotation>empty();
         int orderVariant = buffer.readVarInt();
         RadarVisualFadeStyle inactiveSectorFadeStyle = RadarVisualFadeStyle.fromWireId(buffer.readVarInt());
         if (!RadarSectorOrder.validVariant(orderVariant)) {
@@ -451,7 +458,7 @@ public record MonitorSnapshotPayload(
         // Общие инварианты пустых частей и покрытия проверяет Coverage также при создании на сервере.
         return new RadarVisualProfile(dimension, position, centerX, centerY, centerZ,
                 new RadarVisualGeometry.Coverage(outline, separators, sectors), animation, orderVariant,
-                inactiveSectorFadeStyle, source);
+                inactiveSectorFadeStyle, source, rotation);
     }
 
     private static void writePoint(FriendlyByteBuf buffer, RadarVisualGeometry.Point point) {

@@ -10,6 +10,9 @@ import com.electroradar.config.MonitorSweepConfig;
 import com.electroradar.radar.monitor.MonitorSnapshotData;
 import com.electroradar.radar.monitor.MonitorTargetData;
 import com.electroradar.radar.network.TargetRef;
+import com.electroradar.radar.network.EndpointKey;
+import com.electroradar.radar.simple.RadarRotation;
+import com.electroradar.radar.spatial.Silhouette;
 import com.electroradar.radar.visual.RadarVisualAnimation;
 import com.electroradar.radar.visual.RadarVisualGeometry;
 
@@ -60,9 +63,11 @@ final class MonitorTargetSweepState {
 
     private List<MonitorClientState.DisplayTarget> evaluate(List<MonitorSectorAnimationState.ProfileFrame> frames, double now) {
         if (snapshot == null || !snapshot.linked()) return List.of();
+        boolean rotating = frames.stream().anyMatch(f -> f.profile().rotation().isPresent());
         // Между пакетами и сменами лучей координаты неизменны; fade вычисляет
         // рендерер по общим часам. Не создаём N записей на каждый кадр GUI/BER.
-        if (evaluatedSnapshot == snapshot && sameWindows(frames)) {
+        if (evaluatedSnapshot == snapshot && sameWindows(frames)
+                && !rotating) {
             evaluatedAt = now;
             return cachedTargets;
         }
@@ -74,6 +79,10 @@ final class MonitorTargetSweepState {
                 markers.remove(raw.target());
                 result.add(new MonitorClientState.DisplayTarget(raw.target(), true, true,
                         raw.x(), raw.y(), raw.z(), raw.entityTypeId(), false, -1, 0, -1, -1, raw.silhouette()));
+                continue;
+            }
+            if (rotating) {
+                rotating(raw, frames, now, result);
                 continue;
             }
             double activeUntil = -1, fadeTicks = 0;
@@ -123,6 +132,40 @@ final class MonitorTargetSweepState {
         evaluatedAt = now;
         cachedTargets = List.copyOf(result);
         return cachedTargets;
+    }
+
+    private void rotating(MonitorTargetData raw, List<MonitorSectorAnimationState.ProfileFrame> frames,
+                          double now, List<MonitorClientState.DisplayTarget> result) {
+        Marker marker = markers.get(raw.target());
+        double crossedAt = Double.NEGATIVE_INFINITY;
+        double since = snapshot == evaluatedSnapshot ? evaluatedAt : Math.max(evaluatedAt, receivedAt);
+        for (var frame : frames) {
+            var profile = frame.profile();
+            if (profile.rotation().isEmpty()) continue;
+            var anchor = raw.scanAnchor().filter(a -> a.radar().equals(profile.source()));
+            // Подтверждённая объёмная цель может иметь центр за пределами цилиндра.
+            if (anchor.isEmpty() && Math.abs(raw.y() - profile.centerY()) > 20) continue;
+            if (profile.source() instanceof EndpointKey.Moving moving
+                    && raw.target().sourceKind() == TargetRef.SourceKind.MOVING_STRUCTURE
+                    && moving.structureId().equals(raw.target().id())) continue;
+            double crossing = MonitorRotatingSweep.lastCrossing(frame,
+                    anchor.map(a -> a.point().x()).orElse(raw.x()),
+                    anchor.map(a -> a.point().z()).orElse(raw.z()), now);
+            if (crossing > since || marker == null && Math.abs(crossing - now) < 1e-8)
+                crossedAt = Math.max(crossedAt, crossing);
+        }
+        if (Double.isFinite(crossedAt)) {
+            if (marker == null) { marker = new Marker(); markers.put(raw.target(), marker); }
+            marker.shown = raw;
+            marker.frozenAt = crossedAt;
+            marker.fadeTicks = RadarRotation.FADE_TICKS;
+            marker.serverMemory(raw, snapshot, receivedAt);
+        }
+        if (marker == null) return;
+        var shown = marker.shown;
+        result.add(new MonitorClientState.DisplayTarget(raw.target(), raw.observing(), true,
+                shown.x(), shown.y(), shown.z(), "", true, marker.frozenAt, marker.fadeTicks,
+                marker.serverFrozenAt, marker.serverFadeTicks, Silhouette.EMPTY));
     }
 
     private boolean sameWindows(List<MonitorSectorAnimationState.ProfileFrame> frames) {

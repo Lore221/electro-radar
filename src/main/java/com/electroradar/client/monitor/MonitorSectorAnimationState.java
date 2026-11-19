@@ -37,6 +37,7 @@ final class MonitorSectorAnimationState {
                 cycle = new ProfileCycle(source, settings, sectorFade, networkOffset);
                 cycles.put(source.key(), cycle);
             }
+            cycle.serverTickOffset = snapshot.observedServerTick() - now;
             // Общий FULL_FLASH сохраняет серверный момент вспышки. Стационарные
             // радары используют независимый клиентский sweep.
             for (MonitorVisualPhase phase : snapshot.visualPhases()) {
@@ -73,7 +74,11 @@ final class MonitorSectorAnimationState {
 
     record ProfileFrame(RadarVisualProfile profile, List<Integer> activeSectorIndices,
                         Map<Integer, Float> fadingSectorStrengths, float flashStrength,
-                        double windowEndClientTick) {
+                        double windowEndClientTick, double serverTickOffset, double sampledClientTick) {
+        ProfileFrame(RadarVisualProfile profile, List<Integer> activeSectorIndices,
+                     Map<Integer, Float> fadingSectorStrengths, float flashStrength, double windowEndClientTick) {
+            this(profile, activeSectorIndices, fadingSectorStrengths, flashStrength, windowEndClientTick, 0, 0);
+        }
         ProfileFrame {
             activeSectorIndices = List.copyOf(activeSectorIndices);
             fadingSectorStrengths = Map.copyOf(fadingSectorStrengths);
@@ -93,6 +98,7 @@ final class MonitorSectorAnimationState {
         final List<int[]> inverseOrders = new ArrayList<>();
         MonitorVisualPhase flashPhase;
         double flashStart;
+        double serverTickOffset;
 
         ProfileCycle(RadarVisualProfile source, MonitorSweepConfig.SweepParameters settings, double sectorFade, double networkOffset) {
             this.source = source;
@@ -118,6 +124,8 @@ final class MonitorSectorAnimationState {
         }
 
         ProfileFrame frame(double now) {
+            if (profile.animation() == RadarVisualAnimation.ROTATING_SWEEP)
+                return new ProfileFrame(profile, List.of(), Map.of(), 0, Double.POSITIVE_INFINITY, serverTickOffset, now);
             if (profile.animation() == RadarVisualAnimation.FULL_FLASH) {
                 double age = Math.max(0, now - flashStart);
                 double duration = flashPhase == null ? 0 : Math.min(6.0D,
