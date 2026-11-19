@@ -1,4 +1,4 @@
 package com.electroradar.radar.network;
 
 /** Независимые области подключения приборов. */
-public enum NetworkKind { RADAR, INTERCEPTION }
+public enum NetworkKind { RADAR, INTERCEPTION, SIMPLE_RADAR }

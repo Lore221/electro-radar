@@ -59,6 +59,31 @@ public final class SableSpatialBackend extends WorldSpatialBackend {
         if (plot != null) structureReader.invalidate(plot.getSubLevel(), position);
     }
 
+    @Override public List<StructureContact> structureContacts(ServerLevel level) {
+        var container=SubLevelContainer.getContainer(level);
+        if (container==null) return List.of();
+        var result=new java.util.ArrayList<StructureContact>();
+        for(var sub:container.getAllSubLevels()) structureContact(level,sub.getUniqueId()).ifPresent(result::add);
+        return List.copyOf(result);
+    }
+
+    @Override public Optional<StructureContact> structureContact(ServerLevel level,UUID id) {
+        var container=SubLevelContainer.getContainer(level);
+        var sub=container==null ? null : container.getSubLevel(id);
+        if(sub==null || sub.isRemoved()) return Optional.empty();
+        var box=sub.boundingBox();
+        var bounds=new net.minecraft.world.phys.AABB(box.minX(),box.minY(),box.minZ(),box.maxX(),box.maxY(),box.maxZ());
+        if (!Double.isFinite(box.minX()) || !Double.isFinite(box.minY()) || !Double.isFinite(box.minZ())
+                || !Double.isFinite(box.maxX()) || !Double.isFinite(box.maxY()) || !Double.isFinite(box.maxZ())
+                || box.minX() >= box.maxX() || box.minY() >= box.maxY() || box.minZ() >= box.maxZ()) return Optional.empty();
+        var target=new com.electroradar.radar.network.TargetRef(level.dimension(),
+                com.electroradar.radar.network.TargetRef.SourceKind.MOVING_STRUCTURE,id);
+        Vec3 velocity=sub instanceof dev.ryanhcode.sable.sublevel.ServerSubLevel serverSub
+                ? new Vec3(serverSub.latestLinearVelocity.x,serverSub.latestLinearVelocity.y,serverSub.latestLinearVelocity.z).scale(0.05D)
+                : Vec3.ZERO;
+        return Optional.of(new StructureContact(target,bounds,velocity));
+    }
+
     @Override public java.util.List<StructureBody> structures(ServerLevel level) {
         var container = SubLevelContainer.getContainer(level);
         if (container == null) return java.util.List.of();
