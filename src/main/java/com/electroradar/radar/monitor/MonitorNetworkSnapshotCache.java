@@ -79,14 +79,15 @@ final class MonitorNetworkSnapshotCache {
                     live.freezeTick(), live.fadeDurationTicks(), live.structure().get().silhouette(),
                     view.registeredStructure(), live.structure().get().scanAnchor());
         }
-        if (live.position().isEmpty() || live.entityType().isEmpty()) {
+        if (live.position().isEmpty()) {
             return new MonitorTargetData(target, false, false, 0, 0, 0, "",
                     live.freezeTick(), live.fadeDurationTicks());
         }
         Vec3 position = live.position().orElseThrow();
-        EntityType<?> type = live.entityType().orElseThrow();
+        EntityType<?> type = live.entityType().orElse(null);
         return new MonitorTargetData(target, live.observing(), true, position.x, position.y, position.z,
-                BuiltInRegistries.ENTITY_TYPE.getKey(type).toString(), live.freezeTick(), live.fadeDurationTicks());
+                type == null ? "" : BuiltInRegistries.ENTITY_TYPE.getKey(type).toString(), live.freezeTick(), live.fadeDurationTicks(), com.electroradar.radar.spatial.Silhouette.EMPTY,
+                false,live.pointAnchor());
     }
 
     record Snapshot(long contentVersion, List<MonitorTargetData> targets,

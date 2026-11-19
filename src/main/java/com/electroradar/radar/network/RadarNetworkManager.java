@@ -130,10 +130,15 @@ public final class RadarNetworkManager {
         Objects.requireNonNull(policy, "policy");
         Objects.requireNonNull(source, "source");
         ensureCompatiblePolicy(endpoint, networkId, policy);
+        NetworkRuntime existing = networks.get(networkId);
+        if (source.networkKind() == NetworkKind.INTERCEPTION
+                || existing != null && existing.kind != null && existing.kind != source.networkKind())
+            throw new IllegalArgumentException("Cannot mix ordinary and simple radar sources");
         Set<NetworkId> changed = new HashSet<>();
         removePreviousRegistration(endpoint, changed);
         NetworkRuntime network = networks.computeIfAbsent(networkId, NetworkRuntime::new);
         network.policy = policy;
+        network.bindKind(source.networkKind());
         RegistrationToken token = RegistrationToken.create();
         long participatesFromSlot = network.windowStarted() ? network.slotSerial + 1 : 0;
         endpointIndex.put(endpoint, new Registration(networkId, EndpointRole.RADAR, token));
@@ -162,6 +167,12 @@ public final class RadarNetworkManager {
         RadarDiagnostics.log("consumer_registered", networkId, null, null, serverTick,
                 () -> "endpoint=" + endpoint + " role=" + role + " token=" + token.value());
         return token;
+    }
+
+    public Optional<NetworkKind> networkKind(NetworkId id) {
+        checkActive();
+        NetworkRuntime network = networks.get(id);
+        return network == null ? Optional.empty() : Optional.ofNullable(network.kind);
     }
 
     public List<EndpointKey> registeredEndpoints(NetworkId networkId) {
@@ -334,17 +345,17 @@ public final class RadarNetworkManager {
         StructureGeometryPhase geometry = new StructureGeometryPhase(this::loadStructureGeometry);
         try {
             for (NetworkRuntime network : networks.values()) {
-                refreshOwnStructures(network, changed, geometry);
+                if (network.kind != NetworkKind.SIMPLE_RADAR) refreshOwnStructures(network, changed, geometry);
                 // Прогреваем живую геометрию каждый тик для наведения после завершения Pre.
                 // Это не публикует новое радарное измерение между четырёхтиковыми шагами.
-                for (TargetRef known : network.movingStructures) {
-                    geometry.get(known);
+                if (network.kind != NetworkKind.SIMPLE_RADAR) {
+                    for (TargetRef known : network.movingStructures) geometry.get(known);
                 }
                 if (network.radars.isEmpty()) {
                     resetWindow(network);
                     continue;
                 }
-                boolean boundary = advanceWindow(network, parameters.sectorTicks());
+                boolean boundary = advanceWindow(network, network.kind == NetworkKind.SIMPLE_RADAR ? 10 : parameters.sectorTicks());
                 if (!network.windowStarted()) continue;
                 if (boundary) {
                     // Общая граница задаёт публикацию; посещение источника может длиться несколько окон.
@@ -637,8 +648,15 @@ public final class RadarNetworkManager {
             cache.remember(found.getKey(), found.getValue());
         }
         Set<TargetRef> found = new HashSet<>(result.entities().keySet());
-        for (var body : RadarSpatial.backend().structures(level)) {
-            if (body.intersects(sector.area())) found.add(body.target());
+        if (network.kind == NetworkKind.SIMPLE_RADAR) {
+            for (var contact : RadarSpatial.backend().structureContacts(level)) {
+                if (!(endpoint instanceof EndpointKey.Moving moving && moving.structureId().equals(contact.target().id()))
+                        && contact.intersects(sector.area())) found.add(contact.target());
+            }
+        } else {
+            for (var body : RadarSpatial.backend().structures(level)) {
+                if (body.intersects(sector.area())) found.add(body.target());
+            }
         }
         applySuccessfulSearch(network, endpoint, state, zone, found, changed);
     }
@@ -716,6 +734,21 @@ public final class RadarNetworkManager {
             try {
                 if (target.sourceKind() == TargetRef.SourceKind.MOVING_STRUCTURE) {
                     ServerLevel level = server.getLevel(target.dimension());
+                    if (network.kind == NetworkKind.SIMPLE_RADAR) {
+                        var contact = level == null ? Optional.<com.electroradar.radar.spatial.StructureContact>empty()
+                                : RadarSpatial.backend().structureContact(level, target.id());
+                        if (contact.isEmpty() || !contact.orElseThrow().intersects(sector.area())
+                                || endpoint instanceof EndpointKey.Moving moving && moving.structureId().equals(target.id())) {
+                            freezeConfirmation(confirmation,zone.window.fadeDurationTicks(),changed,network.id);
+                        } else {
+                            if (state.publishMeasurement(target,confirmation,
+                                    LiveResult.observedPoint(serverTick,contact.orElseThrow().bounds().getCenter(),
+                                            contact.orElseThrow().anchor(endpoint,sector.area())),Set.of()))
+                                changed.add(network.id);
+                            confirmation.lastSuccessfulVisitTick=serverTick;
+                        }
+                        continue;
+                    }
                     var body = level == null ? Optional.<StructureBody>empty()
                             : RadarSpatial.backend().structure(level, target.id());
                     var scanPoint = body.flatMap(value -> value.scanPoint(sector.area()));
@@ -737,9 +770,11 @@ public final class RadarNetworkManager {
                     freezeConfirmation(confirmation, zone.window.fadeDurationTicks(), changed, network.id);
                     continue;
                 }
-                LiveResult next = LiveResult.observed(serverTick, RadarSpatial.worldPosition(entity), entity.getType());
-                if (state.publishMeasurement(target, confirmation, next,
-                        EntityTargetCategories.classify(entity.getClass(), entity.getType().getCategory()))) {
+                boolean anonymous = network.kind == NetworkKind.SIMPLE_RADAR;
+                LiveResult next = anonymous ? LiveResult.observedPoint(serverTick,RadarSpatial.worldPosition(entity))
+                        : LiveResult.observed(serverTick, RadarSpatial.worldPosition(entity), entity.getType());
+                if (state.publishMeasurement(target, confirmation, next, anonymous ? Set.of()
+                        : EntityTargetCategories.classify(entity.getClass(), entity.getType().getCategory()))) {
                     changed.add(network.id);
                 }
                 confirmation.lastSuccessfulVisitTick = serverTick;

@@ -21,6 +21,10 @@ public interface SpatialBackend {
     }
     Optional<BlockPos> resolve(Level level, EndpointKey endpoint);
     List<ServerPlayer> watchers(ServerLevel level, BlockPos position);
+    default List<StructureContact> structureContacts(ServerLevel level) { return List.of(); }
+    default Optional<StructureContact> structureContact(ServerLevel level,java.util.UUID id) {
+        return structureContacts(level).stream().filter(contact -> contact.target().id().equals(id)).findFirst();
+    }
     default java.util.List<StructureBody> structures(ServerLevel level) { return java.util.List.of(); }
     default Optional<StructureBody> structure(ServerLevel level, java.util.UUID id) {
         return structures(level).stream().filter(body -> body.target().id().equals(id)).findFirst();

@@ -31,6 +31,29 @@ class CategoryQueryTest {
                 f.consumer, f.registration, TargetView::target, 10, f.endpoints, f.networks).targets()));
     }
 
+    @Test void anonymousObservationIsAvailableWithoutTypeOrAnyClassifiedQuery() {
+        var f = new Fixture();
+        var confirmation = f.observe(f.radar,f.shell,0,Set.of(TargetCategory.SHELL),10);
+        f.network.radars.get(f.radar).publishMeasurement(f.shell,confirmation,
+                LiveResult.observedPoint(12,new Vec3(10,20,30)),Set.of());
+        var targets = RadarNetworkQueries.queryTargets(f.consumer,f.registration,TargetView::liveResult,
+                12,f.endpoints,f.networks).targets();
+        assertEquals(1,targets.size());
+        assertEquals(new Vec3(10,20,30),targets.getFirst().position().orElseThrow());
+        assertTrue(targets.getFirst().entityType().isEmpty());
+        assertTrue(targets.getFirst().structure().isEmpty());
+        for(var category:TargetCategory.values()) assertTrue(f.query(category).targets().isEmpty());
+        assertEquals(new Vec3(10,20,30),targets.getFirst().frozen(13,70).position().orElseThrow());
+    }
+
+    @Test void networkRejectsMixingSourceKindsWithoutChangingExistingKind() {
+        var f = new Fixture();
+        f.network.bindKind(NetworkKind.SIMPLE_RADAR);
+        assertThrows(IllegalArgumentException.class,()->f.network.bindKind(NetworkKind.RADAR));
+        assertEquals(NetworkKind.SIMPLE_RADAR,f.network.kind);
+        f.network.bindKind(NetworkKind.SIMPLE_RADAR);
+    }
+
     @Test void categoryRemainsUntilLastSectorOfLastSourceIsRemoved() {
         var f = new Fixture();
         var categories = Set.of(TargetCategory.SHELL, TargetCategory.PROJECTILE);

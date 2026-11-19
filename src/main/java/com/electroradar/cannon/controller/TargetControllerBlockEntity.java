@@ -259,6 +259,10 @@ public final class TargetControllerBlockEntity extends SmartBlockEntity
                 .map(LiveResult::availability).filter(TargetAvailability.AVAILABLE::equals).isPresent();
         if (!permitted) return Optional.empty();
         if (target.sourceKind() == TargetRef.SourceKind.MOVING_STRUCTURE) {
+            if (sources.liveResult().orElseThrow().structure().isEmpty()) {
+                return RadarSpatial.backend().structureContact(level,target.id()).map(contact ->
+                        new AimTarget(contact.bounds(),contact.velocity(),false,"sable:"+target.id()));
+            }
             return RadarSpatial.backend().structure(level, target.id()).map(body -> {
                 var measured = body.measurement();
                 Vec3 center = measured.aimCenter();

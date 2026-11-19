@@ -53,6 +53,13 @@ final class RadarNetworkState {
         final Set<TargetRef> movingStructures = new HashSet<>();
         final Map<TargetRef, LiveResult> ownStructures = new HashMap<>();
         NetworkPolicy policy;
+        NetworkKind kind;
+
+        void bindKind(NetworkKind requested) {
+            if (requested == NetworkKind.INTERCEPTION || kind != null && kind != requested)
+                throw new IllegalArgumentException("Incompatible radar network kind");
+            kind = requested;
+        }
         TargetRef selectedTarget;
         /**
          * Растёт при изменении видимого содержимого: обнаружение и забывание, новое положение
