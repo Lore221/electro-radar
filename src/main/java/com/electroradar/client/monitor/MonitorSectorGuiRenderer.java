@@ -59,7 +59,7 @@ final class MonitorSectorGuiRenderer {
                 var frame = frameByProfile.get(source.key());
                 RadarVisualProfile profile = frame == null ? source : frame.profile();
                 MonitorSectorProjection.ProjectedCoverage coverage = MonitorSectorProjection.project(
-                        profile, mapDimension, mapCenterX, mapCenterZ, mapUp,
+                        profile, frame, mapDimension, mapCenterX, mapCenterZ, mapUp,
                         offsetX, offsetZ, mapDiameter);
                 MonitorSectorMesh.emit(coverage, profile.animation(), frame, colors, sink);
             }

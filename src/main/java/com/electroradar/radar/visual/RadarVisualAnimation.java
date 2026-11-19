@@ -11,7 +11,8 @@ public enum RadarVisualAnimation {
     /** Загорание равных частей направленной области в стабильной перестановке профиля. */
     SECTOR_SWEEP(1),
     /** Один общий короткий импульс по всей фактической области радара. */
-    FULL_FLASH(2);
+    FULL_FLASH(2),
+    ROTATING_SWEEP(3);
 
     private final int wireId;
 
@@ -32,6 +33,7 @@ public enum RadarVisualAnimation {
         return switch (wireId) {
             case 1 -> SECTOR_SWEEP;
             case 2 -> FULL_FLASH;
+            case 3 -> ROTATING_SWEEP;
             default -> throw new IllegalArgumentException("Unknown radar visual animation id: " + wireId);
         };
     }

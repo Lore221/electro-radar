@@ -41,6 +41,24 @@ class MonitorSnapshotPayloadTest {
                 true, false, targets.getFirst().target(), targets, profiles, phases, endpoint);
     }
 
+    @Test void rotatingProfileRoundTripsItsManagerClockPhase() {
+        var original = multipartSnapshot(new UUID(0, 1000), 1234);
+        var profile = original.visualProfiles().getFirst().withRotation(
+                new com.electroradar.radar.simple.RadarRotation(1200, 350));
+        var snapshot = new MonitorSnapshotData(original.displayId(), original.rootPosition(), original.dimension(),
+                original.loadId(), 1, 1, 1234, true, false, null, List.of(), List.of(profile), List.of(), original.rootEndpoint());
+        var packet = MonitorSnapshotPayload.split(snapshot, true).getFirst();
+        var registries = RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY);
+        var buffer = new RegistryFriendlyByteBuf(Unpooled.buffer(), registries);
+        try {
+            MonitorSnapshotPayload.STREAM_CODEC.encode(buffer, packet);
+            var decoded = MonitorSnapshotPayload.STREAM_CODEC.decode(buffer);
+            assertEquals(profile, decoded.visualProfiles().getFirst());
+            assertEquals(1234, decoded.observedServerTick());
+            assertFalse(buffer.isReadable());
+        } finally { buffer.release(); }
+    }
+
     @Test void multipartWireFormatRemainsCompatible() throws Exception {
         var snapshot = multipartSnapshot(new UUID(0, 1000), 7);
         var digest = java.security.MessageDigest.getInstance("SHA-256");

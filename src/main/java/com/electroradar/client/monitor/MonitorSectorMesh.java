@@ -33,6 +33,11 @@ final class MonitorSectorMesh {
 
     static void emit(MonitorSectorProjection.ProjectedCoverage coverage, RadarVisualAnimation animation,
                      MonitorSectorAnimationState.ProfileFrame frame, Style colors, Sink sink) {
+        if (animation == RadarVisualAnimation.ROTATING_SWEEP) {
+            for (var line : coverage.outline()) sink.line(line, colors.baseLine(), LineStyle.BASE);
+            for (var line : coverage.separators()) sink.line(line, colors.activeEdge(), LineStyle.ACTIVE);
+            return;
+        }
         boolean flash = animation == RadarVisualAnimation.FULL_FLASH;
         float strength = frame == null ? 0.0F : frame.flashStrength();
         for (MonitorSectorProjection.ProjectedSector sector : coverage.sectors()) {
