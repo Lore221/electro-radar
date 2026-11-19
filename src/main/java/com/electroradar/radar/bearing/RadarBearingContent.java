@@ -27,7 +27,7 @@ public final class RadarBearingContent {
     public static final DeferredBlock<AntennaSectionBlock> ANTENNA_SECTION = BLOCKS.registerBlock("antenna_section", AntennaSectionBlock::new,
             BlockBehaviour.Properties.of().mapColor(MapColor.METAL).strength(1.5F).noOcclusion());
     public static final DeferredItem<NetworkBoundBlockItem> RADAR_BEARING_ITEM = ITEMS.register("radar_bearing",
-            () -> new NetworkBoundBlockItem(RADAR_BEARING.get(), new Item.Properties(), "message.electroradar.controller.bound"));
+            () -> new NetworkBoundBlockItem(RADAR_BEARING.get(), new Item.Properties(), "message.electroradar.controller.bound", com.electroradar.radar.network.NetworkKind.SIMPLE_RADAR));
     public static final DeferredItem<BlockItem> ANTENNA_SECTION_ITEM = ITEMS.register("antenna_section", () -> new BlockItem(ANTENNA_SECTION.get(), new Item.Properties()));
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<RadarBearingBlockEntity>> BEARING_ENTITY = ENTITIES.register("radar_bearing",
             () -> BlockEntityType.Builder.of(RadarBearingBlockEntity::new, RADAR_BEARING.get()).build(null));

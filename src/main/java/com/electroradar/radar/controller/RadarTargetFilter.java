@@ -26,8 +26,8 @@ import net.minecraft.world.entity.item.ItemEntity;
  * радаров. Апертура — неподвижная часть самого прибора; без исключения каждый радар видел бы
  * свои и соседние панели как вечную цель.</p>
  */
-final class RadarTargetFilter {
-    static final Predicate<Entity> ELIGIBLE = RadarTargetFilter::isTarget;
+public final class RadarTargetFilter {
+    public static final Predicate<Entity> ELIGIBLE = RadarTargetFilter::isTarget;
 
     private RadarTargetFilter() {
     }
@@ -39,6 +39,7 @@ final class RadarTargetFilter {
             return false;
         }
         return !(entity instanceof AbstractContraptionEntity contraption
-                && contraption.getContraption() instanceof RadarPanelContraption);
+                && (contraption.getContraption() instanceof RadarPanelContraption
+                        || contraption.getContraption() instanceof com.electroradar.radar.bearing.AntennaContraption));
     }
 }
