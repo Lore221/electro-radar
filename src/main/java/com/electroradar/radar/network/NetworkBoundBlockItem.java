@@ -17,15 +17,23 @@ import net.minecraft.world.level.block.entity.BlockEntity;
  */
 public class NetworkBoundBlockItem extends BlockItem implements NetworkOutlineActivatingItem {
     private final String bindingMessageKey;
+    private final NetworkKind bindingKind;
 
     public NetworkBoundBlockItem(Block block, Properties properties) {
         this(block, properties, "message.electroradar.network.item_bound");
     }
 
     public NetworkBoundBlockItem(Block block, Properties properties, String bindingMessageKey) {
-        super(block, properties);
-        this.bindingMessageKey = bindingMessageKey;
+        this(block,properties,bindingMessageKey,NetworkKind.RADAR);
     }
+
+    public NetworkBoundBlockItem(Block block,Properties properties,String bindingMessageKey,NetworkKind kind) {
+        super(block,properties);
+        this.bindingMessageKey=bindingMessageKey;
+        this.bindingKind=kind;
+    }
+
+    protected boolean acceptsBinding(NetworkKind kind) { return kind == bindingKind; }
 
     /** Привязка имеет приоритет над собственным GUI и действиями нового блока-источника. */
     @Override
@@ -43,6 +51,7 @@ public class NetworkBoundBlockItem extends BlockItem implements NetworkOutlineAc
     @Override
     public InteractionResult place(BlockPlaceContext context) {
         NetworkId networkId = NetworkItemBinding.read(context.getItemInHand());
+        if (networkId != null && !acceptsBinding(NetworkItemBinding.kind(context.getItemInHand()))) return InteractionResult.FAIL;
         BlockPos position = context.getClickedPos();
         InteractionResult result = super.place(context);
         Level level = context.getLevel();

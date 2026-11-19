@@ -13,6 +13,12 @@ public interface NetworkLinkTarget {
 
     default NetworkKind networkKindForLinking() { return NetworkKind.RADAR; }
 
+    /** Общие потребители поддерживают обе сети наблюдения; источники сужают этот контракт. */
+    default boolean acceptsNetworkKind(NetworkKind kind) {
+        return kind == networkKindForLinking()
+                || networkKindForLinking() == NetworkKind.RADAR && kind == NetworkKind.SIMPLE_RADAR;
+    }
+
     /** Источник создаёт собственную сеть при необходимости; непривязанный потребитель возвращает null. */
     NetworkId networkIdForLinking();
 

@@ -25,7 +25,12 @@ final class NetworkItemBindingInteraction {
         }
         if (level.isClientSide) return InteractionResult.sidedSuccess(true);
         if (!(level instanceof ServerLevel)) return InteractionResult.CONSUME;
-        NetworkItemBinding.write(context.getItemInHand(), target.getOrCreateNetworkIdForBinding());
+        if (context.getItemInHand().getItem() instanceof NetworkBoundBlockItem item
+                && !item.acceptsBinding(target.networkKindForLinking())) {
+            player.displayClientMessage(Component.translatable("message.electroradar.linker.wrong_network"),true);
+            return InteractionResult.FAIL;
+        }
+        NetworkItemBinding.write(context.getItemInHand(), target.getOrCreateNetworkIdForBinding(),target.networkKindForLinking());
         player.displayClientMessage(Component.translatable(messageKey), true);
         return InteractionResult.sidedSuccess(false);
     }

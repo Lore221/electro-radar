@@ -11,6 +11,8 @@ public interface NetworkIdBindingTarget extends NetworkLinkTarget {
 
     void applyNetworkIdFromItem(NetworkId networkId);
 
+    @Override default boolean acceptsNetworkKind(NetworkKind kind) { return kind == networkKindForLinking(); }
+
     /** Источник автоматически поддерживает чтение сети коммутатором через тот же контракт. */
     @Override
     default NetworkId networkIdForLinking() {

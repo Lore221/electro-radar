@@ -230,8 +230,15 @@ public final class ShellAlarmBlockEntity extends SmartBlockEntity implements Net
         }
     }
 
+    @Override public boolean acceptsNetworkKind(com.electroradar.radar.network.NetworkKind kind) {
+        return kind == com.electroradar.radar.network.NetworkKind.RADAR;
+    }
+
     @Override public NetworkId networkIdForLinking() { return networkId; }
     @Override public boolean reconfigureNetwork(NetworkId next) {
+        if (next != null && level instanceof ServerLevel world
+                && com.electroradar.radar.network.RadarNetworkManager.forServer(world.getServer()).networkKind(next)
+                    .filter(kind -> !acceptsNetworkKind(kind)).isPresent()) return false;
         if (Objects.equals(networkId, next)) return true;
         connection.close();
         networkId = next;

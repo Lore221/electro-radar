@@ -16,6 +16,11 @@ public final class TargetControllerItem extends NetworkBoundBlockItem {
         super(block, properties, "message.electroradar.target_controller.bound");
     }
 
+    @Override protected boolean acceptsBinding(com.electroradar.radar.network.NetworkKind kind) {
+        return kind == com.electroradar.radar.network.NetworkKind.RADAR
+                || kind == com.electroradar.radar.network.NetworkKind.SIMPLE_RADAR;
+    }
+
     @Override
     protected void initializePlacedBlock(BlockEntity placed, NetworkId networkId) {
         if (networkId != null && placed instanceof TargetControllerBlockEntity controller) {

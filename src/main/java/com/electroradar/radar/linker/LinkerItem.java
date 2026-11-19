@@ -80,7 +80,10 @@ public final class LinkerItem extends Item implements NetworkOutlineActivatingIt
         NetworkId selected = NetworkItemBinding.read(stack);
         NetworkId current = target.networkIdForLinking();
         NetworkKind kind = target.networkKindForLinking();
-        if (selected != null && NetworkItemBinding.kind(stack) != kind) {
+        if (current != null && target instanceof net.minecraft.world.level.block.entity.BlockEntity block
+                && block.getLevel() instanceof net.minecraft.server.level.ServerLevel world)
+            kind = com.electroradar.radar.network.RadarNetworkManager.forServer(world.getServer()).networkKind(current).orElse(kind);
+        if (selected != null && !target.acceptsNetworkKind(NetworkItemBinding.kind(stack))) {
             // Returning to the radar port on the same Alarm also switches the copied selection.
             if (target instanceof ShellAlarmBlockEntity && current != null) {
                 NetworkItemBinding.write(stack, current, kind);

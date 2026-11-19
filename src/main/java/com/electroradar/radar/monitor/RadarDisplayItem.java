@@ -16,6 +16,11 @@ public final class RadarDisplayItem extends NetworkBoundBlockItem {
     }
 
     /** Вызывается общим предметом только после успешной установки на сервере. */
+    @Override protected boolean acceptsBinding(com.electroradar.radar.network.NetworkKind kind) {
+        return kind == com.electroradar.radar.network.NetworkKind.RADAR
+                || kind == com.electroradar.radar.network.NetworkKind.SIMPLE_RADAR;
+    }
+
     @Override
     protected void initializePlacedBlock(BlockEntity placed, NetworkId networkId) {
         if (placed instanceof RadarDisplayBlockEntity display) {
