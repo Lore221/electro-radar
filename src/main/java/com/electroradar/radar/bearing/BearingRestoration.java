@@ -14,15 +14,16 @@ public final class BearingRestoration {
     private BearingRestoration() {}
     public static <P, S> boolean restore(Map<P, S> source, Set<P> checkpoint, World<P, S> world) {
         for (var cell : source.entrySet()) {
-            if (!world.loaded(cell.getKey())) return false;
-            S existing = world.state(cell.getKey());
-            if (!world.empty(existing) && !(checkpoint.contains(cell.getKey()) && cell.getValue().equals(existing))) return false;
+            // Checkpoint means ownership has passed to the world. A player may have collected
+            // that block since the partial restore; recreating it would duplicate the section.
+            if (checkpoint.contains(cell.getKey())) continue;
+            if (!world.loaded(cell.getKey()) || !world.empty(world.state(cell.getKey()))) return false;
         }
         for (var cell : source.entrySet()) {
-            if (!world.empty(world.state(cell.getKey()))) continue;
+            if (checkpoint.contains(cell.getKey())) continue;
             if (!world.place(cell.getKey(), cell.getValue())) return false;
             checkpoint.add(cell.getKey());
         }
-        return source.entrySet().stream().allMatch(cell -> cell.getValue().equals(world.state(cell.getKey())));
+        return checkpoint.containsAll(source.keySet());
     }
 }

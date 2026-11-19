@@ -96,6 +96,10 @@ public final class AntennaContraption extends BearingContraption {
                         return level.setBlock(anchor.offset(local), state, Block.UPDATE_ALL | Block.UPDATE_SUPPRESS_DROPS);
                     }
                 });
+        // A transferred section is no longer entity-owned, even if a player removes it before
+        // the next retry. Exclude it from the saved payload and stop scanning a partial aperture.
+        antenna.restored.forEach(antenna.blocks::remove);
+        if (!restored && !antenna.restored.isEmpty()) antenna.recoveryOnly = true;
         if (restored) entity.discard();
         return restored;
     }
