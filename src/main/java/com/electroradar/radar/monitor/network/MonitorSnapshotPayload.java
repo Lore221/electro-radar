@@ -393,6 +393,10 @@ public record MonitorSnapshotPayload(
         profile.rotation().ifPresent(rotation -> {
             buffer.writeLong(rotation.epochTick());
             buffer.writeDouble(rotation.angleAtEpoch());
+            buffer.writeDouble(rotation.rightX());
+            buffer.writeDouble(rotation.rightZ());
+            buffer.writeDouble(rotation.forwardX());
+            buffer.writeDouble(rotation.forwardZ());
         });
         buffer.writeVarInt(profile.sectorOrderVariant());
         buffer.writeVarInt(profile.inactiveSectorFadeStyle().wireId());
@@ -421,7 +425,8 @@ public record MonitorSnapshotPayload(
         var source = EndpointKeyCodec.read(buffer);
         RadarVisualAnimation animation = RadarVisualAnimation.fromWireId(buffer.readVarInt());
         var rotation = animation == RadarVisualAnimation.ROTATING_SWEEP
-                ? java.util.Optional.of(new com.electroradar.radar.simple.RadarRotation(buffer.readLong(), buffer.readDouble()))
+                ? java.util.Optional.of(new com.electroradar.radar.simple.RadarRotation(buffer.readLong(), buffer.readDouble(),
+                        buffer.readDouble(), buffer.readDouble(), buffer.readDouble(), buffer.readDouble()))
                 : java.util.Optional.<com.electroradar.radar.simple.RadarRotation>empty();
         int orderVariant = buffer.readVarInt();
         RadarVisualFadeStyle inactiveSectorFadeStyle = RadarVisualFadeStyle.fromWireId(buffer.readVarInt());

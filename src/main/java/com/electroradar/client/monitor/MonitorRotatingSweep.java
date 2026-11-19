@@ -14,7 +14,8 @@ final class MonitorRotatingSweep {
     static RadarVisualGeometry.Segment beam(MonitorSectorAnimationState.ProfileFrame frame, double now) {
         var p = frame.profile();
         double radians = Math.toRadians(angle(frame, now));
-        double radius = radius(frame);
+        double radius = frame.profile().rotation().orElseThrow().hasHorizontalDirection(now + frame.serverTickOffset())
+                ? radius(frame) : 0;
         return new RadarVisualGeometry.Segment(new RadarVisualGeometry.Point(p.centerX(), p.centerZ()),
                 new RadarVisualGeometry.Point(p.centerX() + Math.sin(radians) * radius,
                         p.centerZ() - Math.cos(radians) * radius));
@@ -32,7 +33,11 @@ final class MonitorRotatingSweep {
         if (Math.hypot(dx, dz) > radius(frame) + 1e-8) return Double.NEGATIVE_INFINITY;
         double bearing = dx == 0 && dz == 0 ? 0
                 : RadarRotation.normalize(Math.toDegrees(Math.atan2(dx, -dz)));
-        double elapsed = RadarRotation.normalize(angle(frame, now) - bearing) / RadarRotation.DEGREES_PER_TICK;
+        var rotation = p.rotation().orElseThrow();
+        var localBearing = rotation.localBearingDegrees(bearing);
+        if (localBearing.isEmpty()) return Double.NEGATIVE_INFINITY;
+        double elapsed = RadarRotation.normalize(rotation.localAngleDegrees(now + frame.serverTickOffset())
+                - localBearing.getAsDouble()) / RadarRotation.DEGREES_PER_TICK;
         return now - elapsed;
     }
 }

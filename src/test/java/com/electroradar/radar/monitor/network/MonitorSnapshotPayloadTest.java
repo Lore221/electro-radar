@@ -44,7 +44,7 @@ class MonitorSnapshotPayloadTest {
     @Test void rotatingProfileRoundTripsItsManagerClockPhase() {
         var original = multipartSnapshot(new UUID(0, 1000), 1234);
         var profile = original.visualProfiles().getFirst().withRotation(
-                new com.electroradar.radar.simple.RadarRotation(1200, 350));
+                new com.electroradar.radar.simple.RadarRotation(1200, 350, 0.5, -0.5, 0.7, 0.7));
         var snapshot = new MonitorSnapshotData(original.displayId(), original.rootPosition(), original.dimension(),
                 original.loadId(), 1, 1, 1234, true, false, null, List.of(), List.of(profile), List.of(), original.rootEndpoint());
         var packet = MonitorSnapshotPayload.split(snapshot, true).getFirst();

@@ -69,6 +69,35 @@ class MonitorTargetSweepStateTest {
         assertTrue(state.targets(KEY, frames(RADAR, 1, 10), 0).isEmpty());
     }
 
+    @Test void tiltedRotorCrossingUsesLocalPhaseAndExplicitClockOffset() {
+        var phase = new com.electroradar.radar.simple.RadarRotation(1000, 0, 1, 0, 0, Math.sqrt(0.5));
+        var radar = RADAR.withRotation(phase);
+        var frames = List.of(new MonitorSectorAnimationState.ProfileFrame(radar, List.of(), Map.of(),
+                0, Double.POSITIVE_INFINITY, 900, 100));
+        var state = new MonitorTargetSweepState();
+        var contact = new MonitorTargetData(TARGET, true, true, 40, 64, -20 * Math.sqrt(2), "", -1, 0);
+        state.accept(snapshot(contact, 1), 100);
+        assertTrue(state.targets(KEY, frames, 100).isEmpty());
+        var latched = state.targets(KEY, frames, 112).getFirst();
+        assertEquals(109.375, latched.rememberedFadeStartClientTick(), 1e-8);
+        assertEquals(40, latched.x());
+        assertEquals(109.375, state.targets(KEY, frames, 125).getFirst().rememberedFadeStartClientTick(), 1e-8);
+    }
+
+    @Test void verticalRotorProjectionNeverSweepsThroughUnreachableContacts() {
+        var phase = new com.electroradar.radar.simple.RadarRotation(0, 0, 1, 0, 0, 0);
+        var radar = RADAR.withRotation(phase);
+        var frames = rotating(radar);
+        var state = new MonitorTargetSweepState();
+        var contact = new MonitorTargetData(TARGET, true, true, 0, 64, -40, "", -1, 0);
+        state.accept(snapshot(contact, 1), 0);
+        state.targets(KEY, frames, 0);
+        assertTrue(state.targets(KEY, frames, 100).isEmpty());
+        assertEquals(MonitorRotatingSweep.beam(frames.getFirst(), 0).start(),
+                MonitorRotatingSweep.beam(frames.getFirst(), 0).end());
+        assertTrue(Double.isFinite(phase.angleDegrees(0)));
+    }
+
     @Test void rotatingBeamLatchesLatestPointAndFadesForSeventyTicks() {
         var radar = RADAR.withRotation(new com.electroradar.radar.simple.RadarRotation(0, 0));
         var state = new MonitorTargetSweepState();
