@@ -96,6 +96,8 @@ final class RadarServerRuntime implements RadarObservationSource {
             RadarDiagnostics.log("network_id_created", networkId, endpoint, null, tick(level),
                     "reason=item_binding_before_first_server_tick");
         }
+        RadarNetworkManager.forServer(level.getServer()).declareNetworkKind(networkId,
+                com.electroradar.radar.network.NetworkKind.RADAR);
         return networkId;
     }
 

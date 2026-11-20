@@ -34,8 +34,9 @@ public final class SimpleRadarRuntime implements RadarObservationSource {
     public void onLoad() { token=null; endpoint=null; prepared=null; geometryKey=null; }
     public NetworkId networkId() { return id; }
     public NetworkId getOrCreateNetworkId() {
-        if (!(owner.getLevel() instanceof ServerLevel)) throw new IllegalStateException("Server-only radar binding");
+        if (!(owner.getLevel() instanceof ServerLevel level)) throw new IllegalStateException("Server-only radar binding");
         if(id==null) { id=NetworkId.create(); owner.setChanged(); }
+        RadarNetworkManager.forServer(level.getServer()).declareNetworkKind(id,NetworkKind.SIMPLE_RADAR);
         return id;
     }
     public void applyNetworkId(NetworkId next) {

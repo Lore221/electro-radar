@@ -130,6 +130,7 @@ public final class RadarNetworkManager {
         Objects.requireNonNull(policy, "policy");
         Objects.requireNonNull(source, "source");
         ensureCompatiblePolicy(endpoint, networkId, policy);
+        kinds().claim(networkId,source.networkKind());
         NetworkRuntime existing = networks.get(networkId);
         if (source.networkKind() == NetworkKind.INTERCEPTION
                 || existing != null && existing.kind != null && existing.kind != source.networkKind())
@@ -169,10 +170,20 @@ public final class RadarNetworkManager {
         return token;
     }
 
+    private RadarNetworkKinds kinds() {
+        return server.overworld().getDataStorage().computeIfAbsent(RadarNetworkKinds.FACTORY,"electroradar_network_kinds");
+    }
+
+    /** Фиксирует тип при создании/копировании ID до первой регистрации прибора. */
+    public void declareNetworkKind(NetworkId id,NetworkKind kind) {
+        checkActive();
+        kinds().claim(Objects.requireNonNull(id),Objects.requireNonNull(kind));
+    }
+
     public Optional<NetworkKind> networkKind(NetworkId id) {
         checkActive();
         NetworkRuntime network = networks.get(id);
-        return network == null ? Optional.empty() : Optional.ofNullable(network.kind);
+        return network == null || network.kind == null ? kinds().kind(id) : Optional.of(network.kind);
     }
 
     public List<EndpointKey> registeredEndpoints(NetworkId networkId) {
